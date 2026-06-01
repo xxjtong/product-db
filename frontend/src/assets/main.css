@@ -254,17 +254,17 @@ button {
   gap: 8px;
 }
 .toast {
-  background: #fff;
+  color: #fff;
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-lg);
   padding: 12px 16px;
   font-size: 14px;
-  border-left: 4px solid var(--color-accent);
+  font-weight: 500;
   animation: slideIn .25s ease;
   max-width: 360px;
 }
-.toast-success { border-left-color: var(--color-success); }
-.toast-error { border-left-color: var(--color-danger); }
+.toast-success { background: var(--color-success); }
+.toast-error { background: var(--color-danger); }
 @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
 /* Pagination */
