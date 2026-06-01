@@ -290,6 +290,7 @@ async function send(question?: string) {
     let currentText = ''
     let currentTools: string[] = []
     let currentProducts: any[] = []
+    let currentComponents: any[] = []
     let lastToolResult = ''
 
     while (true) {
@@ -312,11 +313,7 @@ async function send(question?: string) {
           if (event.event === 'products' && event.data) {
             currentProducts = event.data
           } else if (event.event === 'component') {
-            if (!messages.value[messages.value.length - 1]?.components) {
-              if (!messages.value[messages.value.length - 1]) messages.value.push({ role: 'assistant', content: '', components: [] })
-              else messages.value[messages.value.length - 1].components = []
-            }
-            messages.value[messages.value.length - 1].components.push(event)
+            currentComponents.push(event)
           } else if (event.event === 'tool') {
             currentTools.push(event.text || '')
           } else if (event.event === 'text') {
@@ -330,15 +327,16 @@ async function send(question?: string) {
             const content = formatContent(currentText || '查询完成', 'assistant')
             const tools = [...currentTools]
             const products = [...currentProducts]
-            const existingComponents = (idx >= 0 && messages.value[idx]?.components) ? [...messages.value[idx].components] : []
+            const components = [...currentComponents]
             if (idx >= 0 && messages.value[idx].role === 'assistant') {
-              messages.value[idx] = { role: 'assistant', content, tools, products, components: existingComponents }
+              messages.value[idx] = { role: 'assistant', content, tools, products, components }
             } else {
-              messages.value.push({ role: 'assistant', content, tools, products, components: existingComponents })
+              messages.value.push({ role: 'assistant', content, tools, products, components })
             }
             currentText = ''
             currentTools = []
             currentProducts = []
+            currentComponents = []
           } else if (event.event === 'error') {
             messages.value.push({ role: 'assistant', content: `错误: ${event.text}` })
           }

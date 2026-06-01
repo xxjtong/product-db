@@ -254,7 +254,8 @@ async function sendChat() {
       // Check if it's a component event (passed as special marker)
       if (typeof text === 'string' && text.startsWith('[COMPONENT:')) {
         try {
-          const comp = JSON.parse(text.slice(11))
+          const json = text.slice(11, -1)  // strip [COMPONENT: and trailing ]
+          const comp = JSON.parse(json)
           chatComponents.value.push(comp)
         } catch { /* skip */ }
         continue
