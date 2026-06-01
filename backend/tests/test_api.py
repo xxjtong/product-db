@@ -301,7 +301,7 @@ class TestProducts:
         cat = _seed_category(db)
         p = _seed_product(db, category_id=cat.id)
         resp = client.get(f"/api/products/{p.id}/spec-sheet")
-        assert resp.status_code in (200, 500)
+        assert resp.status_code == 200
 
     def test_export(self, db):
         cat = _seed_category(db)

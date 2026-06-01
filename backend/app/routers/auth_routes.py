@@ -18,7 +18,7 @@ router = APIRouter()
 
 def _lookup_ip_region(ip: str) -> str:
     """Look up IP region via ipapi.co."""
-    if not ip or ip.startswith("127.") or ip.startswith("192.168.") or ip == "::1":
+    if not ip or ip.startswith("127.") or ip.startswith("192.168.") or ip.startswith("10.") or ip in ("::1", "testclient"):
         return "本地"
     try:
         resp = httpx.get(f"https://ipapi.co/{ip}/json/", timeout=3)
