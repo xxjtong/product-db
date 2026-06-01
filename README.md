@@ -72,8 +72,8 @@ product-db/
 | 方案 | `GET/POST /api/solutions` | BOM 管理 + 完整性检查 + 产品推荐 |
 | 报价 | `GET/POST /api/quotations` | 报价 CRUD + Excel 导出 |
 | BOM | `GET/POST /api/bom-templates` | 模板管理 + 快照保存/导出 |
-| AI | `POST /api/ai/chat` | SSE 流式对话 + Tool Calling |
-| 认证 | `POST /api/auth/login` | JWT + 注册 + 字段可见性 |
+| AI | `POST /api/ai/chat` | SSE 流式对话 + 4 工具 + GenUI 动态组件 + Quick Replies |
+| 认证 | `POST /api/auth/login` | JWT (bcrypt) + 自注册 + 字段可见性 + 会话 |
 | 管理 | `GET /api/admin/*` | 用户/日志/AI用量/下载审计 |
 
 ## 核心数据模型
