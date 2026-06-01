@@ -26,7 +26,7 @@
     <!-- 2. AI assistant row (full width below client info) -->
     <div class="card mb-16">
       <h3>AI 方案助手</h3>
-      <div style="max-height:200px;overflow-y:auto;margin-bottom:8px;padding:8px" ref="chatLog">
+      <div style="max-height:400px;min-height:200px;overflow-y:auto;margin-bottom:8px;padding:8px;padding-bottom:16px" ref="chatLog">
         <div v-if="!chatText && !chatComponents.length" class="text-sm text-muted">
           告诉我你的需求，帮你挑选产品加入方案。例如："10个温湿度传感器 + 1个LoRaWAN网关"
         </div>
@@ -39,6 +39,7 @@
           v-bind="comp.props"
           @addToBom="onAddToBom"
           @compare="onCompare"
+          @viewQuote="(id: number) => router.push(`/quotations/${id}`)"
         />
       </div>
       <div class="flex gap-8">
@@ -123,9 +124,10 @@ import BOMSpreadsheet from '../components/BOMSpreadsheet.vue'
 import DependencyGraph from '../components/DependencyGraph.vue'
 import Modal from '../components/Modal.vue'
 import SolutionProductCard from '../components/GenUI/SolutionProductCard.vue'
+import QuoteDraftCard from '../components/GenUI/QuoteDraftCard.vue'
 import { fetchSolution, fetchProducts, addSolutionItem, updateSolutionItem, deleteSolutionItem, checkSolution, createQuotation, updateSolution, streamAiChat } from '../api'
 
-const componentRegistry: Record<string, any> = { SolutionProductCard }
+const componentRegistry: Record<string, any> = { SolutionProductCard, QuoteDraftCard }
 
 const route = useRoute()
 const router = useRouter()

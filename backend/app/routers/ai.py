@@ -209,6 +209,7 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int):
     save_message(conv_id, "assistant", content=response, db=db, commit=False)
     db.commit()
     yield {"event": "done"}
+    yield {"event": "quick_replies", "items": ["对比产品", "全部加入方案"]}
 
 
 def run_agent(messages: list, db: Session, conv_id: int):
@@ -221,6 +222,7 @@ def run_agent(messages: list, db: Session, conv_id: int):
         yield from run_mock_agent(user_msg, db, conv_id)
         return
 
+    products_found = False
     current_messages = messages[:]
     max_turns = 2
 
@@ -265,8 +267,12 @@ def run_agent(messages: list, db: Session, conv_id: int):
                 try:
                     tr = json.loads(result_str)
                     if tr.get("products"):
+                        products_found = True
                         yield {"event": "products", "data": tr["products"]}
                         yield {"event": "component", "component": "SolutionProductCard", "props": {"products": tr["products"]}}
+                    if tr.get("created_quote"):
+                        products_found = True
+                        yield {"event": "component", "component": "QuoteDraftCard", "props": tr["created_quote"]}
                 except Exception:
                     pass
 
@@ -290,6 +296,8 @@ def run_agent(messages: list, db: Session, conv_id: int):
             yield {"event": "text", "text": char}
 
         yield {"event": "done"}
+        if products_found:
+            yield {"event": "quick_replies", "items": ["对比产品", "全部加入方案"]}
         return
 
     # Max turns exceeded — ask LLM for final response without tools
@@ -303,6 +311,8 @@ def run_agent(messages: list, db: Session, conv_id: int):
     for char in text:
         yield {"event": "text", "text": char}
     yield {"event": "done"}
+    if products_found:
+        yield {"event": "quick_replies", "items": ["对比产品", "全部加入方案"]}
 
 
 # --- Routes ---

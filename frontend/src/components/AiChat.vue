@@ -51,6 +51,9 @@
               v-bind="comp.props"
             />
           </div>
+          <div v-if="m.quickReplies?.length" class="ai-quick-replies">
+            <button v-for="(qr, qi) in m.quickReplies" :key="qi" class="btn-secondary btn-sm" @click="quickReply(qr, m)">{{ qr }}</button>
+          </div>
         </div>
         <div v-if="loading" class="ai-msg assistant"><div class="ai-msg-text"><span class="ai-cursor">▊</span></div></div>
       </div>
@@ -73,8 +76,9 @@ import { ref, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessageCircleIcon, Minimize2Icon } from 'lucide-vue-next'
 import SolutionProductCard from './GenUI/SolutionProductCard.vue'
+import QuoteDraftCard from './GenUI/QuoteDraftCard.vue'
 
-const genuiRegistry: Record<string, any> = { SolutionProductCard }
+const genuiRegistry: Record<string, any> = { SolutionProductCard, QuoteDraftCard }
 
 const router = useRouter()
 const open = ref(false)
@@ -291,6 +295,7 @@ async function send(question?: string) {
     let currentTools: string[] = []
     let currentProducts: any[] = []
     let currentComponents: any[] = []
+    let currentQuickReplies: string[] = []
     let lastToolResult = ''
 
     while (true) {
@@ -314,6 +319,8 @@ async function send(question?: string) {
             currentProducts = event.data
           } else if (event.event === 'component') {
             currentComponents.push(event)
+          } else if (event.event === 'quick_replies') {
+            currentQuickReplies = event.items || []
           } else if (event.event === 'tool') {
             currentTools.push(event.text || '')
           } else if (event.event === 'text') {
@@ -328,15 +335,17 @@ async function send(question?: string) {
             const tools = [...currentTools]
             const products = [...currentProducts]
             const components = [...currentComponents]
+            const quickReplies = [...currentQuickReplies]
             if (idx >= 0 && messages.value[idx].role === 'assistant') {
-              messages.value[idx] = { role: 'assistant', content, tools, products, components }
+              messages.value[idx] = { role: 'assistant', content, tools, products, components, quickReplies }
             } else {
-              messages.value.push({ role: 'assistant', content, tools, products, components })
+              messages.value.push({ role: 'assistant', content, tools, products, components, quickReplies })
             }
             currentText = ''
             currentTools = []
             currentProducts = []
             currentComponents = []
+            currentQuickReplies = []
           } else if (event.event === 'error') {
             messages.value.push({ role: 'assistant', content: `错误: ${event.text}` })
           }
@@ -353,8 +362,24 @@ async function send(question?: string) {
 
 function scrollDown() {
   nextTick(() => {
-    if (msgContainer.value) msgContainer.value.scrollTop = msgContainer.value.scrollHeight
+    if (msgContainer.value) {
+      msgContainer.value.scrollTop = msgContainer.value.scrollHeight + 40
+    }
   })
+}
+
+function quickReply(reply: string, msg: any) {
+  if (reply === '对比产品' && msg.products?.length >= 2) {
+    const ids = msg.products.map((p: any) => p.id).join(',')
+    router.push(`/products/compare?product_ids=${ids}`)
+  } else if (reply === '全部加入方案') {
+    // Notify parent if on solution page
+    input.value = '全部加入方案'
+    send()
+  } else {
+    input.value = reply
+    send()
+  }
 }
 </script>
 
@@ -389,7 +414,7 @@ function scrollDown() {
   display: flex; justify-content: space-between; align-items: center;
   cursor: move; user-select: none;
 }
-.ai-messages { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.ai-messages { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px; min-height: 300px; max-height: 60vh; }
 .ai-hint { text-align: center; color: var(--color-text-secondary); padding: 16px; }
 .ai-hint button { margin: 4px; }
 .ai-convs { padding: 8px; max-height: 160px; overflow-y: auto; }
@@ -414,6 +439,8 @@ function scrollDown() {
 .ai-prod-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ai-tool-calls { font-size: 11px; padding: 2px 8px; }
 .ai-cursor { animation: blink 1s infinite; } @keyframes blink { 50% { opacity: 0; } }
+.ai-quick-replies { display: flex; gap: 6px; margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--color-border); flex-wrap: wrap; }
+.ai-quick-replies button { font-size: 12px; }
 .ai-msg-text h3 { font-size: 14px; margin: 8px 0 4px; }
 .ai-msg-text h4 { font-size: 13px; margin: 6px 0 2px; }
 .ai-msg-text h5 { font-size: 12px; margin: 4px 0 2px; }
