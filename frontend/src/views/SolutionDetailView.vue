@@ -26,7 +26,7 @@
     <!-- 2. AI assistant row (full width below client info) -->
     <div class="card mb-16">
       <h3>AI 方案助手</h3>
-      <div style="max-height:400px;min-height:200px;overflow-y:auto;margin-bottom:8px;padding:8px 8px 60px 8px" ref="chatLog">
+      <div style="max-height:400px;min-height:100px;overflow-y:auto;margin-bottom:8px;padding:8px 8px 60px 8px" ref="chatLog">
         <div v-if="!chatText && !chatComponents.length" class="text-sm text-muted">
           告诉我你的需求，帮你挑选产品加入方案。例如："10个温湿度传感器 + 1个LoRaWAN网关"
         </div>
