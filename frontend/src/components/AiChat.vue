@@ -30,31 +30,33 @@
           <p>问我任何产品问题：</p>
           <button v-for="q in sampleQuestions" :key="q" class="btn-secondary btn-sm" @click="send(q)">{{ q }}</button>
         </div>
-        <div v-for="(m, i) in messages" :key="i" :class="['ai-msg', m.role]" :style="m.role === 'user' ? 'align-self:flex-end;width:fit-content;max-width:80%' : 'align-self:flex-start;max-width:85%'">
-          <div class="ai-msg-text" v-html="m.content" v-if="!m.products?.length" :style="m.role === 'user' ? 'display:inline-block;background:var(--color-accent);color:#fff;border-radius:12px 12px 4px 12px;text-align:right' : ''" />
-          <div v-if="m.products?.length" class="ai-products">
-            <div class="ai-products-header">找到 {{ m.products.length }} 个产品：</div>
-            <div v-for="p in m.products" :key="p.id" class="ai-product-card" @click="router.push('/products/' + p.id)">
-              <span class="ai-prod-name">{{ p.name }}</span>
-              <span class="font-mono" style="font-size:11px;color:var(--color-text-secondary);margin:0 8px">{{ p.model }}</span>
-              <span style="font-weight:600;font-size:13px" v-if="p.price">¥{{ p.price }}</span>
+        <template v-for="(m, i) in messages" :key="i">
+          <!-- User message -->
+          <div v-if="m.role === 'user'" class="ai-msg user" style="align-self:flex-end;max-width:80%">
+            <div class="ai-msg-text" v-html="m.content" style="display:inline-block;background:#1a56db;color:#fff;border-radius:12px 12px 4px 12px;padding:8px 12px" />
+          </div>
+          <!-- Assistant message -->
+          <div v-else class="ai-msg assistant" style="align-self:flex-start;max-width:85%">
+            <div class="ai-msg-text" v-html="m.content" v-if="!m.products?.length" />
+            <div v-if="m.products?.length" class="ai-products">
+              <div class="ai-products-header">找到 {{ m.products.length }} 个产品：</div>
+              <div v-for="p in m.products" :key="p.id" class="ai-product-card" @click="router.push('/products/' + p.id)">
+                <span class="ai-prod-name">{{ p.name }}</span>
+                <span class="font-mono" style="font-size:11px;color:var(--color-text-secondary);margin:0 8px">{{ p.model }}</span>
+                <span style="font-weight:600;font-size:13px" v-if="p.price">¥{{ p.price }}</span>
+              </div>
+            </div>
+            <div v-if="m.tools?.length" class="ai-tool-calls">
+              <span v-for="t in collapseTools(m.tools)" :key="t.name" class="tag tag-default">🔧 {{ t.name }}{{ t.count > 1 ? ' ×' + t.count : '' }}</span>
+            </div>
+            <div v-if="m.components?.length">
+              <component v-for="(comp, ci) in m.components" :key="ci" :is="genuiRegistry[comp.component]" v-bind="comp.props" />
+            </div>
+            <div v-if="m.quickReplies?.length" class="ai-quick-replies">
+              <button v-for="(qr, qi) in m.quickReplies" :key="qi" class="btn-secondary btn-sm" @click="quickReply(qr, m)">{{ qr }}</button>
             </div>
           </div>
-          <div v-if="m.tools?.length" class="ai-tool-calls">
-            <span v-for="t in collapseTools(m.tools)" :key="t.name" class="tag tag-default">🔧 {{ t.name }}{{ t.count > 1 ? ' ×' + t.count : '' }}</span>
-          </div>
-          <div v-if="m.components?.length">
-            <component
-              v-for="(comp, ci) in m.components"
-              :key="ci"
-              :is="genuiRegistry[comp.component]"
-              v-bind="comp.props"
-            />
-          </div>
-          <div v-if="m.quickReplies?.length" class="ai-quick-replies">
-            <button v-for="(qr, qi) in m.quickReplies" :key="qi" class="btn-secondary btn-sm" @click="quickReply(qr, m)">{{ qr }}</button>
-          </div>
-        </div>
+        </template>
         <div v-if="loading" class="ai-msg assistant"><div class="ai-msg-text"><span class="ai-cursor">▊</span></div></div>
       </div>
 
