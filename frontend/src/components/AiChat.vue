@@ -424,8 +424,8 @@ function quickReply(reply: string, msg: any) {
 }
 .ai-conv-item:hover { background: var(--color-hover); }
 .ai-msg { max-width: 85%; font-size: 13px; }
-.ai-msg.user { align-self: flex-end; }
-.ai-msg.user .ai-msg-text { background: var(--color-accent); color: #fff; border-radius: 12px 12px 4px 12px; }
+.ai-msg.user { align-self: flex-end; text-align: right; }
+.ai-msg.user .ai-msg-text { display: inline-block; background: var(--color-accent); color: #fff; border-radius: 12px 12px 4px 12px; }
 .ai-msg.assistant { align-self: flex-start; }
 .ai-msg.assistant .ai-msg-text { background: #e8edf2; border-radius: 12px 12px 12px 4px; }
 .ai-msg-text { padding: 8px 10px; line-height: 1.5; word-break: break-word; }
