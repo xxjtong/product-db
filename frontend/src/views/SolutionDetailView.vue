@@ -118,7 +118,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, inject, computed } from 'vue'
+import { ref, onMounted, inject, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ShieldCheckIcon, Trash2Icon, PlusIcon, InboxIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
@@ -245,12 +245,19 @@ async function doCreateQuotation() {
 }
 
 // AI Chat with product parsing
+function scrollChat() {
+  nextTick(() => {
+    if (chatLog.value) chatLog.value.scrollTop = chatLog.value.scrollHeight
+  })
+}
+
 async function sendChat() {
   if (!chatInput.value.trim() || chatLoading.value) return
   const question = chatInput.value
   chatInput.value = ''
   chatLoading.value = true
   chatText.value += `<b>你:</b> ${question}<br><br><b>AI:</b> `
+  scrollChat()
   try {
     let buffer = ''
     for await (const text of streamAiChat(question, chatCid.value)) {
@@ -261,12 +268,14 @@ async function sendChat() {
       }
       buffer += text
       chatText.value += text
+      scrollChat()
     }
-    // Try to extract product IDs from AI tool results
     await extractAiProducts(buffer)
     chatText.value += '<br><br>'
+    scrollChat()
   } catch (e: any) {
     chatText.value += `[错误: ${e.message}]<br><br>`
+    scrollChat()
   }
   chatLoading.value = false
 }

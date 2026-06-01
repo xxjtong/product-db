@@ -220,7 +220,7 @@ def run_agent(messages: list, db: Session, conv_id: int):
         return
 
     current_messages = messages[:]
-    max_turns = 3
+    max_turns = 2
 
     for turn in range(max_turns):
         try:
