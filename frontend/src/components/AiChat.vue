@@ -37,11 +37,11 @@
         </div>
         <template v-for="(m, i) in messages" :key="i">
           <!-- User message -->
-          <div v-if="m.role === 'user'" class="ai-msg user" style="align-self:flex-end;max-width:80%">
-            <div class="ai-msg-text" v-html="m.content" style="display:inline-block;background:#1a56db;color:#fff;border-radius:12px 12px 4px 12px;padding:8px 12px" />
+          <div v-if="m.role === 'user'" style="text-align:right;overflow:hidden;margin:4px 0">
+            <div v-html="m.content" style="display:inline-block;max-width:70%;background:#1a56db;color:#fff;border-radius:12px 12px 4px 12px;padding:8px 12px;text-align:left" />
           </div>
           <!-- Assistant message -->
-          <div v-else class="ai-msg assistant" style="align-self:flex-start;max-width:85%">
+          <div v-else class="ai-msg assistant" style="max-width:85%">
             <div class="ai-msg-text" v-html="m.content" v-if="!m.products?.length" />
             <div v-if="m.products?.length" class="ai-products">
               <div class="ai-products-header">找到 {{ m.products.length }} 个产品：</div>
