@@ -26,6 +26,11 @@
 
       <!-- Messages -->
       <div class="ai-messages" ref="msgContainer">
+        <!-- DEBUG: show message count -->
+        <div v-if="messages.length" style="font-size:10px;color:#999;padding:2px 4px;border-bottom:1px dashed #ccc;margin-bottom:4px">
+          消息数:{{ messages.length }}
+          <span v-for="(m,i) in messages" :key="i">[{{i}}:{{m.role}}]</span>
+        </div>
         <div v-if="!convId && !convs.length" class="ai-hint">
           <p>问我任何产品问题：</p>
           <button v-for="q in sampleQuestions" :key="q" class="btn-secondary btn-sm" @click="send(q)">{{ q }}</button>
