@@ -37,8 +37,8 @@
         </div>
         <template v-for="(m, i) in messages" :key="i">
           <!-- User message -->
-          <div v-if="m.role === 'user'" style="text-align:right;overflow:hidden;margin:4px 0">
-            <div v-html="m.content" style="display:inline-block;max-width:70%;background:#1a56db;color:#fff;border-radius:12px 12px 4px 12px;padding:8px 12px;text-align:left" />
+          <div v-if="m.role === 'user'" style="float:right;clear:both;max-width:70%;margin:4px 0">
+            <div v-html="m.content" style="background:#1a56db;color:#fff;border-radius:12px 12px 4px 12px;padding:8px 12px" />
           </div>
           <!-- Assistant message -->
           <div v-else class="ai-msg assistant" style="max-width:85%">
