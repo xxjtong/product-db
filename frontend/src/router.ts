@@ -1,0 +1,22 @@
+import { createRouter, createWebHistory } from 'vue-router'
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes: [
+    { path: '/', redirect: '/products' },
+    { path: '/categories', name: 'categories', component: () => import('./views/CategoriesView.vue') },
+    { path: '/dictionaries', name: 'dictionaries', component: () => import('./views/DictionariesView.vue') },
+    { path: '/products', name: 'products', component: () => import('./views/ProductsView.vue') },
+    { path: '/products/compare', name: 'product-compare', component: () => import('./views/ProductCompareView.vue') },
+    { path: '/products/new', name: 'product-new', component: () => import('./views/ProductFormView.vue') },
+    { path: '/products/:id/edit', name: 'product-edit', component: () => import('./views/ProductFormView.vue') },
+    { path: '/products/:id', name: 'product-detail', component: () => import('./views/ProductDetailView.vue') },
+    { path: '/suppliers', name: 'suppliers', component: () => import('./views/SuppliersView.vue') },
+    { path: '/solutions', name: 'solutions', component: () => import('./views/SolutionsView.vue') },
+    { path: '/solutions/:id', name: 'solution-detail', component: () => import('./views/SolutionDetailView.vue') },
+    { path: '/quotations', name: 'quotations', component: () => import('./views/QuotationsView.vue') },
+    { path: '/quotations/:id', name: 'quotation-detail', component: () => import('./views/QuotationDetailView.vue') },
+  ],
+})
+
+export default router
