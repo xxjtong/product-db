@@ -46,6 +46,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, inject } from 'vue'
+import { useRouter } from 'vue-router'
 import { PlusIcon, PencilIcon, Trash2Icon, InboxIcon, EyeIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import Modal from '../components/Modal.vue'
@@ -53,6 +54,7 @@ import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Pagination from '../components/Pagination.vue'
 import { fetchSolutions, createSolution, updateSolution, deleteSolution } from '../api'
 
+const router = useRouter()
 const showToast = inject<(msg: string, type?: string) => void>('toast')!
 
 const solutions = ref<any[]>([])
@@ -88,8 +90,11 @@ async function save() {
       await updateSolution(editing.value.id, form.value)
       showToast('已更新', 'success')
     } else {
-      await createSolution(form.value)
+      const res = await createSolution(form.value) as any
       showToast('已创建', 'success')
+      modalVisible.value = false
+      router.push(`/solutions/${res.solution.id}`)
+      return
     }
     modalVisible.value = false
     await load()
