@@ -423,11 +423,17 @@ function quickReply(reply: string, msg: any) {
   display: flex; justify-content: space-between; align-items: center; font-size: 12px;
 }
 .ai-conv-item:hover { background: var(--color-hover); }
-.ai-msg { max-width: 95%; font-size: 13px; }
+.ai-msg { max-width: 85%; font-size: 13px; }
 .ai-msg.user { align-self: flex-end; }
-.ai-msg.user .ai-msg-text { background: var(--color-accent); color: #fff; border-radius: 12px 12px 0 12px; }
-.ai-msg.assistant .ai-msg-text { background: var(--color-hover); border-radius: 12px 12px 12px 0; }
+.ai-msg.user .ai-msg-text { background: var(--color-accent); color: #fff; border-radius: 12px 12px 4px 12px; }
+.ai-msg.assistant { align-self: flex-start; }
+.ai-msg.assistant .ai-msg-text { background: #e8edf2; border-radius: 12px 12px 12px 4px; }
 .ai-msg-text { padding: 8px 10px; line-height: 1.5; word-break: break-word; }
+.ai-msg.assistant .ai-products,
+.ai-msg.assistant .ai-tool-calls,
+.ai-msg.assistant .ai-quick-replies,
+.ai-msg.assistant .genui-card,
+.ai-msg.assistant .quote-card { max-width: 100%; }
 .ai-products { margin-top: 4px; display: flex; flex-direction: column; gap: 4px; }
 .ai-products-header { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 2px; }
 .ai-product-card {
