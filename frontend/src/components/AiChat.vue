@@ -414,7 +414,7 @@ function quickReply(reply: string, msg: any) {
   display: flex; justify-content: space-between; align-items: center;
   cursor: move; user-select: none;
 }
-.ai-messages { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px; min-height: 300px; max-height: 60vh; }
+.ai-messages { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 300px; max-height: 60vh; }
 .ai-hint { text-align: center; color: var(--color-text-secondary); padding: 16px; }
 .ai-hint button { margin: 4px; }
 .ai-convs { padding: 8px; max-height: 160px; overflow-y: auto; }
