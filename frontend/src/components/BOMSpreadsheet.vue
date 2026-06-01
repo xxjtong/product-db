@@ -53,15 +53,12 @@ async function renderSheet(snapshot: any) {
   const { UniverSheetsPlugin } = await import('@univerjs/sheets')
   const { UniverSheetsFormulaPlugin } = await import('@univerjs/sheets-formula')
   const { UniverUIPlugin } = await import('@univerjs/ui')
-  const { UniverDocsPlugin } = await import('@univerjs/docs')
-  const { UniverDocsUIPlugin } = await import('@univerjs/docs-ui')
   const { UniverRenderEnginePlugin } = await import('@univerjs/engine-render')
 
   // Load locale data for all plugins
   const sheetsZh = (await import('@univerjs/sheets/locale/zh-CN')).default
   const sheetsUiZh = (await import('@univerjs/sheets-ui/locale/zh-CN')).default
   const uiZh = (await import('@univerjs/ui/locale/zh-CN')).default
-  const docsUiZh = (await import('@univerjs/docs-ui/locale/zh-CN')).default
   const designZh = (await import('@univerjs/design/locale/zh-CN')).default
 
   univer = new Univer({
@@ -71,7 +68,6 @@ async function renderSheet(snapshot: any) {
       [LocaleType.ZH_CN]: {
         ...designZh,
         ...uiZh,
-        ...docsUiZh,
         ...sheetsZh,
         ...sheetsUiZh,
       },
@@ -80,8 +76,6 @@ async function renderSheet(snapshot: any) {
 
   univer.registerPlugin(UniverRenderEnginePlugin)
   univer.registerPlugin(UniverUIPlugin, { container: container.value })
-  univer.registerPlugin(UniverDocsPlugin)
-  univer.registerPlugin(UniverDocsUIPlugin)
   univer.registerPlugin(UniverSheetsPlugin)
   univer.registerPlugin(UniverSheetsFormulaPlugin)
 
