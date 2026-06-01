@@ -1,7 +1,7 @@
 <template>
   <PageHeader title="方案管理">
     <button class="btn-primary" @click="openAdd">
-      <PlusIcon style="width:16px;height:16px;display:inline;vertical-align:middle;margin-right:4px" />新增方案
+      <PlusIcon style="width:16px;height:16px" />新增方案
     </button>
   </PageHeader>
 

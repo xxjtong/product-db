@@ -130,8 +130,14 @@ def list_products(
     mfgs = {m.id: m.name for m in db.query(Manufacturer).all()}
     sups = {s.id: s.name for s in db.query(Supplier).all()}
 
+    product_list = [p.to_dict(cats, sups, mfgs) for p in products]
+    # Apply field visibility for non-admin users
+    from app.services.field_visibility import filter_fields_for_user
+    is_admin = getattr(user, 'role', '') == 'admin'
+    for p in product_list:
+        filter_fields_for_user(p, is_admin, db)
     return {
-        "products": [p.to_dict(cats, sups, mfgs) for p in products],
+        "products": product_list,
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -171,6 +177,88 @@ def compare(product_ids: str, db: Session = Depends(get_db), user=Depends(get_cu
         "matrix": matrix,
         "display_names": display_map,
     }
+
+
+@router.post("/products/import-preview")
+def import_preview(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Parse Excel file and return preview rows with column mapping."""
+    try:
+        wb = openpyxl.load_workbook(BytesIO(file.file.read()), data_only=True)
+    except Exception:
+        raise HTTPException(400, "Invalid Excel file")
+    sheet = wb.active
+    rows = list(sheet.iter_rows(values_only=True))
+    if not rows:
+        raise HTTPException(400, "Empty file")
+    headers = [str(c) if c else "" for c in rows[0]]
+    data_rows = []
+    for row in rows[1:]:
+        if not any(row):
+            continue
+        data_rows.append([str(c) if c is not None else "" for c in row])
+
+    return {"sheet_name": sheet.title, "headers": headers, "rows": data_rows, "row_count": len(data_rows)}
+
+
+@router.post("/products/import-confirm")
+def import_confirm(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Save products from imported data with column mapping."""
+    mapping = data.get("mapping", {})
+    rows = data.get("rows", [])
+    if not rows or not mapping:
+        raise HTTPException(400, "No data to import")
+
+    imported = 0
+    for row in rows:
+        pdata = {}
+        for col_idx, field in mapping.items():
+            idx = int(col_idx)
+            if idx < len(row):
+                pdata[field] = str(row[idx]).strip() if row[idx] else ""
+
+        name = pdata.get("name", "")
+        model = pdata.get("model", "")
+        if not name and not model:
+            continue
+
+        cat_name = pdata.get("category", "")
+        category_id = None
+        if cat_name:
+            cat = db.query(Category).filter(Category.name == cat_name).first()
+            if not cat:
+                cat = db.query(Category).filter(Category.name.ilike(f"%{cat_name}%")).first()
+            if cat:
+                category_id = cat.id
+
+        mfg_name = pdata.get("manufacturer", "")
+        manufacturer_id = None
+        if mfg_name:
+            mfg = db.query(Manufacturer).filter(Manufacturer.name == mfg_name).first()
+            if not mfg:
+                mfg = Manufacturer(name=mfg_name)
+                db.add(mfg)
+                db.flush()
+            manufacturer_id = mfg.id
+
+        spec_items = {k.replace("spec:", ""): v for k, v in pdata.items() if k.startswith("spec:")}
+
+        p = Product(
+            name=name or model,
+            model=model or "",
+            sku=pdata.get("sku", ""),
+            category_id=category_id,
+            manufacturer_id=manufacturer_id,
+            base_price=float(pdata.get("price", 0) or 0),
+            cost_price=float(pdata.get("cost", 0) or 0),
+            description=pdata.get("description", ""),
+            product_url=pdata.get("product_url", ""),
+            specs=spec_items,
+        )
+        db.add(p)
+        imported += 1
+
+    db.commit()
+    return {"imported": imported}
 
 
 @router.get("/products/export")
@@ -245,6 +333,8 @@ def get_product(product_id: int, db: Session = Depends(get_db), user=Depends(get
     p = db.get(Product, product_id)
     if not p:
         raise HTTPException(404, "Product not found")
+    p.view_count = (p.view_count or 0) + 1
+    db.commit()
     return {"product": _product_detail(p, db)}
 
 
@@ -393,7 +483,12 @@ def _build_extraction_prompt(db: Session) -> str:
 
 
 def _call_ai_extract(url: str, title: str, text: str, db: Session) -> dict:
-    """Call AI (DeepSeek via Gateway or direct) to extract product info from text."""
+    """Call AI (DeepSeek) to extract product info from text."""
+    from app.services.ai_engine import engine
+
+    if not settings.AI_GATEWAY_KEY:
+        return _regex_extract_from_text(title, text, db)
+
     system_prompt = _build_extraction_prompt(db)
     user_msg = f"""网页标题: {title}
 网页URL: {url}
@@ -403,46 +498,18 @@ def _call_ai_extract(url: str, title: str, text: str, db: Session) -> dict:
 
 请提取该产品的结构化信息。"""
 
-    # Use direct DeepSeek API if no gateway configured
-    if not settings.AI_GATEWAY_URL or not settings.AI_GATEWAY_KEY:
-        return _regex_extract_from_text(title, text, db)
-
-    payload = {
-        "model": "deepseek",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_msg},
-        ],
-        "temperature": 0.1,
-        "max_tokens": 2000,
-    }
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_msg},
+    ]
 
     try:
-        if "/v1" in settings.AI_GATEWAY_URL:
-            resp = httpx.post(
-                f"{settings.AI_GATEWAY_URL}/chat/completions",
-                json=payload,
-                headers={"Authorization": f"Bearer {settings.AI_GATEWAY_KEY}"},
-                timeout=60,
-            )
-        else:
-            resp = httpx.post(
-                settings.AI_GATEWAY_URL,
-                json=payload,
-                headers={"Authorization": f"Bearer {settings.AI_GATEWAY_KEY}"},
-                timeout=60,
-            )
-
-        if resp.status_code != 200:
-            return _regex_extract_from_text(title, text, db)
-
-        content = resp.json()["choices"][0]["message"]["content"]
-        # Extract JSON from response (in case AI wraps it in markdown)
+        result = engine.chat(messages, temperature=0.1, max_tokens=2000)
+        content = result["choices"][0]["message"]["content"]
         json_match = re.search(r'\{.*\}', content, re.DOTALL)
         if json_match:
             return json.loads(json_match.group())
         return _regex_extract_from_text(title, text, db)
-
     except Exception:
         return _regex_extract_from_text(title, text, db)
 
@@ -560,7 +627,7 @@ def ai_fetch_product(data: dict, db: Session = Depends(get_db), user=Depends(get
 
     if raw_text:
         # Direct text extraction mode
-        result = _call_ai_extract("", "", raw_text, db) if (settings.AI_GATEWAY_URL and settings.AI_GATEWAY_KEY) \
+        result = _call_ai_extract("", "", raw_text, db) if settings.AI_GATEWAY_KEY \
             else _regex_extract_from_text("", raw_text, db)
         return {"fetched": result}
 

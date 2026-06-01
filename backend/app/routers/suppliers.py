@@ -8,12 +8,24 @@ router = APIRouter()
 
 
 @router.get("/suppliers")
-def list_suppliers(search: str = "", db: Session = Depends(get_db), user=Depends(get_current_user)):
+def list_suppliers(
+    search: str = "",
+    page: int = 1,
+    per_page: int = 25,
+    all: bool = False,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
     q = db.query(Supplier)
     if search:
         q = q.filter(Supplier.name.ilike(f"%{search}%"))
-    suppliers = q.order_by(Supplier.name).all()
-    return {"suppliers": [s.to_dict() for s in suppliers]}
+    q = q.order_by(Supplier.name)
+    total = q.count()
+    if all:
+        suppliers = q.all()
+        return {"suppliers": [s.to_dict() for s in suppliers], "total": total}
+    suppliers = q.offset((page - 1) * per_page).limit(per_page).all()
+    return {"suppliers": [s.to_dict() for s in suppliers], "total": total, "page": page, "per_page": per_page}
 
 
 @router.post("/suppliers")

@@ -1,8 +1,8 @@
 <template>
   <PageHeader title="供应商管理">
-    <SearchInput v-model="search" placeholder="搜索供应商..." />
+    <SearchInput v-model="search" placeholder="搜索供应商..." autofocus />
     <button class="btn-primary" @click="openAdd">
-      <PlusIcon style="width:16px;height:16px;display:inline;vertical-align:middle;margin-right:4px" />新增供应商
+      <PlusIcon style="width:16px;height:16px" />新增供应商
     </button>
   </PageHeader>
 
@@ -23,6 +23,7 @@
       </tbody>
     </table>
     <div v-else class="empty-state"><InboxIcon /><p>暂无供应商</p></div>
+    <Pagination :total="total" :page="page" :per-page="perPage" @change="p => { page = p; load() }" />
   </div>
 
   <Modal :title="editing ? '编辑供应商' : '新增供应商'" :visible="modalVisible" @close="modalVisible = false">
@@ -48,22 +49,37 @@ import { ref, watch, onMounted, inject } from 'vue'
 import { PlusIcon, PencilIcon, Trash2Icon, InboxIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import SearchInput from '../components/SearchInput.vue'
+import Pagination from '../components/Pagination.vue'
 import Modal from '../components/Modal.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
-import { fetchSuppliers, createSupplier, updateSupplier, deleteSupplier } from '../api'
+import { fetchSuppliersPaginated, createSupplier, updateSupplier, deleteSupplier } from '../api'
 
 const showToast = inject<(msg: string, type?: string) => void>('toast')!
 
 const suppliers = ref<any[]>([])
+const total = ref(0)
+const page = ref(1)
+const perPage = 25
 const search = ref('')
 const modalVisible = ref(false)
 const editing = ref<any>(null)
 const form = ref<any>({ name: '', contact_person: '', phone: '', email: '', website: '', notes: '' })
 const deleteTarget = ref<any>(null)
 
+function buildQuery() {
+  const parts: string[] = []
+  if (search.value) parts.push(`search=${encodeURIComponent(search.value)}`)
+  parts.push(`page=${page.value}`)
+  parts.push(`per_page=${perPage}`)
+  return parts.join('&')
+}
+
 async function load() {
-  const res = await fetchSuppliers(search.value)
-  suppliers.value = res.suppliers
+  try {
+    const res = await fetchSuppliersPaginated(buildQuery())
+    suppliers.value = res.suppliers
+    total.value = res.total
+  } catch (e: any) { showToast(e.message || '加载失败', 'error') }
 }
 
 function openAdd() {
@@ -104,6 +120,6 @@ async function doDelete() {
   } catch (e: any) { showToast(e.detail || e.message, 'error') }
 }
 
-watch(search, () => load())
+watch(search, () => { page.value = 1; load() })
 onMounted(load)
 </script>

@@ -1,17 +1,26 @@
 import os
+import sys
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     DATABASE_URL: str = f"sqlite:///{os.path.expanduser('~')}/product-db/backend/product_db.db"
-    SECRET_KEY: str = "dev-secret-key-change-in-production"
+    SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     AI_GATEWAY_URL: str = "http://127.0.0.1:8642"
     AI_GATEWAY_KEY: str = ""
+    DEV_MODE: bool = False
 
     class Config:
         env_file = ".env"
 
 
 settings = Settings()
+
+if not settings.SECRET_KEY:
+    if settings.DEV_MODE:
+        settings.SECRET_KEY = "dev-secret-key-change-in-production"
+    else:
+        print("ERROR: SECRET_KEY is not set. Use environment variable or .env file.", file=sys.stderr)
+        sys.exit(1)

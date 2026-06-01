@@ -33,7 +33,7 @@ export const createManufacturer = (data: any) => api('/dicts/manufacturers', { m
 export const updateManufacturer = (id: number, data: any) => api(`/dicts/manufacturers/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 
 // --- Categories ---
-export const fetchCategories = () => api<{ categories: any[] }>('/categories')
+export const fetchCategories = () => api<{ categories: any[] }>('/categories?per_page=1000')
 export const fetchCategoryTree = () => api<{ tree: any[] }>('/categories/tree')
 export const createCategory = (data: any) => api('/categories', { method: 'POST', body: JSON.stringify(data) })
 export const updateCategory = (id: number, data: any) => api(`/categories/${id}`, { method: 'PUT', body: JSON.stringify(data) })
@@ -65,8 +65,11 @@ export const downloadProductImage = (url: string) =>
   api<{ url: string }>('/products/download-image', { method: 'POST', body: JSON.stringify({ url }) })
 
 // --- Suppliers ---
-export const fetchSuppliers = (search = '') =>
-  api<{ suppliers: any[] }>(`/suppliers${search ? '?search=' + encodeURIComponent(search) : ''}`)
+export const fetchSuppliers = (search = '', all = false) =>
+  api<{ suppliers: any[]; total: number }>(`/suppliers${search ? '?search=' + encodeURIComponent(search) + '&all=' + all : '?all=' + all}`)
+
+export const fetchSuppliersPaginated = (params: string = '') =>
+  api<{ suppliers: any[]; total: number }>(`/suppliers${params ? '?' + params : ''}`)
 export const createSupplier = (data: any) => api('/suppliers', { method: 'POST', body: JSON.stringify(data) })
 export const updateSupplier = (id: number, data: any) => api(`/suppliers/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteSupplier = (id: number) => api(`/suppliers/${id}`, { method: 'DELETE' })
@@ -107,11 +110,11 @@ export const deleteQuotationItem = (qtId: number, itemId: number) =>
 export const quotationExportUrl = (qtId: number) => `${API_BASE}/quotations/${qtId}/export-xlsx`
 
 // --- AI ---
-export async function* streamAiChat(input: string, history: { role: string; content: string }[]) {
+export async function* streamAiChat(input: string, conversationId?: number | null) {
   const res = await fetch(`${API_BASE}/ai/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ input, history }),
+    body: JSON.stringify({ input, conversation_id: conversationId }),
   })
   const reader = res.body!.getReader()
   const decoder = new TextDecoder()
@@ -128,7 +131,11 @@ export async function* streamAiChat(input: string, history: { role: string; cont
         if (data === '[DONE]') return
         try {
           const parsed = JSON.parse(data)
-          if (parsed.text) yield parsed.text
+          if (parsed.event === 'conversation_id') {
+            yield `[CONVERSATION:${parsed.conversation_id}]` as any
+          } else if (parsed.text || parsed.event === 'text') {
+            yield (parsed.text || '') as any
+          }
         } catch { /* skip */ }
       }
     }

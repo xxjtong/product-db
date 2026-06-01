@@ -1,0 +1,22 @@
+services:
+  backend:
+    build: ./backend
+    environment:
+      - DATABASE_URL=sqlite:///app/product_db.db
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - DEV_MODE=false
+      - AI_GATEWAY_KEY=${AI_GATEWAY_KEY:-}
+    volumes:
+      - backend_data:/app
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "${PORT:-80}:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  backend_data:

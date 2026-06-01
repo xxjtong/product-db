@@ -30,6 +30,7 @@ class Product(Base):
     custom_fields = Column(JSONBType, default={})
 
     pinyin_search = Column(Text, nullable=True)
+    view_count = Column(Integer, default=0)
 
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
@@ -100,6 +101,7 @@ class Product(Base):
             "specs": self.specs or {},
             "urls": self.urls or {},
             "custom_fields": self.custom_fields or {},
+            "view_count": self.view_count or 0,
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else "",
             "updated_at": self.updated_at.strftime("%Y-%m-%d %H:%M") if self.updated_at else "",
         }

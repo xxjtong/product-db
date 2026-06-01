@@ -1,6 +1,8 @@
 <template>
-  <div v-if="toast" :class="['toast', toast.type === 'success' ? 'toast-success' : toast.type === 'error' ? 'toast-error' : '']">
-    {{ toast.message }}
+  <div class="toast-container">
+    <div v-if="toast" :class="['toast', toast.type === 'success' ? 'toast-success' : toast.type === 'error' ? 'toast-error' : '']">
+      {{ toast.message }}
+    </div>
   </div>
   <div class="app-layout">
     <aside class="app-sidebar">
@@ -12,17 +14,20 @@
         <router-link to="/suppliers" class="sidebar-link"><TruckIcon />供应商</router-link>
         <router-link to="/solutions" class="sidebar-link"><ClipboardListIcon />方案</router-link>
         <router-link to="/quotations" class="sidebar-link"><FileTextIcon />报价单</router-link>
+        <router-link to="/admin" class="sidebar-link"><ShieldIcon />管理</router-link>
       </nav>
     </aside>
     <main class="app-content">
       <router-view />
     </main>
   </div>
+  <AiChat />
 </template>
 
 <script setup lang="ts">
-import { ref, provide } from 'vue'
-import { PackageIcon, GridIcon, BookIcon, TruckIcon, ClipboardListIcon, FileTextIcon } from 'lucide-vue-next'
+import { ref, provide, onMounted } from 'vue'
+import { PackageIcon, GridIcon, BookIcon, TruckIcon, ClipboardListIcon, FileTextIcon, ShieldIcon } from 'lucide-vue-next'
+import AiChat from './components/AiChat.vue'
 
 interface ToastMsg { message: string; type: string }
 const toast = ref<ToastMsg | null>(null)
@@ -35,4 +40,24 @@ function showToast(message: string, type = 'info') {
 }
 
 provide('toast', showToast)
+
+// Load session data on mount
+const currentUser = ref<any>(null)
+const fieldVisibility = ref<Record<string, boolean>>({})
+provide('currentUser', currentUser)
+provide('fieldVisibility', fieldVisibility)
+
+onMounted(async () => {
+  try {
+    const token = localStorage.getItem('token')
+    if (!token) return
+    const res = await fetch('/api/auth/session', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    if (!res.ok) return
+    const data = await res.json()
+    currentUser.value = data.user
+    fieldVisibility.value = data.field_visibility || {}
+  } catch { /* ignore */ }
+})
 </script>

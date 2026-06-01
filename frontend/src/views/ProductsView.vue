@@ -1,14 +1,15 @@
 <template>
   <PageHeader title="产品列表">
-    <SearchInput v-model="search" placeholder="搜索型号/名称..." />
+    <SearchInput v-model="search" placeholder="搜索型号/名称..." autofocus />
     <button v-if="selectedIds.length >= 2" class="btn-primary" style="background:var(--color-accent)" @click="$router.push(`/products/compare?ids=${selectedIds.join(',')}`)">
       对比选中 ({{ selectedIds.length }})
     </button>
-    <a :href="exportUrl" class="btn-secondary" style="text-decoration:none;display:inline-flex;align-items:center">
-      <DownloadIcon style="width:14px;height:14px;margin-right:4px" />导出
-    </a>
+    <button class="btn-secondary" @click="openExport">
+      <DownloadIcon style="width:14px;height:14px" />导出
+    </button>
+    <button class="btn-secondary" @click="$router.push('/products/import')">导入</button>
     <button class="btn-primary" @click="$router.push('/products/new')">
-      <PlusIcon style="width:16px;height:16px;display:inline;vertical-align:middle;margin-right:4px" />新增
+      <PlusIcon style="width:16px;height:16px" />新增
     </button>
   </PageHeader>
 
@@ -42,7 +43,7 @@
     <table class="data-table" v-if="products.length">
       <thead>
         <tr>
-          <th style="width:32px"><input type="checkbox" :checked="selectedIds.length === products.length" @change="toggleAll($anyEvent)" /></th>
+          <th style="width:32px"><input type="checkbox" :checked="selectedIds.length === products.length" @change="toggleAll($event)" /></th>
           <th>名称</th><th>型号</th><th>品类</th><th>厂商</th><th>通讯</th><th>供电</th><th>操作</th>
         </tr>
       </thead>
@@ -104,6 +105,8 @@ function toggleSelect(id: number) {
   if (idx >= 0) selectedIds.value.splice(idx, 1)
   else if (selectedIds.value.length < 6) selectedIds.value.push(id)
 }
+
+function openExport() { window.location.href = exportUrl }
 
 function toggleAll(e: Event) {
   const checked = (e.target as HTMLInputElement).checked

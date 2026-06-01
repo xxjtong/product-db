@@ -1,6 +1,6 @@
 import hashlib
-import secrets
-from datetime import datetime, timedelta
+from passlib.context import CryptContext
+from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -11,14 +11,22 @@ from sqlalchemy.orm import Session
 
 security = HTTPBearer(auto_error=False)
 
+pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 
 def hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    h = hashlib.sha256((salt + password).encode()).hexdigest()
-    return f"{salt}${h}"
+    # bcrypt has a 72-byte limit on password length
+    return pwd_ctx.hash(password.encode()[:72])
 
 
 def verify_password(plain: str, hashed: str) -> bool:
+    # Try bcrypt/passlib first
+    if hashed.startswith("$2"):
+        try:
+            return pwd_ctx.verify(plain, hashed)
+        except (ValueError, TypeError):
+            return False
+    # Legacy SHA256 hash format: salt$hexdigest
     try:
         salt, h = hashed.split("$", 1)
         return h == hashlib.sha256((salt + plain).encode()).hexdigest()
@@ -27,7 +35,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_token(user_id: int, username: str) -> str:
-    expire = datetime.utcnow() + timedelta(minutes=settings.JWT_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.JWT_EXPIRE_MINUTES)
     payload = {"sub": str(user_id), "username": username, "exp": expire}
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
@@ -37,7 +45,11 @@ def get_current_user(
     db: Session = Depends(get_db),
 ) -> User:
     if not credentials:
-        # dev mode: create/lookup a default admin
+        if not settings.DEV_MODE:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated",
+            )
         user = db.query(User).filter_by(username="admin").first()
         if not user:
             user = User(username="admin", password_hash=hash_password("admin"), role="admin")

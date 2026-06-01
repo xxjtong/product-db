@@ -253,7 +253,8 @@ def suggest_solution(solution_id: int, db: Session = Depends(get_db), user=Depen
                     "missing_category": cat.name if cat else "Unknown",
                     "category_id": dep.depends_on_category_id,
                     "products": [
-                        {"id": p.id, "name": p.name, "sku": p.sku or "", "brand": p.brand or "",
+                        {"id": p.id, "name": p.name, "model": p.model or "", "sku": p.sku or "",
+                         "manufacturer_name": p.manufacturer.name if p.manufacturer else "",
                          "base_price": float(p.base_price or 0),
                          "max_endpoints": (p.specs or {}).get("max_endpoints")}
                         for p in candidates[:10]

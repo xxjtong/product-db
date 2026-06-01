@@ -18,7 +18,9 @@ def main():
     stats = {}
 
     # 1. Merge manufacturers (by name, add missing)
-    src_mfgs = {r["name"]: dict(r) for r in src.execute("SELECT * FROM manufacturers")}
+    src_mfgs_all = [dict(r) for r in src.execute("SELECT * FROM manufacturers")]
+    src_mfgs = {r["name"]: r for r in src_mfgs_all}
+    src_mfgs_by_id = {r["id"]: r for r in src_mfgs_all}
     dst_mfgs = {r["name"]: dict(r) for r in dst.execute("SELECT * FROM manufacturers")}
     mfg_new = 0
     for name, m in src_mfgs.items():
@@ -38,7 +40,9 @@ def main():
         dst.commit()
 
     # 2. Merge suppliers (by name)
-    src_sups = {r["name"]: dict(r) for r in src.execute("SELECT * FROM suppliers")}
+    src_sups_all = [dict(r) for r in src.execute("SELECT * FROM suppliers")]
+    src_sups = {r["name"]: r for r in src_sups_all}
+    src_sups_by_id = {r["id"]: r for r in src_sups_all}
     dst_sups = {r["name"]: dict(r) for r in dst.execute("SELECT * FROM suppliers")}
     sup_new = 0
     for name, s in src_sups.items():
@@ -144,16 +148,16 @@ def main():
         if cat_id is None:
             cat_id = import_parent_id  # fallback to "Q导入" parent
 
-        # Resolve manufacturer
+        # Resolve manufacturer (src_mfgs_by_id keyed by ID, look up by ID)
         mfg_id = p["manufacturer_id"]
-        if mfg_id and mfg_id in src_mfgs:
-            mfg_name = src_mfgs[mfg_id]["name"]
+        if mfg_id and mfg_id in src_mfgs_by_id:
+            mfg_name = src_mfgs_by_id[mfg_id]["name"]
             mfg_id = dst_mfgs_by_name[mfg_name]["id"] if mfg_name in dst_mfgs_by_name else None
 
-        # Resolve supplier
+        # Resolve supplier (src_sups_by_id keyed by ID, look up by ID)
         sup_id = p["supplier_id"]
-        if sup_id and sup_id in src_sups:
-            sup_name = src_sups[sup_id]["name"]
+        if sup_id and sup_id in src_sups_by_id:
+            sup_name = src_sups_by_id[sup_id]["name"]
             sup_id = dst_sups_by_name[sup_name]["id"] if sup_name in dst_sups_by_name else None
 
         # Parse specs/specs JSON

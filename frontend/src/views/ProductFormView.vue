@@ -6,14 +6,14 @@
 
   <div class="card" v-if="loaded">
     <!-- Basic info -->
-    <div class="form-grid">
+    <div class="form-grid form-grid-3">
       <div class="form-group"><label>产品名称 *</label><input v-model="form.name" /></div>
       <div class="form-group"><label>型号</label><input v-model="form.model" placeholder="e.g. EG71" /></div>
       <div class="form-group"><label>SKU</label><input v-model="form.sku" /></div>
       <div class="form-group">
         <label>品类 *</label>
         <select v-model="form.category_id" @change="onCategoryChange">
-          <option v-for="c in flatCategories" :key="c.id" :value="c.id">{{ '&nbsp;'.repeat((c.level-1)*2) }}{{ c.name }}</option>
+          <option v-for="c in flatCategories" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
       </div>
       <div class="form-group">
@@ -32,12 +32,10 @@
       </div>
       <div class="form-group"><label>价格</label><input v-model.number="form.base_price" type="number" step="0.01" /></div>
       <div class="form-group"><label>成本价</label><input v-model.number="form.cost_price" type="number" step="0.01" /></div>
-      <div class="form-group">
-        <label>状态</label>
-        <select v-model="form.status">
-          <option value="active">在售</option><option value="discontinued">停售</option><option value="planned">规划中</option>
-        </select>
+      <div class="form-group"><label>状态</label>
+        <select v-model="form.status"><option value="active">在售</option><option value="discontinued">停售</option><option value="planned">规划中</option></select>
       </div>
+      <div class="form-group full"><label>产品URL</label><input v-model="form.product_url" placeholder="https://..." /></div>
     </div>
 
     <!-- AI Fetch Section -->
@@ -70,31 +68,27 @@
     </div>
 
     <!-- Images -->
-    <h3 style="margin:24px 0 12px">产品图片</h3>
-    <div class="form-grid" style="margin-bottom:16px">
-      <div class="form-group full">
-        <div v-if="form.images.length" style="margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap">
-          <div v-for="(img, idx) in form.images" :key="idx" style="position:relative">
-            <img :src="img.url" style="width:80px;height:80px;object-fit:cover;border-radius:4px;border:1px solid var(--color-border)" />
-            <button class="btn-icon btn-sm" style="position:absolute;top:2px;right:2px;background:var(--color-surface)" @click="form.images.splice(idx, 1)"><XIcon style="width:12px;height:12px" /></button>
-          </div>
-        </div>
-        <div class="flex gap-8 items-center" style="flex-wrap:wrap">
-          <label class="btn-secondary btn-sm" style="cursor:pointer;display:inline-flex;align-items:center">
-            <UploadIcon style="width:14px;height:14px;margin-right:4px" />上传图片
-            <input type="file" accept="image/*" style="display:none" @change="onFileSelect" />
-          </label>
-          <input v-model="imageUrlInput" style="flex:1;min-width:200px" placeholder="粘贴图片URL，回车下载" @keyup.enter="onDownloadImage" />
-          <button class="btn-secondary btn-sm" @click="onDownloadImage" :disabled="imageDownloading">
-            <span v-if="imageDownloading">下载中...</span>
-            <span v-else><DownloadIcon style="width:14px;height:14px" /> 下载</span>
-          </button>
+    <h3>产品图片</h3>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <div v-if="form.images.length" style="display:flex;gap:6px;flex-wrap:wrap">
+        <div v-for="(img, idx) in form.images" :key="idx" style="position:relative">
+          <img :src="img.url" style="width:64px;height:64px;object-fit:cover;border-radius:4px;border:1px solid var(--color-border)" />
+          <button class="btn-icon btn-sm" style="position:absolute;top:1px;right:1px;background:var(--color-surface);padding:2px" @click="form.images.splice(idx, 1)"><XIcon style="width:10px;height:10px" /></button>
         </div>
       </div>
+      <div v-else-if="form.image_url" style="display:flex;gap:6px">
+        <img :src="form.image_url" style="width:64px;height:64px;object-fit:cover;border-radius:4px;border:1px solid var(--color-border)" />
+      </div>
+      <label class="btn-secondary btn-sm" style="cursor:pointer">
+        <UploadIcon style="width:14px;height:14px" />上传
+        <input type="file" accept="image/*" style="display:none" @change="onFileSelect" />
+      </label>
+      <input v-model="imageUrlInput" style="flex:1;min-width:180px;height:32px;font-size:13px" placeholder="粘贴URL下载" @keyup.enter="onDownloadImage" />
+      <button class="btn-secondary btn-sm" @click="onDownloadImage" :disabled="imageDownloading">{{ imageDownloading ? '下载中' : '下载' }}</button>
     </div>
 
     <!-- Comm Methods -->
-    <h3 style="margin:24px 0 12px">通讯方式</h3>
+    <h3>通讯方式</h3>
     <table class="data-table" style="margin-bottom:16px">
       <thead><tr><th>方式</th><th>详情</th><th></th></tr></thead>
       <tbody>
@@ -112,7 +106,7 @@
     <button class="btn-secondary btn-sm" @click="form.comm_methods.push({ method_id: null, details: '' })">+ 添加通讯方式</button>
 
     <!-- Comm Protocols -->
-    <h3 style="margin:24px 0 12px">通讯协议</h3>
+    <h3>通讯协议</h3>
     <table class="data-table" style="margin-bottom:16px">
       <thead><tr><th>协议</th><th>方向</th><th></th></tr></thead>
       <tbody>
@@ -134,7 +128,7 @@
     <button class="btn-secondary btn-sm" @click="form.comm_protocols.push({ protocol_id: null, direction: 'both' })">+ 添加协议</button>
 
     <!-- Power Supplies -->
-    <h3 style="margin:24px 0 12px">供电方式</h3>
+    <h3>供电方式</h3>
     <table class="data-table" style="margin-bottom:16px">
       <thead><tr><th>方式</th><th>电压/规格</th><th>续航</th><th></th></tr></thead>
       <tbody>
@@ -153,7 +147,7 @@
     <button class="btn-secondary btn-sm" @click="form.power_supplies.push({ power_id: null, voltage_range: '', battery_life: '' })">+ 添加供电方式</button>
 
     <!-- Hardware Interfaces -->
-    <h3 style="margin:24px 0 12px">硬件接口</h3>
+    <h3>硬件接口</h3>
     <table class="data-table" style="margin-bottom:16px">
       <thead><tr><th>接口名称</th><th>数量</th><th>描述</th><th></th></tr></thead>
       <tbody>
@@ -168,7 +162,7 @@
     <button class="btn-secondary btn-sm" @click="form.hardware_interfaces.push({ interface_name: '', quantity: 1, description: '' })">+ 添加接口</button>
 
     <!-- Sensor Capabilities -->
-    <h3 style="margin:24px 0 12px">传感能力</h3>
+    <h3>传感能力</h3>
     <table class="data-table" style="margin-bottom:16px">
       <thead><tr><th>指标</th><th>量程</th><th>精度</th><th>分辨率</th><th></th></tr></thead>
       <tbody>
@@ -188,9 +182,9 @@
     <button class="btn-secondary btn-sm" @click="form.sensor_capabilities.push({ metric_id: null, measure_range: '', accuracy: '', resolution: '' })">+ 添加传感指标</button>
 
     <!-- Dynamic spec fields -->
-    <div v-if="specDefs.length" style="margin-top:24px">
-      <h3 style="margin-bottom:12px">品类规格参数</h3>
-      <div class="form-grid">
+    <div v-if="specDefs.length">
+      <h3>品类规格参数</h3>
+      <div class="form-grid form-grid-3">
         <div v-for="sd in specDefs" :key="sd.id" class="form-group">
           <label>{{ sd.display_name }} <span v-if="sd.unit" class="text-muted">({{ sd.unit }})</span></label>
           <input v-if="sd.spec_type === 'string'" v-model="form.specs[sd.spec_key]" />
@@ -205,10 +199,14 @@
       </div>
     </div>
 
-    <div style="margin-top:24px" class="form-grid">
+    <div class="form-grid" style="margin-top:12px">
       <div class="form-group full">
-        <label>描述</label>
+        <label>功能描述</label>
         <textarea v-model="form.description" rows="3" />
+      </div>
+      <div class="form-group full">
+        <label>备注</label>
+        <textarea v-model="form.remark" rows="3" />
       </div>
     </div>
   </div>
@@ -365,6 +363,7 @@ const form = ref<any>({
   base_price: 0, cost_price: 0, description: '', status: 'active', parent_id: null,
   comm_methods: [], comm_protocols: [], power_supplies: [],
   hardware_interfaces: [], sensor_capabilities: [], images: [],
+  image_url: '', product_url: '', remark: '',
   specs: {},
 })
 
@@ -414,9 +413,14 @@ async function onCategoryChange() {
 async function save() {
   try {
     const payload = { ...form.value }
-    // Set primary image URL for list page
+    // Set primary image URL for list page (only override if new images exist)
     const primaryImg = payload.images?.find((i: any) => i.is_primary)
-    if (primaryImg) payload.image_url = primaryImg.url
+    if (primaryImg?.url) payload.image_url = primaryImg.url
+    // Store remark in custom_fields
+    if (payload.remark) {
+      payload.custom_fields = { ...(payload.custom_fields || {}), remark: payload.remark }
+    }
+    delete payload.remark
     if (isEdit.value) {
       await updateProduct(Number(route.params.id), payload)
       showToast('产品已更新', 'success')
@@ -432,7 +436,7 @@ async function save() {
 
 onMounted(async () => {
   const [catRes, supRes, mfgRes, cmRes, cpRes, psRes, smRes] = await Promise.all([
-    fetchCategories(), fetchSuppliers(), fetchManufacturers(),
+    fetchCategories(), fetchSuppliers('', true), fetchManufacturers(),
     fetchCommMethods(), fetchCommProtocols(), fetchPowerSupplies(), fetchSensorMetrics(),
   ])
   categories.value = catRes.categories
@@ -458,6 +462,9 @@ onMounted(async () => {
       hardware_interfaces: p.hardware_interfaces || [],
       sensor_capabilities: p.sensor_capabilities || [],
       images: p.images || [],
+      image_url: p.image_url || '',
+      product_url: p.product_url || '',
+      remark: (p.custom_fields && p.custom_fields.remark) || '',
       specs: { ...(p.specs || {}) },
     }
     if (p.category_id) await onCategoryChange()

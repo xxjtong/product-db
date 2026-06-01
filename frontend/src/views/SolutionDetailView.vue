@@ -1,6 +1,6 @@
 <template>
   <PageHeader :title="solution ? `方案: ${solution.name}` : '方案详情'">
-    <button class="btn-secondary" @click="checkDeps"><ShieldCheckIcon style="width:14px;height:14px;display:inline;vertical-align:middle;margin-right:4px" />依赖检查</button>
+    <button class="btn-secondary" @click="checkDeps"><ShieldCheckIcon style="width:14px;height:14px" />依赖检查</button>
     <button class="btn-secondary" @click="$router.back()">返回</button>
   </PageHeader>
 
@@ -39,8 +39,14 @@
     <!-- Actions -->
     <div class="flex gap-8 mt-16">
       <button class="btn-primary" @click="createQuotation">生成报价单</button>
-      <a :href="bomExportUrl(solution.id)" class="btn-secondary" style="text-decoration:none;display:inline-flex;align-items:center">导出 BOM xlsx</a>
+      <button class="btn-secondary" @click="showBom = !showBom">{{ showBom ? '收起' : '编辑' }} BOM 表格</button>
     </div>
+  </div>
+
+  <!-- BOM Spreadsheet -->
+  <div v-if="showBom" class="card mb-16">
+    <h3 style="margin-bottom:8px">BOM 表格</h3>
+    <BOMSpreadsheet :solutionId="Number(route.params.id)" />
   </div>
 
   <!-- Dependency check results -->
@@ -52,6 +58,11 @@
         ⚠ {{ w.type === 'missing_category' ? '缺少品类' : '缺少产品' }}: {{ w.target_name }} — {{ w.description }}
       </div>
     </div>
+  </div>
+
+  <!-- Dependency Graph -->
+  <div class="card mb-16">
+    <DependencyGraph :solutionId="Number(route.params.id)" />
   </div>
 
   <!-- AI Chat -->
@@ -70,10 +81,13 @@ import { ref, onMounted, inject } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ShieldCheckIcon, Trash2Icon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
+import BOMSpreadsheet from '../components/BOMSpreadsheet.vue'
+import DependencyGraph from '../components/DependencyGraph.vue'
 import { fetchSolution, fetchProducts, addSolutionItem, updateSolutionItem, deleteSolutionItem, checkSolution, createQuotation, bomExportUrl, streamAiChat } from '../api'
 
 const route = useRoute()
 const router = useRouter()
+const showBom = ref(false)
 const showToast = inject<(msg: string, type?: string) => void>('toast')!
 
 const solution = ref<any>(null)
@@ -85,6 +99,7 @@ const checkResult = ref<any>(null)
 const chatInput = ref('')
 const chatText = ref('')
 const chatLoading = ref(false)
+const chatCid = ref<number | null>(null)
 const chatLog = ref<HTMLElement | null>(null)
 
 async function load() {
@@ -149,8 +164,12 @@ async function sendChat() {
   chatLoading.value = true
   chatText.value += `你: ${question}\n\nAI: `
   try {
-    const history: { role: string; content: string }[] = []
-    for await (const text of streamAiChat(question, history)) {
+    for await (const text of streamAiChat(question, chatCid.value)) {
+      if (typeof text === 'string' && text.startsWith('[CONVERSATION:')) {
+        const match = text.match(/\[CONVERSATION:(\d+)\]/)
+        if (match) chatCid.value = parseInt(match[1])
+        continue
+      }
       chatText.value += text
     }
     chatText.value += '\n\n'

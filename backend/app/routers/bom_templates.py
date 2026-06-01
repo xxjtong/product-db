@@ -167,14 +167,134 @@ def save_as_template(solution_id: int, data: dict, db: Session = Depends(get_db)
 @router.get("/solutions/{solution_id}/bom-snapshot/export-xlsx")
 def export_bom_xlsx(solution_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    import re
+
     sol = db.get(Solution, solution_id)
     if not sol:
         raise HTTPException(404, "Solution not found")
+
+    snap = db.query(SolutionBOMSnapshot).filter_by(solution_id=solution_id).first()
 
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "BOM"
 
+    if snap and snap.snapshot and snap.snapshot.get("cells"):
+        _write_snapshot_to_xlsx(ws, snap.snapshot)
+    else:
+        _write_basic_bom(ws, sol, solution_id, db)
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"bom_solution_{solution_id}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
+def _cell_ref_to_rc(ref: str):
+    """Convert 'A1' to (row, col) tuple (1-indexed)."""
+    m = re.match(r'^([A-Z]+)(\d+)$', ref)
+    if not m:
+        return 1, 1
+    col = 0
+    for ch in m.group(1):
+        col = col * 26 + (ord(ch) - 64)
+    return int(m.group(2)), col
+
+
+def _inline_style_to_openpyxl(s: dict) -> dict:
+    """Convert snapshot inline style to openpyxl kwargs."""
+    result = {}
+    font_kwargs = {}
+
+    if s.get("fs"):
+        font_kwargs["size"] = s["fs"]
+    if s.get("bl"):
+        font_kwargs["bold"] = True
+    if s.get("it"):
+        font_kwargs["italic"] = True
+    if s.get("ul"):
+        font_kwargs["underline"] = "single"
+    if s.get("ff"):
+        font_kwargs["name"] = s["ff"]
+    if s.get("cl"):
+        font_kwargs["color"] = s["cl"].lstrip("#")
+
+    if font_kwargs:
+        result["font"] = Font(**font_kwargs)
+
+    if s.get("bg"):
+        result["fill"] = PatternFill(start_color=s["bg"].lstrip("#"),
+                                      end_color=s["bg"].lstrip("#"),
+                                      fill_type="solid")
+
+    align_kwargs = {}
+    if s.get("ht"):
+        align_map = {"left": "left", "center": "center", "right": "right"}
+        align_kwargs["horizontal"] = align_map.get(s["ht"], s["ht"])
+    if s.get("vt"):
+        v_map = {"top": "top", "middle": "center", "bottom": "bottom"}
+        align_kwargs["vertical"] = v_map.get(s["vt"], s["vt"])
+    if s.get("tb"):
+        align_kwargs["wrap_text"] = True
+    if align_kwargs:
+        result["alignment"] = Alignment(**align_kwargs)
+
+    return result
+
+
+def _write_snapshot_to_xlsx(ws, snapshot: dict):
+    """Write snapshot data (cells, styles, merges, colWidths, rowHeights) to openpyxl worksheet."""
+    cells = snapshot.get("cells", {})
+
+    # Write cell values, formulas, and styles
+    for ref, cell in cells.items():
+        row, col = _cell_ref_to_rc(ref)
+        openpyxl_cell = ws.cell(row=row, column=col)
+
+        v = cell.get("v")
+        if v is not None and v != "":
+            openpyxl_cell.value = v
+
+        if cell.get("f"):
+            openpyxl_cell.value = "=" + cell["f"]
+
+        if cell.get("s"):
+            style_kwargs = _inline_style_to_openpyxl(cell["s"])
+            for attr, value in style_kwargs.items():
+                setattr(openpyxl_cell, attr, value)
+
+    # Apply column widths
+    col_widths = snapshot.get("colWidths", {})
+    for col_key, width in col_widths.items():
+        _, col = _cell_ref_to_rc(col_key + "1")
+        ws.column_dimensions[col_key].width = max(float(width) * 0.14, 3)
+
+    # Apply row heights
+    row_heights = snapshot.get("rowHeights", {})
+    for row_key, height in row_heights.items():
+        ws.row_dimensions[int(row_key)].height = float(height) * 0.75
+
+    # Apply merges
+    merges = snapshot.get("merges", [])
+    for ref in merges:
+        parts = ref.split(":")
+        start = _cell_ref_to_rc(parts[0])
+        end = _cell_ref_to_rc(parts[1]) if len(parts) > 1 else start
+        ws.merge_cells(
+            min_row=start[0], min_col=start[1],
+            max_row=end[0], max_col=end[1]
+        )
+
+
+def _write_basic_bom(ws, sol, solution_id: int, db: Session):
+    """Fallback: generate a basic BOM sheet from solution_items."""
     ws.append([f"BOM - {sol.name}"])
     ws.append([f"客户: {sol.client_name or ''}", f"项目: {sol.project_name or ''}"])
     ws.append([])
@@ -198,16 +318,6 @@ def export_bom_xlsx(solution_id: int, db: Session = Depends(get_db), user=Depend
 
     ws.append([])
     ws.append(["合计", "", "", "", "", float(sol.total_price or 0)])
-
-    buf = BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    filename = f"bom_solution_{solution_id}.xlsx"
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
-    )
 
 
 def _generate_snapshot(sol: Solution, template, db: Session) -> dict:

@@ -1,6 +1,6 @@
 <template>
   <PageHeader :title="quotation ? `报价单 ${quotation.quote_number}` : '报价单详情'">
-    <a v-if="quotation" :href="quotationExportUrl(quotation.id)" class="btn-secondary" style="text-decoration:none;display:inline-flex;align-items:center">导出 xlsx</a>
+    <button v-if="quotation" class="btn-secondary" @click="openExport">导出 xlsx</button>
     <button class="btn-secondary" @click="$router.back()">返回</button>
   </PageHeader>
 
@@ -41,6 +41,8 @@ import { fetchQuotation, quotationExportUrl } from '../api'
 
 const route = useRoute()
 const quotation = ref<any>(null)
+
+function openExport() { if (quotation.value) window.open(quotationExportUrl(quotation.value.id), '_blank') }
 
 onMounted(async () => {
   const res = await fetchQuotation(Number(route.params.id))

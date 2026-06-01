@@ -8,9 +8,16 @@ router = APIRouter()
 
 
 @router.get("/categories")
-def list_categories(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    cats = db.query(Category).order_by(Category.sort_order, Category.id).all()
-    return {"categories": [c.to_dict() for c in cats]}
+def list_categories(
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+    page: int = 1,
+    per_page: int = 50,
+):
+    q = db.query(Category).order_by(Category.sort_order, Category.id)
+    total = q.count()
+    cats = q.offset((page - 1) * per_page).limit(per_page).all()
+    return {"categories": [c.to_dict() for c in cats], "total": total, "page": page, "per_page": per_page}
 
 
 @router.get("/categories/tree")
