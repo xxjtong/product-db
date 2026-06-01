@@ -424,10 +424,10 @@ function quickReply(reply: string, msg: any) {
 }
 .ai-conv-item:hover { background: var(--color-hover); }
 .ai-msg { max-width: 80%; font-size: 13px; }
-.ai-msg.user { margin-left: auto; margin-right: 0; text-align: right; }
-.ai-msg.user .ai-msg-text { display: inline-block; background: var(--color-accent); color: #fff; border-radius: 12px 12px 4px 12px; }
-.ai-msg.assistant { margin-left: 0; margin-right: auto; }
-.ai-msg.assistant .ai-msg-text { background: #e8edf2; border-radius: 12px 12px 12px 4px; }
+.ai-msg.user { width: fit-content; margin-left: auto !important; margin-right: 0 !important; text-align: right; }
+.ai-msg.user .ai-msg-text { display: inline-block !important; background: var(--color-accent) !important; color: #fff !important; border-radius: 12px 12px 4px 12px !important; }
+.ai-msg.assistant { margin-left: 0 !important; margin-right: auto !important; }
+.ai-msg.assistant .ai-msg-text { background: #e8edf2 !important; border-radius: 12px 12px 12px 4px !important; }
 .ai-msg-text { padding: 8px 10px; line-height: 1.5; word-break: break-word; }
 .ai-msg.assistant .ai-products,
 .ai-msg.assistant .ai-tool-calls,
