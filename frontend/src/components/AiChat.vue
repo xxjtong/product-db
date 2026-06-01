@@ -26,42 +26,35 @@
 
       <!-- Messages -->
       <div class="ai-messages" ref="msgContainer">
-        <!-- DEBUG: show message count -->
-        <div v-if="messages.length" style="font-size:10px;color:#999;padding:2px 4px;border-bottom:1px dashed #ccc;margin-bottom:4px">
-          消息数:{{ messages.length }}
-          <span v-for="(m,i) in messages" :key="i">[{{i}}:{{m.role}}]</span>
-        </div>
         <div v-if="!convId && !convs.length" class="ai-hint">
           <p>问我任何产品问题：</p>
           <button v-for="q in sampleQuestions" :key="q" class="btn-secondary btn-sm" @click="send(q)">{{ q }}</button>
         </div>
-        <template v-for="(m, i) in messages" :key="i">
-          <!-- User message -->
-          <div v-if="m.role === 'user'" style="float:right;clear:both;max-width:70%;margin:4px 0">
-            <div v-html="m.content" style="background:#1a56db;color:#fff;border-radius:12px 12px 4px 12px;padding:8px 12px" />
-          </div>
-          <!-- Assistant message -->
-          <div v-else class="ai-msg assistant" style="max-width:85%">
-            <div class="ai-msg-text" v-html="m.content" v-if="!m.products?.length" />
-            <div v-if="m.products?.length" class="ai-products">
-              <div class="ai-products-header">找到 {{ m.products.length }} 个产品：</div>
-              <div v-for="p in m.products" :key="p.id" class="ai-product-card" @click="router.push('/products/' + p.id)">
-                <span class="ai-prod-name">{{ p.name }}</span>
-                <span class="font-mono" style="font-size:11px;color:var(--color-text-secondary);margin:0 8px">{{ p.model }}</span>
-                <span style="font-weight:600;font-size:13px" v-if="p.price">¥{{ p.price }}</span>
-              </div>
-            </div>
-            <div v-if="m.tools?.length" class="ai-tool-calls">
-              <span v-for="t in collapseTools(m.tools)" :key="t.name" class="tag tag-default">🔧 {{ t.name }}{{ t.count > 1 ? ' ×' + t.count : '' }}</span>
-            </div>
-            <div v-if="m.components?.length">
-              <component v-for="(comp, ci) in m.components" :key="ci" :is="genuiRegistry[comp.component]" v-bind="comp.props" />
-            </div>
-            <div v-if="m.quickReplies?.length" class="ai-quick-replies">
-              <button v-for="(qr, qi) in m.quickReplies" :key="qi" class="btn-secondary btn-sm" @click="quickReply(qr, m)">{{ qr }}</button>
+        <div v-for="(m, i) in messages" :key="i" :class="['ai-msg', m.role]">
+          <div class="ai-msg-text" v-html="m.content" v-if="!m.products?.length" />
+          <div v-if="m.products?.length" class="ai-products">
+            <div class="ai-products-header">找到 {{ m.products.length }} 个产品：</div>
+            <div v-for="p in m.products" :key="p.id" class="ai-product-card" @click="router.push('/products/' + p.id)">
+              <span class="ai-prod-name">{{ p.name }}</span>
+              <span class="font-mono" style="font-size:11px;color:var(--color-text-secondary);margin:0 8px">{{ p.model }}</span>
+              <span style="font-weight:600;font-size:13px" v-if="p.price">¥{{ p.price }}</span>
             </div>
           </div>
-        </template>
+          <div v-if="m.tools?.length" class="ai-tool-calls">
+            <span v-for="t in collapseTools(m.tools)" :key="t.name" class="tag tag-default">🔧 {{ t.name }}{{ t.count > 1 ? ' ×' + t.count : '' }}</span>
+          </div>
+          <div v-if="m.components?.length">
+            <component
+              v-for="(comp, ci) in m.components"
+              :key="ci"
+              :is="genuiRegistry[comp.component]"
+              v-bind="comp.props"
+            />
+          </div>
+          <div v-if="m.quickReplies?.length" class="ai-quick-replies">
+            <button v-for="(qr, qi) in m.quickReplies" :key="qi" class="btn-secondary btn-sm" @click="quickReply(qr, m)">{{ qr }}</button>
+          </div>
+        </div>
         <div v-if="loading" class="ai-msg assistant"><div class="ai-msg-text"><span class="ai-cursor">▊</span></div></div>
       </div>
 
@@ -421,7 +414,7 @@ function quickReply(reply: string, msg: any) {
   display: flex; justify-content: space-between; align-items: center;
   cursor: move; user-select: none;
 }
-.ai-messages { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 300px; max-height: 60vh; }
+.ai-messages { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px; min-height: 300px; max-height: 60vh; }
 .ai-hint { text-align: center; color: var(--color-text-secondary); padding: 16px; }
 .ai-hint button { margin: 4px; }
 .ai-convs { padding: 8px; max-height: 160px; overflow-y: auto; }
@@ -430,17 +423,11 @@ function quickReply(reply: string, msg: any) {
   display: flex; justify-content: space-between; align-items: center; font-size: 12px;
 }
 .ai-conv-item:hover { background: var(--color-hover); }
-.ai-msg { max-width: 80%; font-size: 13px; }
-.ai-msg.user { width: fit-content; margin-left: auto !important; margin-right: 0 !important; text-align: right; }
-.ai-msg.user .ai-msg-text { display: inline-block !important; background: var(--color-accent) !important; color: #fff !important; border-radius: 12px 12px 4px 12px !important; }
-.ai-msg.assistant { margin-left: 0 !important; margin-right: auto !important; }
-.ai-msg.assistant .ai-msg-text { background: #e8edf2 !important; border-radius: 12px 12px 12px 4px !important; }
+.ai-msg { max-width: 95%; font-size: 13px; }
+.ai-msg.user { align-self: flex-end; }
+.ai-msg.user .ai-msg-text { background: var(--color-accent); color: #fff; border-radius: 12px 12px 0 12px; }
+.ai-msg.assistant .ai-msg-text { background: var(--color-hover); border-radius: 12px 12px 12px 0; }
 .ai-msg-text { padding: 8px 10px; line-height: 1.5; word-break: break-word; }
-.ai-msg.assistant .ai-products,
-.ai-msg.assistant .ai-tool-calls,
-.ai-msg.assistant .ai-quick-replies,
-.ai-msg.assistant .genui-card,
-.ai-msg.assistant .quote-card { max-width: 100%; }
 .ai-products { margin-top: 4px; display: flex; flex-direction: column; gap: 4px; }
 .ai-products-header { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 2px; }
 .ai-product-card {
