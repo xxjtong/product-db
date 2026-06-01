@@ -148,6 +148,7 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int):
             result = json.loads(result_str)
             if result.get("products"):
                 yield {"event": "products", "data": result["products"]}
+                yield {"event": "component", "component": "SolutionProductCard", "props": {"products": result["products"]}}
             if result.get("found", 0) > 0:
                 products = result["products"]
                 response = f"找到 {len(products)} 个相关产品：\n\n"
@@ -195,6 +196,7 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int):
         if results and results.get("found", 0) > 0:
             products = results["products"]
             yield {"event": "products", "data": products}
+            yield {"event": "component", "component": "SolutionProductCard", "props": {"products": products}}
             response = f"找到 {len(products)} 个产品：\n\n"
             for p in products:
                 response += f"**{p['name']}** ({p.get('model','')}) — ¥{p.get('price',0)}\n"
@@ -264,6 +266,7 @@ def run_agent(messages: list, db: Session, conv_id: int):
                     tr = json.loads(result_str)
                     if tr.get("products"):
                         yield {"event": "products", "data": tr["products"]}
+                        yield {"event": "component", "component": "SolutionProductCard", "props": {"products": tr["products"]}}
                 except Exception:
                     pass
 

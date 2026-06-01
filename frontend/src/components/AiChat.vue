@@ -43,6 +43,14 @@
           <div v-if="m.tools?.length" class="ai-tool-calls">
             <span v-for="t in collapseTools(m.tools)" :key="t.name" class="tag tag-default">🔧 {{ t.name }}{{ t.count > 1 ? ' ×' + t.count : '' }}</span>
           </div>
+          <div v-if="m.components?.length">
+            <component
+              v-for="(comp, ci) in m.components"
+              :key="ci"
+              :is="genuiRegistry[comp.component]"
+              v-bind="comp.props"
+            />
+          </div>
         </div>
         <div v-if="loading" class="ai-msg assistant"><div class="ai-msg-text"><span class="ai-cursor">▊</span></div></div>
       </div>
@@ -64,6 +72,9 @@
 import { ref, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessageCircleIcon, Minimize2Icon } from 'lucide-vue-next'
+import SolutionProductCard from './GenUI/SolutionProductCard.vue'
+
+const genuiRegistry: Record<string, any> = { SolutionProductCard }
 
 const router = useRouter()
 const open = ref(false)
@@ -300,6 +311,12 @@ async function send(question?: string) {
           }
           if (event.event === 'products' && event.data) {
             currentProducts = event.data
+          } else if (event.event === 'component') {
+            if (!messages.value[messages.value.length - 1]?.components) {
+              if (!messages.value[messages.value.length - 1]) messages.value.push({ role: 'assistant', content: '', components: [] })
+              else messages.value[messages.value.length - 1].components = []
+            }
+            messages.value[messages.value.length - 1].components.push(event)
           } else if (event.event === 'tool') {
             currentTools.push(event.text || '')
           } else if (event.event === 'text') {
@@ -313,10 +330,11 @@ async function send(question?: string) {
             const content = formatContent(currentText || '查询完成', 'assistant')
             const tools = [...currentTools]
             const products = [...currentProducts]
+            const existingComponents = (idx >= 0 && messages.value[idx]?.components) ? [...messages.value[idx].components] : []
             if (idx >= 0 && messages.value[idx].role === 'assistant') {
-              messages.value[idx] = { role: 'assistant', content, tools, products }
+              messages.value[idx] = { role: 'assistant', content, tools, products, components: existingComponents }
             } else {
-              messages.value.push({ role: 'assistant', content, tools, products })
+              messages.value.push({ role: 'assistant', content, tools, products, components: existingComponents })
             }
             currentText = ''
             currentTools = []

@@ -133,6 +133,8 @@ export async function* streamAiChat(input: string, conversationId?: number | nul
           const parsed = JSON.parse(data)
           if (parsed.event === 'conversation_id') {
             yield `[CONVERSATION:${parsed.conversation_id}]` as any
+          } else if (parsed.event === 'component') {
+            yield `[COMPONENT:${JSON.stringify(parsed)}]` as any
           } else if (parsed.text || parsed.event === 'text') {
             yield (parsed.text || '') as any
           }

@@ -7,49 +7,47 @@
   </PageHeader>
 
   <div v-if="solution">
-    <!-- Client info + AI assistant side by side -->
-    <div class="two-col mb-16">
-      <!-- Left: client info -->
-      <div class="card">
-        <h3>客户信息</h3>
-        <div class="form-grid" style="margin-bottom:8px">
-          <div class="form-group"><label>客户</label><input v-model="solution.client_name" @change="saveInfo" /></div>
-          <div class="form-group"><label>项目</label><input v-model="solution.project_name" @change="saveInfo" /></div>
-          <div class="form-group"><label>状态</label>
-            <select v-model="solution.status" @change="saveInfo">
-              <option value="draft">草稿</option><option value="active">进行中</option><option value="done">完成</option>
-            </select>
-          </div>
-          <div class="form-group"><label>总价</label><span class="font-mono" style="font-size:18px;font-weight:700">¥{{ solution.total_price || 0 }}</span></div>
+    <!-- 1. Client info row -->
+    <div class="card mb-16">
+      <h3>客户信息</h3>
+      <div class="info-row">
+        <div class="form-group"><label>客户</label><input v-model="solution.client_name" @change="saveInfo" /></div>
+        <div class="form-group"><label>项目</label><input v-model="solution.project_name" @change="saveInfo" /></div>
+        <div class="form-group"><label>状态</label>
+          <select v-model="solution.status" @change="saveInfo">
+            <option value="draft">草稿</option><option value="active">进行中</option><option value="done">完成</option>
+          </select>
         </div>
-        <div class="form-group"><label>备注</label><textarea v-model="solution.notes" rows="2" @change="saveInfo" /></div>
-      </div>
-
-      <!-- Right: AI assistant -->
-      <div class="card">
-        <h3>AI 方案助手</h3>
-        <div style="max-height:260px;overflow-y:auto;margin-bottom:8px;padding:8px" ref="chatLog">
-          <div v-if="!chatText" class="text-sm text-muted">告诉我你的需求，我帮你挑选产品加入方案。例如：<br>"10个温湿度传感器 + 1个LoRaWAN网关"</div>
-          <div style="font-size:13px;white-space:pre-wrap" v-html="chatText" />
-          <!-- AI product cards with add buttons -->
-          <div v-if="aiProducts.length" class="ai-products mt-8">
-            <div class="text-sm" style="font-weight:600;margin-bottom:4px">找到 {{ aiProducts.length }} 个产品：</div>
-            <div v-for="p in aiProducts" :key="p.id" class="ai-prod-row flex items-center gap-8 mb-4" style="padding:6px;background:#fff;border:1px solid var(--color-border);border-radius:6px">
-              <span style="flex:1;font-size:13px;font-weight:600">{{ p.name }} <span class="text-muted text-sm">{{ p.model }}</span></span>
-              <span class="font-mono text-sm" v-if="p.price">¥{{ p.price }}</span>
-              <input v-model.number="aiQtys[p.id]" type="number" min="1" style="width:60px" />
-              <button class="btn-primary btn-sm" @click="addAiProduct(p)">加入</button>
-            </div>
-          </div>
-        </div>
-        <div class="flex gap-8">
-          <input v-model="chatInput" style="flex:1" placeholder="如: 10个温湿度传感器 + LoRaWAN网关" @keyup.enter="sendChat" />
-          <button class="btn-primary btn-sm" @click="sendChat" :disabled="chatLoading">{{ chatLoading ? '...' : '发送' }}</button>
-        </div>
+        <div class="form-group"><label>总价</label><span class="font-mono" style="font-size:18px;font-weight:700">¥{{ solution.total_price || 0 }}</span></div>
+        <div class="form-group" style="flex:2"><label>备注</label><input v-model="solution.notes" @change="saveInfo" /></div>
       </div>
     </div>
 
-    <!-- BOM Items -->
+    <!-- 2. AI assistant row (full width below client info) -->
+    <div class="card mb-16">
+      <h3>AI 方案助手</h3>
+      <div style="max-height:200px;overflow-y:auto;margin-bottom:8px;padding:8px" ref="chatLog">
+        <div v-if="!chatText && !chatComponents.length" class="text-sm text-muted">
+          告诉我你的需求，帮你挑选产品加入方案。例如："10个温湿度传感器 + 1个LoRaWAN网关"
+        </div>
+        <div style="font-size:13px;white-space:pre-wrap" v-html="chatText" />
+        <!-- GenUI components from SSE -->
+        <component
+          v-for="(comp, i) in chatComponents"
+          :key="i"
+          :is="componentRegistry[comp.component]"
+          v-bind="comp.props"
+          @addToBom="onAddToBom"
+          @compare="onCompare"
+        />
+      </div>
+      <div class="flex gap-8">
+        <input v-model="chatInput" style="flex:1" placeholder="如: 10个温湿度传感器 + LoRaWAN网关" @keyup.enter="sendChat" />
+        <button class="btn-primary btn-sm" @click="sendChat" :disabled="chatLoading">{{ chatLoading ? '...' : '发送' }}</button>
+      </div>
+    </div>
+
+    <!-- 3. BOM Items -->
     <div class="card mb-16">
       <div class="flex gap-8 items-center mb-12">
         <h3 style="margin:0">产品清单 ({{ solution.items?.length || 0 }} 项)</h3>
@@ -98,7 +96,7 @@
   <!-- Batch product picker modal -->
   <Modal title="批量选品" :visible="pickerOpen" @close="pickerOpen = false">
     <div class="flex gap-8 mb-12">
-      <input v-model="pickerSearch" style="flex:1" placeholder="搜索产品..." @input="filterProducts" />
+      <input v-model="pickerSearch" style="flex:1" placeholder="搜索产品..." />
       <span class="text-sm text-muted">已选 {{ pickerSelected.length }} / 6</span>
     </div>
     <div style="max-height:400px;overflow-y:auto">
@@ -108,7 +106,6 @@
         <span class="font-mono text-sm" v-if="p.base_price">¥{{ p.base_price }}</span>
         <span class="text-sm text-muted">{{ p.category_name }}</span>
       </div>
-      <div v-if="!pickerFiltered.length" class="text-sm text-muted" style="padding:12px">无匹配产品</div>
     </div>
     <template #footer>
       <button class="btn-secondary" @click="pickerOpen = false">取消</button>
@@ -118,14 +115,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, inject, computed, nextTick } from 'vue'
+import { ref, onMounted, inject, computed, nextTick, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ShieldCheckIcon, Trash2Icon, PlusIcon, InboxIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import BOMSpreadsheet from '../components/BOMSpreadsheet.vue'
 import DependencyGraph from '../components/DependencyGraph.vue'
 import Modal from '../components/Modal.vue'
+import SolutionProductCard from '../components/GenUI/SolutionProductCard.vue'
 import { fetchSolution, fetchProducts, addSolutionItem, updateSolutionItem, deleteSolutionItem, checkSolution, createQuotation, updateSolution, streamAiChat } from '../api'
+
+const componentRegistry: Record<string, any> = { SolutionProductCard }
 
 const route = useRoute()
 const router = useRouter()
@@ -142,8 +142,7 @@ const chatText = ref('')
 const chatLoading = ref(false)
 const chatCid = ref<number | null>(null)
 const chatLog = ref<HTMLElement | null>(null)
-const aiProducts = ref<any[]>([])
-const aiQtys = ref<Record<number, number>>({})
+const chatComponents = ref<any[]>([])
 
 // Product picker
 const pickerOpen = ref(false)
@@ -171,45 +170,38 @@ async function saveInfo() {
   if (!solution.value) return
   try {
     await updateSolution(solution.value.id, {
-      client_name: solution.value.client_name,
-      project_name: solution.value.project_name,
-      status: solution.value.status,
-      notes: solution.value.notes,
+      client_name: solution.value.client_name, project_name: solution.value.project_name,
+      status: solution.value.status, notes: solution.value.notes,
     })
   } catch { /* ignore */ }
 }
 
-// Single/Batch add
-async function addOne(productId: number, qty = 1) {
-  try {
-    await addSolutionItem(Number(route.params.id), { product_id: productId, quantity: qty })
-    showToast('已添加', 'success')
-    await load()
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
-}
-
+// Batch add
 function togglePick(id: number) {
   const idx = pickerSelected.value.indexOf(id)
   if (idx >= 0) pickerSelected.value.splice(idx, 1)
   else if (pickerSelected.value.length < 6) pickerSelected.value.push(id)
 }
 
-function filterProducts() { /* computed handles this */ }
-
 async function batchAdd() {
   for (const id of pickerSelected.value) {
     try { await addSolutionItem(Number(route.params.id), { product_id: id, quantity: 1 }) } catch { /* skip */ }
   }
   showToast(`已添加 ${pickerSelected.value.length} 个产品`, 'success')
-  pickerOpen.value = false
-  pickerSelected.value = []
+  pickerOpen.value = false; pickerSelected.value = []; await load()
+}
+
+// GenUI events from AI
+async function onAddToBom(items: { id: number; qty: number }[]) {
+  for (const item of items) {
+    try { await addSolutionItem(Number(route.params.id), { product_id: item.id, quantity: item.qty || 1 }) } catch { /* skip */ }
+  }
+  showToast(`已添加 ${items.length} 个产品`, 'success')
   await load()
 }
 
-async function addAiProduct(p: any) {
-  const qty = aiQtys.value[p.id] || 1
-  await addOne(p.id, qty)
-  aiQtys.value[p.id] = 1
+function onCompare(ids: number[]) {
+  if (ids.length >= 2) router.push(`/products/compare?product_ids=${ids.join(',')}`)
 }
 
 // Item CRUD
@@ -224,11 +216,8 @@ async function updateItem(item: any) {
 }
 
 async function removeItem(itemId: number) {
-  try {
-    await deleteSolutionItem(Number(route.params.id), itemId)
-    showToast('已移除', 'success')
-    await load()
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  try { await deleteSolutionItem(Number(route.params.id), itemId); showToast('已移除', 'success'); await load() }
+  catch (e: any) { showToast(e.detail || e.message, 'error') }
 }
 
 async function checkDeps() {
@@ -239,22 +228,18 @@ async function checkDeps() {
 async function doCreateQuotation() {
   try {
     const res = await createQuotation({ solution_id: Number(route.params.id) }) as any
-    showToast('报价单已生成', 'success')
-    router.push(`/quotations/${res.quotation.id}`)
+    showToast('报价单已生成', 'success'); router.push(`/quotations/${res.quotation.id}`)
   } catch (e: any) { showToast(e.detail || e.message, 'error') }
 }
 
-// AI Chat with product parsing
+// AI Chat with GenUI component support
 function scrollChat() {
-  nextTick(() => {
-    if (chatLog.value) chatLog.value.scrollTop = chatLog.value.scrollHeight
-  })
+  nextTick(() => { if (chatLog.value) chatLog.value.scrollTop = chatLog.value.scrollHeight })
 }
 
 async function sendChat() {
   if (!chatInput.value.trim() || chatLoading.value) return
-  const question = chatInput.value
-  chatInput.value = ''
+  const question = chatInput.value; chatInput.value = ''
   chatLoading.value = true
   chatText.value += `<b>你:</b> ${question}<br><br><b>AI:</b> `
   scrollChat()
@@ -266,49 +251,30 @@ async function sendChat() {
         if (match) chatCid.value = parseInt(match[1])
         continue
       }
-      buffer += text
-      chatText.value += text
-      scrollChat()
+      // Check if it's a component event (passed as special marker)
+      if (typeof text === 'string' && text.startsWith('[COMPONENT:')) {
+        try {
+          const comp = JSON.parse(text.slice(11))
+          chatComponents.value.push(comp)
+        } catch { /* skip */ }
+        continue
+      }
+      buffer += text; chatText.value += text; scrollChat()
     }
-    await extractAiProducts(buffer)
-    chatText.value += '<br><br>'
-    scrollChat()
+    chatText.value += '<br><br>'; scrollChat()
   } catch (e: any) {
-    chatText.value += `[错误: ${e.message}]<br><br>`
-    scrollChat()
+    chatText.value += `[错误: ${e.message}]<br><br>`; scrollChat()
   }
   chatLoading.value = false
-}
-
-async function extractAiProducts(text: string) {
-  // Try to find product mentions or tool results in the response
-  const res = await fetch(`/api/ai/conversations/${chatCid.value}`)
-  if (!res.ok) return
-  const data = await res.json()
-  const msgs = data.messages || []
-  aiProducts.value = []
-  for (const m of msgs) {
-    if (m.role === 'tool') {
-      try {
-        const d = JSON.parse(m.content)
-        if (d.products) {
-          aiProducts.value = d.products
-          for (const p of d.products) {
-            if (!(p.id in aiQtys.value)) aiQtys.value[p.id] = 1
-          }
-        }
-      } catch { /* skip */ }
-    }
-  }
 }
 
 onMounted(load)
 </script>
 
 <style scoped>
+.info-row { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-end; }
+.info-row .form-group { flex: 1; min-width: 120px; margin: 0; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
-.ai-products { margin-top: 8px; }
-.ai-prod-row:hover { border-color: var(--color-accent) !important; }
 .picker-row:hover { background: var(--color-hover); }
 </style>
