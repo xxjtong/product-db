@@ -1,89 +1,131 @@
 <template>
   <PageHeader :title="solution ? `方案: ${solution.name}` : '方案详情'">
     <button class="btn-secondary" @click="checkDeps"><ShieldCheckIcon style="width:14px;height:14px" />依赖检查</button>
+    <button class="btn-secondary" @click="doCreateQuotation">生成报价单</button>
+    <button class="btn-secondary" @click="showBom = !showBom">{{ showBom ? '收起' : '编辑' }} BOM 表格</button>
     <button class="btn-secondary" @click="$router.back()">返回</button>
   </PageHeader>
 
-  <div v-if="solution" class="card mb-16">
-    <div class="form-grid" style="margin-bottom:16px">
-      <div><span class="text-muted text-sm">客户</span><br>{{ solution.client_name || '—' }}</div>
-      <div><span class="text-muted text-sm">项目</span><br>{{ solution.project_name || '—' }}</div>
-      <div><span class="text-muted text-sm">状态</span><br>{{ solution.status }}</div>
-      <div><span class="text-muted text-sm">总价</span><br class="font-mono">{{ solution.total_price }}</div>
-    </div>
+  <div v-if="solution">
+    <!-- Client info + AI assistant side by side -->
+    <div class="two-col mb-16">
+      <!-- Left: client info -->
+      <div class="card">
+        <h3>客户信息</h3>
+        <div class="form-grid" style="margin-bottom:8px">
+          <div class="form-group"><label>客户</label><input v-model="solution.client_name" @change="saveInfo" /></div>
+          <div class="form-group"><label>项目</label><input v-model="solution.project_name" @change="saveInfo" /></div>
+          <div class="form-group"><label>状态</label>
+            <select v-model="solution.status" @change="saveInfo">
+              <option value="draft">草稿</option><option value="active">进行中</option><option value="done">完成</option>
+            </select>
+          </div>
+          <div class="form-group"><label>总价</label><span class="font-mono" style="font-size:18px;font-weight:700">¥{{ solution.total_price || 0 }}</span></div>
+        </div>
+        <div class="form-group"><label>备注</label><textarea v-model="solution.notes" rows="2" @change="saveInfo" /></div>
+      </div>
 
-    <!-- Add product -->
-    <div class="flex gap-8 items-center mb-16">
-      <select v-model="addProductId" style="flex:1"><option :value="null">选择产品添加...</option><option v-for="p in allProducts" :key="p.id" :value="p.id">{{ p.name }} (¥{{ p.base_price }})</option></select>
-      <input v-model.number="addQty" type="number" min="1" style="width:80px" placeholder="数量" />
-      <button class="btn-primary btn-sm" @click="addItem" :disabled="!addProductId">添加</button>
-    </div>
-
-    <!-- Items table -->
-    <table class="data-table" v-if="solution.items.length">
-      <thead><tr><th>产品</th><th>数量</th><th>单价</th><th>折扣(%)</th><th>小计</th><th>备注</th><th></th></tr></thead>
-      <tbody>
-        <tr v-for="item in solution.items" :key="item.id">
-          <td>{{ item.product_name }}</td>
-          <td><input v-model.number="item.quantity" type="number" min="1" style="width:70px" @change="updateItem(item)" /></td>
-          <td class="font-mono">{{ item.unit_price }}</td>
-          <td><input v-model.number="item.discount_rate" type="number" style="width:70px" @change="updateItem(item)" /></td>
-          <td class="font-mono">{{ (item.quantity * item.unit_price * (item.discount_rate / 100)).toFixed(2) }}</td>
-          <td><input v-model="item.remark" style="width:120px" @change="updateItem(item)" /></td>
-          <td><button class="btn-icon btn-sm" @click="removeItem(item.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td>
-        </tr>
-      </tbody>
-    </table>
-    <div v-else class="empty-state" style="padding:24px"><p>暂无产品</p></div>
-
-    <!-- Actions -->
-    <div class="flex gap-8 mt-16">
-      <button class="btn-primary" @click="createQuotation">生成报价单</button>
-      <button class="btn-secondary" @click="showBom = !showBom">{{ showBom ? '收起' : '编辑' }} BOM 表格</button>
-    </div>
-  </div>
-
-  <!-- BOM Spreadsheet -->
-  <div v-if="showBom" class="card mb-16">
-    <h3 style="margin-bottom:8px">BOM 表格</h3>
-    <BOMSpreadsheet :solutionId="Number(route.params.id)" />
-  </div>
-
-  <!-- Dependency check results -->
-  <div v-if="checkResult" class="card mb-16">
-    <h3 style="margin-bottom:8px">依赖检查</h3>
-    <div v-if="checkResult.ok" style="color:var(--color-success)">✓ 所有依赖已满足</div>
-    <div v-else>
-      <div v-for="w in checkResult.warnings" :key="w.description" style="color:var(--color-danger);margin-bottom:4px">
-        ⚠ {{ w.type === 'missing_category' ? '缺少品类' : '缺少产品' }}: {{ w.target_name }} — {{ w.description }}
+      <!-- Right: AI assistant -->
+      <div class="card">
+        <h3>AI 方案助手</h3>
+        <div style="max-height:260px;overflow-y:auto;margin-bottom:8px;padding:8px" ref="chatLog">
+          <div v-if="!chatText" class="text-sm text-muted">告诉我你的需求，我帮你挑选产品加入方案。例如：<br>"10个温湿度传感器 + 1个LoRaWAN网关"</div>
+          <div style="font-size:13px;white-space:pre-wrap" v-html="chatText" />
+          <!-- AI product cards with add buttons -->
+          <div v-if="aiProducts.length" class="ai-products mt-8">
+            <div class="text-sm" style="font-weight:600;margin-bottom:4px">找到 {{ aiProducts.length }} 个产品：</div>
+            <div v-for="p in aiProducts" :key="p.id" class="ai-prod-row flex items-center gap-8 mb-4" style="padding:6px;background:#fff;border:1px solid var(--color-border);border-radius:6px">
+              <span style="flex:1;font-size:13px;font-weight:600">{{ p.name }} <span class="text-muted text-sm">{{ p.model }}</span></span>
+              <span class="font-mono text-sm" v-if="p.price">¥{{ p.price }}</span>
+              <input v-model.number="aiQtys[p.id]" type="number" min="1" style="width:60px" />
+              <button class="btn-primary btn-sm" @click="addAiProduct(p)">加入</button>
+            </div>
+          </div>
+        </div>
+        <div class="flex gap-8">
+          <input v-model="chatInput" style="flex:1" placeholder="如: 10个温湿度传感器 + LoRaWAN网关" @keyup.enter="sendChat" />
+          <button class="btn-primary btn-sm" @click="sendChat" :disabled="chatLoading">{{ chatLoading ? '...' : '发送' }}</button>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- Dependency Graph -->
-  <div class="card mb-16">
-    <DependencyGraph :solutionId="Number(route.params.id)" />
-  </div>
+    <!-- BOM Items -->
+    <div class="card mb-16">
+      <div class="flex gap-8 items-center mb-12">
+        <h3 style="margin:0">产品清单 ({{ solution.items?.length || 0 }} 项)</h3>
+        <button class="btn-primary btn-sm" @click="pickerOpen = true"><PlusIcon style="width:14px;height:14px" />批量选品</button>
+      </div>
 
-  <!-- AI Chat -->
-  <div class="card">
-    <h3 style="margin-bottom:12px">AI 助手</h3>
-    <div style="max-height:300px;overflow-y:auto;margin-bottom:12px;padding:12px;background:#f8f9fa;border-radius:var(--radius-sm);font-size:13px;white-space:pre-wrap" ref="chatLog">{{ chatText || '问AI关于此方案的问题...' }}</div>
-    <div class="flex gap-8">
-      <input v-model="chatInput" style="flex:1" placeholder="输入问题..." @keyup.enter="sendChat" />
-      <button class="btn-primary btn-sm" @click="sendChat" :disabled="chatLoading">发送</button>
+      <table class="data-table" v-if="solution.items?.length">
+        <thead><tr><th>产品</th><th style="width:80px">数量</th><th style="width:100px">单价</th><th style="width:80px">折扣%</th><th style="width:100px">小计</th><th style="width:120px">备注</th><th style="width:40px"></th></tr></thead>
+        <tbody>
+          <tr v-for="item in solution.items" :key="item.id">
+            <td><router-link :to="`/products/${item.product_id}`" class="text-sm">{{ item.product_name }}</router-link></td>
+            <td><input v-model.number="item.quantity" type="number" min="1" style="width:60px" @change="updateItem(item)" /></td>
+            <td class="font-mono text-sm">{{ item.unit_price }}</td>
+            <td><input v-model.number="item.discount_rate" type="number" style="width:60px" @change="updateItem(item)" /></td>
+            <td class="font-mono text-sm">¥{{ (item.quantity * item.unit_price * (item.discount_rate / 100)).toFixed(0) }}</td>
+            <td><input v-model="item.remark" style="width:100px" @change="updateItem(item)" /></td>
+            <td><button class="btn-icon btn-sm" @click="removeItem(item.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-else class="empty-state" style="padding:24px"><InboxIcon /><p>暂无产品，使用上方 AI 助手或批量选品添加</p></div>
+    </div>
+
+    <!-- Dependency check + Graph -->
+    <div v-if="checkResult" class="card mb-16">
+      <h3>依赖检查结果</h3>
+      <div v-if="checkResult.ok" style="color:var(--color-success)">✓ 所有依赖已满足</div>
+      <div v-else>
+        <div v-for="w in checkResult.warnings" :key="w.description" style="color:var(--color-danger);margin-bottom:4px">
+          ⚠ {{ w.type === 'missing_category' ? '缺少品类' : '缺少产品' }}: {{ w.target_name }} — {{ w.description }}
+        </div>
+      </div>
+    </div>
+    <div class="card mb-16">
+      <DependencyGraph :solutionId="Number(route.params.id)" />
+    </div>
+
+    <!-- BOM Spreadsheet -->
+    <div v-if="showBom" class="card mb-16">
+      <h3 style="margin-bottom:8px">BOM 表格编辑器</h3>
+      <BOMSpreadsheet :solutionId="Number(route.params.id)" />
     </div>
   </div>
+  <div v-else class="empty-state"><p>加载中...</p></div>
+
+  <!-- Batch product picker modal -->
+  <Modal title="批量选品" :visible="pickerOpen" @close="pickerOpen = false">
+    <div class="flex gap-8 mb-12">
+      <input v-model="pickerSearch" style="flex:1" placeholder="搜索产品..." @input="filterProducts" />
+      <span class="text-sm text-muted">已选 {{ pickerSelected.length }} / 6</span>
+    </div>
+    <div style="max-height:400px;overflow-y:auto">
+      <div v-for="p in pickerFiltered" :key="p.id" class="picker-row flex items-center gap-8" style="padding:6px 0;border-bottom:1px solid var(--color-border)">
+        <input type="checkbox" :checked="pickerSelected.includes(p.id)" @change="togglePick(p.id)" />
+        <span style="flex:1;font-size:13px">{{ p.name }} <span class="text-muted text-sm">{{ p.model }}</span></span>
+        <span class="font-mono text-sm" v-if="p.base_price">¥{{ p.base_price }}</span>
+        <span class="text-sm text-muted">{{ p.category_name }}</span>
+      </div>
+      <div v-if="!pickerFiltered.length" class="text-sm text-muted" style="padding:12px">无匹配产品</div>
+    </div>
+    <template #footer>
+      <button class="btn-secondary" @click="pickerOpen = false">取消</button>
+      <button class="btn-primary" @click="batchAdd" :disabled="!pickerSelected.length">添加选中 ({{ pickerSelected.length }})</button>
+    </template>
+  </Modal>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, inject } from 'vue'
+import { ref, onMounted, inject, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ShieldCheckIcon, Trash2Icon } from 'lucide-vue-next'
+import { ShieldCheckIcon, Trash2Icon, PlusIcon, InboxIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import BOMSpreadsheet from '../components/BOMSpreadsheet.vue'
 import DependencyGraph from '../components/DependencyGraph.vue'
-import { fetchSolution, fetchProducts, addSolutionItem, updateSolutionItem, deleteSolutionItem, checkSolution, createQuotation, bomExportUrl, streamAiChat } from '../api'
+import Modal from '../components/Modal.vue'
+import { fetchSolution, fetchProducts, addSolutionItem, updateSolutionItem, deleteSolutionItem, checkSolution, createQuotation, updateSolution, streamAiChat } from '../api'
 
 const route = useRoute()
 const router = useRouter()
@@ -92,39 +134,85 @@ const showToast = inject<(msg: string, type?: string) => void>('toast')!
 
 const solution = ref<any>(null)
 const allProducts = ref<any[]>([])
-const addProductId = ref<number | null>(null)
-const addQty = ref(1)
 const checkResult = ref<any>(null)
 
+// AI chat
 const chatInput = ref('')
 const chatText = ref('')
 const chatLoading = ref(false)
 const chatCid = ref<number | null>(null)
 const chatLog = ref<HTMLElement | null>(null)
+const aiProducts = ref<any[]>([])
+const aiQtys = ref<Record<number, number>>({})
+
+// Product picker
+const pickerOpen = ref(false)
+const pickerSearch = ref('')
+const pickerSelected = ref<number[]>([])
+
+const pickerFiltered = computed(() => {
+  if (!pickerSearch.value) return allProducts.value.slice(0, 100)
+  const s = pickerSearch.value.toLowerCase()
+  return allProducts.value.filter((p: any) =>
+    p.name.toLowerCase().includes(s) || p.model?.toLowerCase().includes(s) || p.category_name?.includes(s)
+  ).slice(0, 100)
+})
 
 async function load() {
   const [solRes, prodRes] = await Promise.all([
     fetchSolution(Number(route.params.id)),
-    fetchProducts('per_page=200'),
+    fetchProducts('per_page=500'),
   ])
   solution.value = solRes.solution
   allProducts.value = prodRes.products
 }
 
-async function addItem() {
-  if (!addProductId.value) return
+async function saveInfo() {
+  if (!solution.value) return
   try {
-    await addSolutionItem(Number(route.params.id), {
-      product_id: addProductId.value,
-      quantity: addQty.value,
+    await updateSolution(solution.value.id, {
+      client_name: solution.value.client_name,
+      project_name: solution.value.project_name,
+      status: solution.value.status,
+      notes: solution.value.notes,
     })
+  } catch { /* ignore */ }
+}
+
+// Single/Batch add
+async function addOne(productId: number, qty = 1) {
+  try {
+    await addSolutionItem(Number(route.params.id), { product_id: productId, quantity: qty })
     showToast('已添加', 'success')
-    addProductId.value = null
-    addQty.value = 1
     await load()
   } catch (e: any) { showToast(e.detail || e.message, 'error') }
 }
 
+function togglePick(id: number) {
+  const idx = pickerSelected.value.indexOf(id)
+  if (idx >= 0) pickerSelected.value.splice(idx, 1)
+  else if (pickerSelected.value.length < 6) pickerSelected.value.push(id)
+}
+
+function filterProducts() { /* computed handles this */ }
+
+async function batchAdd() {
+  for (const id of pickerSelected.value) {
+    try { await addSolutionItem(Number(route.params.id), { product_id: id, quantity: 1 }) } catch { /* skip */ }
+  }
+  showToast(`已添加 ${pickerSelected.value.length} 个产品`, 'success')
+  pickerOpen.value = false
+  pickerSelected.value = []
+  await load()
+}
+
+async function addAiProduct(p: any) {
+  const qty = aiQtys.value[p.id] || 1
+  await addOne(p.id, qty)
+  aiQtys.value[p.id] = 1
+}
+
+// Item CRUD
 async function updateItem(item: any) {
   try {
     await updateSolutionItem(Number(route.params.id), item.id, {
@@ -144,9 +232,8 @@ async function removeItem(itemId: number) {
 }
 
 async function checkDeps() {
-  try {
-    checkResult.value = await checkSolution(Number(route.params.id))
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  try { checkResult.value = await checkSolution(Number(route.params.id)) }
+  catch (e: any) { showToast(e.detail || e.message, 'error') }
 }
 
 async function doCreateQuotation() {
@@ -157,27 +244,62 @@ async function doCreateQuotation() {
   } catch (e: any) { showToast(e.detail || e.message, 'error') }
 }
 
+// AI Chat with product parsing
 async function sendChat() {
   if (!chatInput.value.trim() || chatLoading.value) return
   const question = chatInput.value
   chatInput.value = ''
   chatLoading.value = true
-  chatText.value += `你: ${question}\n\nAI: `
+  chatText.value += `<b>你:</b> ${question}<br><br><b>AI:</b> `
   try {
+    let buffer = ''
     for await (const text of streamAiChat(question, chatCid.value)) {
       if (typeof text === 'string' && text.startsWith('[CONVERSATION:')) {
         const match = text.match(/\[CONVERSATION:(\d+)\]/)
         if (match) chatCid.value = parseInt(match[1])
         continue
       }
+      buffer += text
       chatText.value += text
     }
-    chatText.value += '\n\n'
+    // Try to extract product IDs from AI tool results
+    await extractAiProducts(buffer)
+    chatText.value += '<br><br>'
   } catch (e: any) {
-    chatText.value += `\n[错误: ${e.message}]\n\n`
+    chatText.value += `[错误: ${e.message}]<br><br>`
   }
   chatLoading.value = false
 }
 
+async function extractAiProducts(text: string) {
+  // Try to find product mentions or tool results in the response
+  const res = await fetch(`/api/ai/conversations/${chatCid.value}`)
+  if (!res.ok) return
+  const data = await res.json()
+  const msgs = data.messages || []
+  aiProducts.value = []
+  for (const m of msgs) {
+    if (m.role === 'tool') {
+      try {
+        const d = JSON.parse(m.content)
+        if (d.products) {
+          aiProducts.value = d.products
+          for (const p of d.products) {
+            if (!(p.id in aiQtys.value)) aiQtys.value[p.id] = 1
+          }
+        }
+      } catch { /* skip */ }
+    }
+  }
+}
+
 onMounted(load)
 </script>
+
+<style scoped>
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+.ai-products { margin-top: 8px; }
+.ai-prod-row:hover { border-color: var(--color-accent) !important; }
+.picker-row:hover { background: var(--color-hover); }
+</style>
