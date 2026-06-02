@@ -17,7 +17,7 @@
         <router-link to="/suppliers" class="sidebar-link" :title="sidebarCollapsed ? '供应商' : ''"><TruckIcon /><span v-show="!sidebarCollapsed">供应商</span></router-link>
         <router-link to="/solutions" class="sidebar-link" :title="sidebarCollapsed ? '方案' : ''"><ClipboardListIcon /><span v-show="!sidebarCollapsed">方案</span></router-link>
         <router-link to="/quotations" class="sidebar-link" :title="sidebarCollapsed ? '报价单' : ''"><FileTextIcon /><span v-show="!sidebarCollapsed">报价单</span></router-link>
-        <router-link to="/admin" class="sidebar-link" :title="sidebarCollapsed ? '管理' : ''"><ShieldIcon /><span v-show="!sidebarCollapsed">管理</span></router-link>
+        <router-link v-if="currentUser?.role === 'admin'" to="/admin" class="sidebar-link" :title="sidebarCollapsed ? '管理' : ''"><ShieldIcon /><span v-show="!sidebarCollapsed">管理</span></router-link>
       </nav>
       <!-- AI stats -->
       <div v-if="aiStats" class="sidebar-stats" :class="{ collapsed: sidebarCollapsed }">
