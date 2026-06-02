@@ -60,7 +60,9 @@ async function submit() {
 
 <style scoped>
 .login-page { display:flex; align-items:center; justify-content:center; min-height:100vh; background:var(--color-bg); }
-.login-card { background:var(--color-card); padding:40px; border-radius:var(--radius-lg); box-shadow:var(--shadow-md); width:360px; max-width:90vw; }
-.login-card h1 { text-align:center; margin-bottom:4px; }
-.login-card p { text-align:center; margin-bottom:20px; }
+.login-card { background:var(--color-card); padding:48px; border-radius:var(--radius-lg); box-shadow:var(--shadow-lg); width:400px; max-width:90vw; }
+.login-card h1 { text-align:center; margin-bottom:8px; font-size:24px; }
+.login-card p { text-align:center; margin-bottom:28px; }
+.form-group { margin-bottom:16px; }
+.form-group input { width:100%; padding:10px 12px; font-size:14px; }
 </style>
