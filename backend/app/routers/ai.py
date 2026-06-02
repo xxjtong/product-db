@@ -140,18 +140,17 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int):
     response = ""
 
     # Check for product search intent
-    search_keywords = ["找", "搜索", "查", "推荐", "有没有", "列出", "哪些", "什么"]
-    if any(k in inp for k in search_keywords) or any(k in inp for k in ["网关", "传感器", "路由器", "温度", "湿度"]):
+    has_search_intent = any(k in inp for k in ["找", "搜索", "查", "推荐", "有没有", "列出", "哪些", "什么"])
+    has_product_keyword = any(k in inp for k in ["网关", "传感器", "路由器", "温度", "湿度", "开关", "控制", "灯", "门禁", "空调", "表", "锁", "屏", "摄像", "控制器"])
+    if has_search_intent or has_product_keyword:
         # Try to search products
-        args = {"limit": 5}
+        keyword = user_input  # use full query as keyword for relevance
+        args = {"keyword": keyword, "limit": 10}
         if "网关" in inp: args["category"] = "网关"
         elif "传感器" in inp: args["category"] = "传感器"
         elif "路由器" in inp: args["category"] = "路由器"
         if "lora" in inp.lower(): args["comm_method"] = "LoRaWAN"
         if "wifi" in inp.lower(): args["comm_method"] = "WiFi"
-        if "温度" in inp: args["keyword"] = "温度"
-        if "湿度" in inp: args["keyword"] = "湿度"
-        if "5g" in inp.lower(): args["keyword"] = "5G"
 
         yield {"event": "tool", "text": "搜索产品..."}
         result_str = execute_tool("search_products", args, db)
@@ -373,20 +372,17 @@ async def ai_chat(request: Request, db: Session = Depends(get_db), user=Depends(
     cid = conv.id
     save_message(cid, "user", content=user_input, db=db)
 
+    # Log AI usage via raw sqlite3 (bypasses ORM session issues in async context)
+    import sqlite3
+    conn = sqlite3.connect('/Users/tong/product-db/backend/product_db.db')
+    conn.execute("INSERT INTO ai_usage_logs (user_id, operation, tokens_in, tokens_out, duration_ms, success) VALUES (?, 'chat', 0, 0, 0, 1)", (user.id,))
+    conn.commit()
+    conn.close()
+
     async def generate():
         # Use a fresh DB session for the generator
         sse_db = next(get_db())
         start_time = time.time()
-
-        # Log AI usage immediately
-        try:
-            from app.models.ai_usage_log import AIUsageLog
-            usage_log = AIUsageLog(user_id=user.id, operation="chat", duration_ms=0, success=True)
-            sse_db.add(usage_log)
-            sse_db.commit()
-        except Exception:
-            pass
-
         tokens = {"in": 0, "out": 0}
         success = True
         try:
@@ -395,27 +391,13 @@ async def ai_chat(request: Request, db: Session = Depends(get_db), user=Depends(
                 if event.get("event") == "done" and event.get("tokens"):
                     tokens = event["tokens"]
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-            # Update conversation timestamp, duration, tokens
+            # Update conversation timestamp
             sse_conv = sse_db.get(AIConversation, cid)
             if sse_conv:
                 sse_conv.updated_at = datetime.now()
-            try:
-                usage_log.duration_ms = int((time.time() - start_time) * 1000)
-                usage_log.tokens_in = tokens["in"]
-                usage_log.tokens_out = tokens["out"]
                 sse_db.commit()
-            except Exception:
-                pass
         except Exception as e:
             success = False
-            try:
-                usage_log.success = False
-                usage_log.duration_ms = int((time.time() - start_time) * 1000)
-                usage_log.tokens_in = tokens["in"]
-                usage_log.tokens_out = tokens["out"]
-                sse_db.commit()
-            except Exception:
-                pass
             yield f"data: {json.dumps({'event': 'error', 'text': str(e)}, ensure_ascii=False)}\n\n"
         finally:
             sse_db.close()
