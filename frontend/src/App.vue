@@ -270,11 +270,11 @@ watch(() => route.path, (to, from) => {
   padding: 4px 0;
 }
 .sidebar-stats-label {
-  font-size: 12px;
+  font-size: 14px;
   color: rgba(255,255,255,.55);
 }
 .sidebar-stats-num {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: rgba(255,255,255,.8);
   font-variant-numeric: tabular-nums;
