@@ -79,7 +79,7 @@ import { useRouter } from 'vue-router'
 import { MessageCircleIcon, Minimize2Icon } from 'lucide-vue-next'
 import SolutionProductCard from './GenUI/SolutionProductCard.vue'
 import QuoteDraftCard from './GenUI/QuoteDraftCard.vue'
-import { fetchConversations, fetchConversation, deleteConversation } from '../api'
+import { fetchConversations, fetchConversation, deleteConversation, createSolution, addSolutionItem } from '../api'
 import DOMPurify from 'dompurify'
 import { formatAiContent, escapeHtml } from '../utils/markdown'
 
@@ -197,8 +197,16 @@ async function deleteConv(id: number) {
   } catch { console.warn('AiChat: failed to load conversations') }
 }
 
-function onAddToBom(items: { id: number; qty: number }[]) {
-  router.push('/solutions')
+async function onAddToBom(items: { id: number; qty: number }[]) {
+  try {
+    const sol = await createSolution({ name: 'AI 推荐方案', notes: '由 AI 助手自动创建' })
+    for (const item of items) {
+      await addSolutionItem(sol.solution.id, { product_id: item.id, quantity: item.qty || 1 })
+    }
+    router.push(`/solutions/${sol.solution.id}`)
+  } catch {
+    router.push('/solutions')
+  }
 }
 function onCompare(ids: number[]) {
   if (ids.length >= 2) router.push(`/products/compare?ids=${ids.join(',')}`)
