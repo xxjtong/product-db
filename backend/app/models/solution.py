@@ -2,7 +2,6 @@ from app.database import Base, JSONBType
 from sqlalchemy import (Column, Integer, String, DateTime,
                         ForeignKey, Text, Numeric)
 from sqlalchemy.orm import relationship
-from sqlalchemy.orm import relationship
 from datetime import datetime
 
 
@@ -50,7 +49,7 @@ class SolutionItem(Base):
 
     id = Column(Integer, primary_key=True)
     solution_id = Column(Integer, ForeignKey("solutions.id", ondelete="CASCADE"), nullable=False, index=True)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id", ondelete="RESTRICT"), nullable=False)
     quantity = Column(Numeric(10, 2), default=1)
     unit_price = Column(Numeric(12, 2), nullable=True)
     discount_rate = Column(Numeric(5, 2), default=100)

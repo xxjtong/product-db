@@ -14,7 +14,7 @@ class BOMTemplate(Base):
     sheet_name = Column(String(100), default="Sheet1")
     snapshot = Column(JSONBType, nullable=False)
     is_default = Column(Boolean, default=False)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -37,7 +37,7 @@ class SolutionBOMSnapshot(Base):
 
     id = Column(Integer, primary_key=True)
     solution_id = Column(Integer, ForeignKey("solutions.id", ondelete="CASCADE"), nullable=False, unique=True)
-    template_id = Column(Integer, ForeignKey("bom_templates.id"), nullable=True)
+    template_id = Column(Integer, ForeignKey("bom_templates.id", ondelete="CASCADE"), nullable=True)
     snapshot = Column(JSONBType, nullable=False)
     exported_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.now)

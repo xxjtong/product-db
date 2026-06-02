@@ -29,8 +29,31 @@ class ProductCreate(BaseModel):
     images: list[dict] = []
 
 
-class ProductUpdate(ProductCreate):
-    pass  # same fields, all optional in practice via PUT
+class ProductUpdate(BaseModel):
+    """Partial update schema — all fields optional for PUT."""
+    name: Optional[str] = None
+    model: Optional[str] = None
+    sku: Optional[str] = None
+    category_id: Optional[int] = None
+    manufacturer_id: Optional[int] = None
+    supplier_id: Optional[int] = None
+    unit: Optional[str] = None
+    base_price: Optional[float] = None
+    cost_price: Optional[float] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+    product_url: Optional[str] = None
+    status: Optional[str] = None
+    parent_id: Optional[int] = None
+    specs: Optional[dict] = None
+    urls: Optional[dict] = None
+    custom_fields: Optional[dict] = None
+    comm_methods: Optional[list[dict]] = None
+    comm_protocols: Optional[list[dict]] = None
+    power_supplies: Optional[list[dict]] = None
+    hardware_interfaces: Optional[list[dict]] = None
+    sensor_capabilities: Optional[list[dict]] = None
+    images: Optional[list[dict]] = None
 
 
 class ProductResponse(BaseModel):
@@ -61,3 +84,28 @@ class ProductCompareResponse(BaseModel):
     products: dict[int, dict]
     matrix: dict[str, dict[int, Any]]
     display_names: dict[str, str]
+
+
+class ProductImportConfirm(BaseModel):
+    mapping: dict = {}
+    rows: list[list] = []
+
+
+class DownloadImageRequest(BaseModel):
+    url: str
+
+
+class ProductDependencyCreate(BaseModel):
+    depends_on_product_id: Optional[int] = None
+    depends_on_category_id: Optional[int] = None
+    dependency_type: str = "required"
+    description: Optional[str] = None
+    sort_order: int = 0
+
+
+class ProductDependencyUpdate(BaseModel):
+    depends_on_product_id: Optional[int] = None
+    depends_on_category_id: Optional[int] = None
+    dependency_type: Optional[str] = None
+    description: Optional[str] = None
+    sort_order: Optional[int] = None

@@ -6,6 +6,15 @@ from pathlib import Path
 UPLOAD_DIR = Path(os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads", "products"))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+ALLOWED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}
+VALID_SIGNATURES = [
+    b'\xff\xd8\xff',       # JPEG
+    b'\x89PNG\r\n\x1a\n',  # PNG
+    b'GIF8',               # GIF
+    b'RIFF',               # WebP (RIFF container)
+    b'BM',                 # BMP
+]
+
 
 def save_upload(file_bytes: bytes, filename: str, product_id: int = 0) -> str:
     """Save uploaded file and return the URL path."""
@@ -36,12 +45,31 @@ def upload_from_url(source_url: str, product_id: int = 0) -> str:
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
     })
     resp.raise_for_status()
-    content_type = resp.headers.get("Content-Type", "image/jpeg")
+
+    content = resp.content
+    if len(content) < 8:
+        raise ValueError("Downloaded file is too small to be a valid image")
+
+    # Magic bytes validation
+    header = content[:8]
+    if not any(header.startswith(sig) for sig in VALID_SIGNATURES):
+        raise ValueError("Downloaded file does not match a valid image format")
+
+    # Determine extension from magic bytes
     ext = ".jpg"
-    if "png" in content_type:
+    if header.startswith(b'\xff\xd8\xff'):
+        ext = ".jpg"
+    elif header.startswith(b'\x89PNG'):
         ext = ".png"
-    elif "webp" in content_type:
-        ext = ".webp"
-    elif "gif" in content_type:
+    elif header.startswith(b'GIF8'):
         ext = ".gif"
-    return save_upload(resp.content, f"download{ext}", product_id)
+    elif header.startswith(b'RIFF'):
+        ext = ".webp"
+    elif header.startswith(b'BM'):
+        ext = ".bmp"
+
+    # Validate extension is allowed
+    if ext not in ALLOWED_EXTENSIONS:
+        raise ValueError(f"File extension '{ext}' not allowed")
+
+    return save_upload(content, f"download{ext}", product_id)

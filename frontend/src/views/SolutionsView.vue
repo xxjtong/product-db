@@ -5,6 +5,18 @@
     </button>
   </PageHeader>
 
+  <div class="card" style="margin-bottom:16px;padding:8px 12px">
+    <div style="display:flex;gap:12px;align-items:center">
+      <input v-model="search" placeholder="搜索方案/客户/项目..." style="width:240px" @input="onSearch" />
+      <select v-model="statusFilter" @change="load()" style="width:120px">
+        <option value="">全部状态</option>
+        <option value="draft">草稿</option>
+        <option value="active">进行中</option>
+        <option value="done">完成</option>
+      </select>
+    </div>
+  </div>
+
   <div class="card">
     <table class="data-table" v-if="solutions.length">
       <thead><tr><th>名称</th><th>客户</th><th>项目</th><th>状态</th><th>总价</th><th>更新时间</th><th>操作</th></tr></thead>
@@ -17,9 +29,9 @@
           <td class="font-mono">{{ s.total_price }}</td>
           <td class="text-sm">{{ s.updated_at }}</td>
           <td>
-            <button class="btn-icon btn-sm" @click="$router.push(`/solutions/${s.id}`)"><EyeIcon style="width:14px;height:14px" /></button>
-            <button class="btn-icon btn-sm" @click="openEdit(s)"><PencilIcon style="width:14px;height:14px" /></button>
-            <button class="btn-icon btn-sm" @click="confirmDelete(s)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
+            <button class="btn-icon btn-sm" title="查看" @click="$router.push(`/solutions/${s.id}`)"><EyeIcon style="width:14px;height:14px" /></button>
+            <button class="btn-icon btn-sm" title="编辑" @click="openEdit(s)"><PencilIcon style="width:14px;height:14px" /></button>
+            <button class="btn-icon btn-sm" title="删除" @click="confirmDelete(s)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
           </td>
         </tr>
       </tbody>
@@ -57,6 +69,8 @@ import { fetchSolutions, createSolution, updateSolution, deleteSolution } from '
 const router = useRouter()
 const showToast = inject<(msg: string, type?: string) => void>('toast')!
 
+const search = ref('')
+const statusFilter = ref('')
 const solutions = ref<any[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -65,9 +79,18 @@ const modalVisible = ref(false)
 const editing = ref<any>(null)
 const form = ref<any>({ name: '', client_name: '', project_name: '', notes: '' })
 const deleteTarget = ref<any>(null)
+let searchTimer: any = null
+
+function onSearch() {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => { page.value = 1; load() }, 300)
+}
 
 async function load() {
-  const res = await fetchSolutions(`page=${page.value}&per_page=${perPage}`)
+  let params = `page=${page.value}&per_page=${perPage}`
+  if (search.value) params += `&search=${encodeURIComponent(search.value)}`
+  if (statusFilter.value) params += `&status=${statusFilter.value}`
+  const res = await fetchSolutions(params)
   solutions.value = res.solutions
   total.value = res.total
 }

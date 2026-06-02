@@ -235,6 +235,10 @@ async function doCreateQuotation() {
 }
 
 // AI Chat with GenUI component support
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')
+}
+
 function scrollChat() {
   nextTick(() => { if (chatLog.value) chatLog.value.scrollTop = chatLog.value.scrollHeight - 40 })
 }
@@ -243,7 +247,7 @@ async function sendChat() {
   if (!chatInput.value.trim() || chatLoading.value) return
   const question = chatInput.value; chatInput.value = ''
   chatLoading.value = true
-  chatText.value += `<b>你:</b> ${question}<br><br><b>AI:</b> `
+  chatText.value += `<b>你:</b> ${escapeHtml(question)}<br><br><b>AI:</b> `
   scrollChat()
   try {
     let buffer = ''
@@ -266,7 +270,7 @@ async function sendChat() {
     }
     chatText.value += '<br><br>'; scrollChat()
   } catch (e: any) {
-    chatText.value += `[错误: ${e.message}]<br><br>`; scrollChat()
+    chatText.value += `[错误: ${escapeHtml(e.message)}]<br><br>`; scrollChat()
   }
   chatLoading.value = false
 }

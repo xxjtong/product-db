@@ -34,3 +34,22 @@ class UpdateUserRequest(BaseModel):
 class UpdateProfileRequest(BaseModel):
     email: Optional[str] = None
     password: Optional[str] = None
+
+
+class RegistrationRequest(BaseModel):
+    username: str
+    password: str
+    email: str = ""
+
+
+class ResetPasswordRequest(BaseModel):
+    password: str
+
+
+class FieldVisibilityUpdate(BaseModel):
+    """Dict of field_name -> visible (bool). Accepts extra fields."""
+    model_config = {"extra": "allow"}
+
+
+class AIPromptUpdate(BaseModel):
+    prompt: str = ""

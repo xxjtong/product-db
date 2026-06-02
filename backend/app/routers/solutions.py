@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func
 from app.database import get_db
 from app.models.solution import Solution, SolutionItem
@@ -11,7 +11,9 @@ from app.models.product import Product
 from app.models.category import Category
 from app.models.dependency import ProductDependency
 from app.auth import get_current_user
+from app.utils.escape import escape_like
 from app.models.user import User
+from app.schemas.solution import SolutionCreate, SolutionUpdate, SolutionItemCreate, SolutionItemUpdate
 from datetime import datetime
 
 router = APIRouter()
@@ -19,7 +21,9 @@ router = APIRouter()
 
 def _recalc_totals(sol: Solution, db: Session):
     """Recalculate solution total_cost and total_price from items."""
-    items = db.query(SolutionItem).filter_by(solution_id=sol.id).all()
+    items = db.query(SolutionItem).options(
+        selectinload(SolutionItem.product),
+    ).filter_by(solution_id=sol.id).all()
     total_cost = 0
     total_price = 0
     for item in items:
@@ -41,14 +45,16 @@ def list_solutions(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    q = db.query(Solution)
+    q = db.query(Solution).options(
+        selectinload(Solution.items).selectinload(SolutionItem.product),
+    )
     if status:
         q = q.filter(Solution.status == status)
     if search:
         q = q.filter(
-            Solution.name.ilike(f"%{search}%")
-            | Solution.client_name.ilike(f"%{search}%")
-            | Solution.project_name.ilike(f"%{search}%")
+            Solution.name.ilike(f"%{escape_like(search)}%")
+            | Solution.client_name.ilike(f"%{escape_like(search)}%")
+            | Solution.project_name.ilike(f"%{escape_like(search)}%")
         )
     total = q.count()
     solutions = q.order_by(Solution.updated_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
@@ -61,14 +67,14 @@ def list_solutions(
 
 
 @router.post("/solutions")
-def create_solution(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def create_solution(data: SolutionCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     sol = Solution(
-        name=data["name"],
-        description=data.get("description"),
-        client_name=data.get("client_name"),
-        project_name=data.get("project_name"),
-        status=data.get("status", "draft"),
-        notes=data.get("notes"),
+        name=data.name,
+        description=data.description,
+        client_name=data.client_name,
+        project_name=data.project_name,
+        status=data.status,
+        notes=data.notes,
         created_by=user.id,
     )
     db.add(sol)
@@ -79,25 +85,29 @@ def create_solution(data: dict, db: Session = Depends(get_db), user=Depends(get_
 
 @router.get("/solutions/{solution_id}")
 def get_solution(solution_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    sol = db.get(Solution, solution_id)
+    sol = db.query(Solution).options(
+        selectinload(Solution.items).selectinload(SolutionItem.product),
+    ).get(solution_id)
     if not sol:
         raise HTTPException(404, "Solution not found")
-    product_map = {p.id: p.name for p in db.query(Product).all()}
-    return {"solution": sol.to_dict(product_map)}
+    return {"solution": sol.to_dict()}
 
 
 @router.put("/solutions/{solution_id}")
-def update_solution(solution_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_solution(solution_id: int, data: SolutionUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     sol = db.get(Solution, solution_id)
     if not sol:
         raise HTTPException(404, "Solution not found")
     for f in ["name", "description", "client_name", "project_name", "status", "notes"]:
-        if f in data:
-            setattr(sol, f, data[f])
+        val = getattr(data, f, None)
+        if val is not None:
+            setattr(sol, f, val)
     sol.updated_at = datetime.now()
     db.commit()
-    product_map = {p.id: p.name for p in db.query(Product).all()}
-    return {"solution": sol.to_dict(product_map)}
+    sol = db.query(Solution).options(
+        selectinload(Solution.items).selectinload(SolutionItem.product),
+    ).get(solution_id)
+    return {"solution": sol.to_dict()}
 
 
 @router.delete("/solutions/{solution_id}")
@@ -117,54 +127,54 @@ def list_items(solution_id: int, db: Session = Depends(get_db), user=Depends(get
     sol = db.get(Solution, solution_id)
     if not sol:
         raise HTTPException(404, "Solution not found")
-    product_map = {p.id: p.name for p in db.query(Product).all()}
-    items = db.query(SolutionItem).filter_by(solution_id=solution_id)\
+    items = db.query(SolutionItem).options(
+        selectinload(SolutionItem.product),
+    ).filter_by(solution_id=solution_id)\
         .order_by(SolutionItem.sort_order).all()
-    return {"items": [i.to_dict(product_map) for i in items]}
+    return {"items": [i.to_dict() for i in items]}
 
 
 @router.post("/solutions/{solution_id}/items")
-def add_item(solution_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def add_item(solution_id: int, data: SolutionItemCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     sol = db.get(Solution, solution_id)
     if not sol:
         raise HTTPException(404, "Solution not found")
-    product = db.get(Product, data["product_id"])
+    product = db.get(Product, data.product_id)
     if not product:
         raise HTTPException(400, "Product not found")
 
     item = SolutionItem(
         solution_id=solution_id,
-        product_id=data["product_id"],
-        quantity=data.get("quantity", 1),
-        unit_price=data.get("unit_price", float(product.base_price or 0)),
-        discount_rate=data.get("discount_rate", 100),
-        remark=data.get("remark"),
-        sort_order=data.get("sort_order", 0),
+        product_id=data.product_id,
+        quantity=data.quantity,
+        unit_price=data.unit_price if data.unit_price is not None else float(product.base_price or 0),
+        discount_rate=data.discount_rate,
+        remark=data.remark,
+        sort_order=data.sort_order,
     )
     db.add(item)
     db.commit()
     _recalc_totals(sol, db)
     db.commit()
-    product_map = {p.id: p.name for p in db.query(Product).all()}
     db.refresh(item)
-    return {"item": item.to_dict(product_map)}
+    return {"item": item.to_dict()}
 
 
 @router.put("/solutions/{solution_id}/items/{item_id}")
-def update_item(solution_id: int, item_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_item(solution_id: int, item_id: int, data: SolutionItemUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     item = db.get(SolutionItem, item_id)
     if not item or item.solution_id != solution_id:
         raise HTTPException(404, "Item not found")
     for f in ["product_id", "quantity", "unit_price", "discount_rate", "remark", "sort_order"]:
-        if f in data:
-            setattr(item, f, data[f])
+        val = getattr(data, f, None)
+        if val is not None:
+            setattr(item, f, val)
     db.commit()
     sol = db.get(Solution, solution_id)
     _recalc_totals(sol, db)
     db.commit()
-    product_map = {p.id: p.name for p in db.query(Product).all()}
     db.refresh(item)
-    return {"item": item.to_dict(product_map)}
+    return {"item": item.to_dict()}
 
 
 @router.delete("/solutions/{solution_id}/items/{item_id}")
@@ -191,11 +201,8 @@ def check_solution(solution_id: int, db: Session = Depends(get_db), user=Depends
 
     items = db.query(SolutionItem).filter_by(solution_id=solution_id).all()
     solution_product_ids = {i.product_id for i in items}
-    solution_category_ids = set()
-    for pid in solution_product_ids:
-        p = db.get(Product, pid)
-        if p:
-            solution_category_ids.add(p.category_id)
+    solution_products = db.query(Product).filter(Product.id.in_(solution_product_ids)).all()
+    solution_category_ids = {p.category_id for p in solution_products}
 
     warnings = []
     for item in items:
@@ -232,11 +239,8 @@ def suggest_solution(solution_id: int, db: Session = Depends(get_db), user=Depen
 
     items = db.query(SolutionItem).filter_by(solution_id=solution_id).all()
     solution_product_ids = {i.product_id for i in items}
-    solution_category_ids = set()
-    for pid in solution_product_ids:
-        p = db.get(Product, pid)
-        if p:
-            solution_category_ids.add(p.category_id)
+    solution_products = db.query(Product).filter(Product.id.in_(solution_product_ids)).all()
+    solution_category_ids = {p.category_id for p in solution_products}
 
     suggestions = []
     seen = set()
@@ -247,7 +251,9 @@ def suggest_solution(solution_id: int, db: Session = Depends(get_db), user=Depen
                 if dep.depends_on_category_id in seen:
                     continue
                 seen.add(dep.depends_on_category_id)
-                candidates = db.query(Product).filter_by(category_id=dep.depends_on_category_id, status="active").all()
+                candidates = db.query(Product).options(
+                    selectinload(Product.manufacturer),
+                ).filter_by(category_id=dep.depends_on_category_id, status="active").all()
                 cat = db.get(Category, dep.depends_on_category_id)
                 suggestions.append({
                     "missing_category": cat.name if cat else "Unknown",

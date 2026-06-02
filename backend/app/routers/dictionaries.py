@@ -5,6 +5,7 @@ from app.database import get_db
 from app.models.dictionary import (Manufacturer, DictCommMethod, DictCommProtocol,
                                    DictPowerSupply, DictSensorMetric)
 from app.auth import get_current_user
+from app.schemas.dictionary import ManufacturerCreate, ManufacturerUpdate
 
 router = APIRouter()
 
@@ -18,8 +19,8 @@ def list_manufacturers(db: Session = Depends(get_db)):
 
 
 @router.post("/dicts/manufacturers")
-def create_manufacturer(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    m = Manufacturer(name=data["name"], website=data.get("website", ""), description=data.get("description", ""))
+def create_manufacturer(data: ManufacturerCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    m = Manufacturer(name=data.name, website=data.website, description=data.description)
     db.add(m)
     db.commit()
     db.refresh(m)
@@ -27,13 +28,14 @@ def create_manufacturer(data: dict, db: Session = Depends(get_db), user=Depends(
 
 
 @router.put("/dicts/manufacturers/{mfg_id}")
-def update_manufacturer(mfg_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_manufacturer(mfg_id: int, data: ManufacturerUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     m = db.get(Manufacturer, mfg_id)
     if not m:
         raise HTTPException(404)
     for f in ["name", "website", "description"]:
-        if f in data:
-            setattr(m, f, data[f])
+        val = getattr(data, f, None)
+        if val is not None:
+            setattr(m, f, val)
     db.commit()
     return {"manufacturer": m.to_dict()}
 

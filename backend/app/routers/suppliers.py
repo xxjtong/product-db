@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.supplier import Supplier
 from app.auth import get_current_user
+from app.utils.escape import escape_like
+from app.schemas.supplier import SupplierCreate, SupplierUpdate
 
 router = APIRouter()
 
@@ -18,7 +20,7 @@ def list_suppliers(
 ):
     q = db.query(Supplier)
     if search:
-        q = q.filter(Supplier.name.ilike(f"%{search}%"))
+        q = q.filter(Supplier.name.ilike(f"%{escape_like(search)}%"))
     q = q.order_by(Supplier.name)
     total = q.count()
     if all:
@@ -29,14 +31,14 @@ def list_suppliers(
 
 
 @router.post("/suppliers")
-def create_supplier(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def create_supplier(data: SupplierCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     s = Supplier(
-        name=data["name"],
-        contact_person=data.get("contact_person"),
-        phone=data.get("phone"),
-        email=data.get("email"),
-        website=data.get("website"),
-        notes=data.get("notes"),
+        name=data.name,
+        contact_person=data.contact_person,
+        phone=data.phone,
+        email=data.email,
+        website=data.website,
+        notes=data.notes,
     )
     db.add(s)
     db.commit()
@@ -45,13 +47,14 @@ def create_supplier(data: dict, db: Session = Depends(get_db), user=Depends(get_
 
 
 @router.put("/suppliers/{supplier_id}")
-def update_supplier(supplier_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_supplier(supplier_id: int, data: SupplierUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     s = db.get(Supplier, supplier_id)
     if not s:
         raise HTTPException(404, "Supplier not found")
     for f in ["name", "contact_person", "phone", "email", "website", "notes"]:
-        if f in data:
-            setattr(s, f, data[f])
+        val = getattr(data, f, None)
+        if val is not None:
+            setattr(s, f, val)
     db.commit()
     return {"supplier": s.to_dict()}
 

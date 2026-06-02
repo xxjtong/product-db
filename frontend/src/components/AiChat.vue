@@ -110,6 +110,10 @@ function collapseTools(tools: string[]): { name: string; count: number }[] {
   return result
 }
 
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')
+}
+
 function toggleSize() {
   expanded.value = !expanded.value
 }
@@ -278,7 +282,7 @@ async function send(question?: string) {
   if (!q || loading.value) return
   input.value = ''
 
-  messages.value.push({ role: 'user', content: q })
+  messages.value.push({ role: 'user', content: escapeHtml(q) })
   loading.value = true
   scrollDown()
 
@@ -347,13 +351,13 @@ async function send(question?: string) {
             currentComponents = []
             currentQuickReplies = []
           } else if (event.event === 'error') {
-            messages.value.push({ role: 'assistant', content: `错误: ${event.text}` })
+            messages.value.push({ role: 'assistant', content: `错误: ${escapeHtml(event.text)}` })
           }
         } catch { /* skip */ }
       }
     }
   } catch (e: any) {
-    messages.value.push({ role: 'assistant', content: `请求失败: ${e.message}` })
+    messages.value.push({ role: 'assistant', content: `请求失败: ${escapeHtml(e.message)}` })
   }
   loading.value = false
   scrollDown()

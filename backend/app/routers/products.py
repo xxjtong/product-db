@@ -5,24 +5,33 @@ import os
 import re
 import subprocess
 import tempfile
+import uuid
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse, HTMLResponse, Response
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import or_
 from app.database import get_db
 from app.models.product import Product
 from app.models.category import Category, CategorySpecDefinition
 from app.models.dependency import ProductDependency
 from app.models.supplier import Supplier
-from app.models.dictionary import Manufacturer, DictCommMethod, DictCommProtocol, DictPowerSupply, DictSensorMetric
+from app.models.dictionary import Manufacturer
 from app.models.mapping import (ProductCommMethod, ProductCommProtocol, ProductPowerSupply,
                                 ProductHardwareInterface, ProductSensorCapability, ProductImage)
 from app.services.spec_service import validate_specs, compare_products
 from app.services.storage import save_upload, delete_file, upload_from_url
+from app.services.spec_generator import build_spec_html
+from app.services.ai_extract import call_ai_extract, regex_extract_from_text
 from app.auth import get_current_user
 from app.config import settings
 from app.models.user import User
+from app.utils.escape import escape_like
+from app.schemas.product import (
+    ProductCreate, ProductUpdate, AIFetchRequest,
+    DownloadImageRequest,
+    ProductDependencyCreate, ProductDependencyUpdate,
+)
 import openpyxl
 import httpx
 from bs4 import BeautifulSoup
@@ -38,6 +47,24 @@ def _build_pinyin(text: str) -> str:
     if not text:
         return ""
     return "".join(lazy_pinyin(text)).lower()
+
+
+# --- URL validation (SSRF prevention) ---
+
+ALLOWED_URL_SCHEMES = {"http", "https"}
+BLOCKED_HOSTS = {"169.254.169.254", "localhost", "0.0.0.0", "127.0.0.1", "metadata.google.internal"}
+
+
+def validate_url(url: str) -> bool:
+    """Validate URL scheme and block private/metadata hosts (SSRF prevention)."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ALLOWED_URL_SCHEMES:
+        return False
+    hostname = (parsed.hostname or "").lower()
+    for blocked in BLOCKED_HOSTS:
+        if hostname == blocked or hostname.endswith("." + blocked):
+            return False
+    return True
 
 
 # --- Helper: build product response with all mappings ---
@@ -84,7 +111,17 @@ def list_products(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    q = db.query(Product)
+    q = db.query(Product).options(
+        selectinload(Product.category),
+        selectinload(Product.manufacturer),
+        selectinload(Product.supplier),
+        selectinload(Product.comm_methods).selectinload(ProductCommMethod.method),
+        selectinload(Product.comm_protocols).selectinload(ProductCommProtocol.protocol),
+        selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
+        selectinload(Product.hardware_interfaces),
+        selectinload(Product.sensor_capabilities),
+        selectinload(Product.images),
+    )
 
     if category_id:
         # Include child categories
@@ -96,10 +133,10 @@ def list_products(
         search_lower = search.lower()
         q = q.filter(
             or_(
-                Product.name.ilike(f"%{search}%"),
-                Product.model.ilike(f"%{search}%"),
-                Product.sku.ilike(f"%{search}%"),
-                Product.pinyin_search.ilike(f"%{search_lower}%"),
+                Product.name.ilike(f"%{escape_like(search)}%"),
+                Product.model.ilike(f"%{escape_like(search)}%"),
+                Product.sku.ilike(f"%{escape_like(search)}%"),
+                Product.pinyin_search.ilike(f"%{escape_like(search_lower)}%"),
             )
         )
 
@@ -149,7 +186,17 @@ def compare(product_ids: str, db: Session = Depends(get_db), user=Depends(get_cu
     ids = [int(x) for x in product_ids.split(",") if x.strip().isdigit()]
     if len(ids) < 2:
         raise HTTPException(400, "At least 2 product IDs required")
-    products = db.query(Product).filter(Product.id.in_(ids)).all()
+    products = db.query(Product).options(
+        selectinload(Product.category),
+        selectinload(Product.manufacturer),
+        selectinload(Product.supplier),
+        selectinload(Product.comm_methods).selectinload(ProductCommMethod.method),
+        selectinload(Product.comm_protocols).selectinload(ProductCommProtocol.protocol),
+        selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
+        selectinload(Product.hardware_interfaces),
+        selectinload(Product.sensor_capabilities).selectinload(ProductSensorCapability.metric),
+        selectinload(Product.images),
+    ).filter(Product.id.in_(ids)).all()
     if len(products) < 2:
         raise HTTPException(404, "Products not found")
 
@@ -179,98 +226,23 @@ def compare(product_ids: str, db: Session = Depends(get_db), user=Depends(get_cu
     }
 
 
-@router.post("/products/import-preview")
-def import_preview(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
-    """Parse Excel file and return preview rows with column mapping."""
-    try:
-        wb = openpyxl.load_workbook(BytesIO(file.file.read()), data_only=True)
-    except Exception:
-        raise HTTPException(400, "Invalid Excel file")
-    sheet = wb.active
-    rows = list(sheet.iter_rows(values_only=True))
-    if not rows:
-        raise HTTPException(400, "Empty file")
-    headers = [str(c) if c else "" for c in rows[0]]
-    data_rows = []
-    for row in rows[1:]:
-        if not any(row):
-            continue
-        data_rows.append([str(c) if c is not None else "" for c in row])
-
-    return {"sheet_name": sheet.title, "headers": headers, "rows": data_rows, "row_count": len(data_rows)}
-
-
-@router.post("/products/import-confirm")
-def import_confirm(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    """Save products from imported data with column mapping."""
-    mapping = data.get("mapping", {})
-    rows = data.get("rows", [])
-    if not rows or not mapping:
-        raise HTTPException(400, "No data to import")
-
-    imported = 0
-    for row in rows:
-        pdata = {}
-        for col_idx, field in mapping.items():
-            idx = int(col_idx)
-            if idx < len(row):
-                pdata[field] = str(row[idx]).strip() if row[idx] else ""
-
-        name = pdata.get("name", "")
-        model = pdata.get("model", "")
-        if not name and not model:
-            continue
-
-        cat_name = pdata.get("category", "")
-        category_id = None
-        if cat_name:
-            cat = db.query(Category).filter(Category.name == cat_name).first()
-            if not cat:
-                cat = db.query(Category).filter(Category.name.ilike(f"%{cat_name}%")).first()
-            if cat:
-                category_id = cat.id
-
-        mfg_name = pdata.get("manufacturer", "")
-        manufacturer_id = None
-        if mfg_name:
-            mfg = db.query(Manufacturer).filter(Manufacturer.name == mfg_name).first()
-            if not mfg:
-                mfg = Manufacturer(name=mfg_name)
-                db.add(mfg)
-                db.flush()
-            manufacturer_id = mfg.id
-
-        spec_items = {k.replace("spec:", ""): v for k, v in pdata.items() if k.startswith("spec:")}
-
-        p = Product(
-            name=name or model,
-            model=model or "",
-            sku=pdata.get("sku", ""),
-            category_id=category_id,
-            manufacturer_id=manufacturer_id,
-            base_price=float(pdata.get("price", 0) or 0),
-            cost_price=float(pdata.get("cost", 0) or 0),
-            description=pdata.get("description", ""),
-            product_url=pdata.get("product_url", ""),
-            specs=spec_items,
-        )
-        db.add(p)
-        imported += 1
-
-    db.commit()
-    return {"imported": imported}
-
-
 @router.get("/products/export")
 def export_products(
     category_id: Optional[int] = None, search: str = "",
     db: Session = Depends(get_db), user=Depends(get_current_user),
 ):
-    q = db.query(Product)
+    q = db.query(Product).options(
+        selectinload(Product.category),
+        selectinload(Product.manufacturer),
+        selectinload(Product.supplier),
+        selectinload(Product.comm_methods).selectinload(ProductCommMethod.method),
+        selectinload(Product.comm_protocols).selectinload(ProductCommProtocol.protocol),
+        selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
+    )
     if category_id:
         q = q.filter(Product.category_id == category_id)
     if search:
-        q = q.filter(Product.name.ilike(f"%{search}%"))
+        q = q.filter(Product.name.ilike(f"%{escape_like(search)}%"))
     products = q.order_by(Product.name).all()
 
     wb = openpyxl.Workbook()
@@ -309,16 +281,43 @@ def upload_image(file: UploadFile = File(...), user=Depends(get_current_user)):
     content = file.file.read()
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(400, "Image must be under 5MB")
-    url = save_upload(content, file.filename or "upload.jpg")
+
+    # Validate file extension
+    original_name = file.filename or "upload.jpg"
+    ext = os.path.splitext(original_name)[1].lower()
+    ALLOWED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(400, f"File extension '{ext}' not allowed. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
+
+    # Magic bytes validation
+    if len(content) >= 8:
+        header = content[:8]
+        valid_signatures = [
+            b'\xff\xd8\xff',       # JPEG
+            b'\x89PNG\r\n\x1a\n',  # PNG
+            b'GIF8',               # GIF
+            b'RIFF',               # WebP (RIFF container)
+            b'BM',                 # BMP
+        ]
+        if not any(header.startswith(sig) for sig in valid_signatures):
+            raise HTTPException(400, "File content does not match a valid image format")
+    else:
+        raise HTTPException(400, "File too small to be a valid image")
+
+    # Use UUID filename to avoid path traversal
+    safe_name = f"{uuid.uuid4().hex[:16]}{ext}"
+    url = save_upload(content, safe_name)
     return {"url": url}
 
 
 @router.post("/products/download-image")
-def download_image(data: dict, user=Depends(get_current_user)):
+def download_image(data: DownloadImageRequest, user=Depends(get_current_user)):
     """Download image from URL, save locally, return URL."""
-    url = data.get("url", "").strip()
+    url = data.url.strip()
     if not url:
         raise HTTPException(400, "URL is required")
+    if not validate_url(url):
+        raise HTTPException(400, "URL not allowed")
     try:
         local_url = upload_from_url(url)
         return {"url": local_url}
@@ -330,7 +329,17 @@ def download_image(data: dict, user=Depends(get_current_user)):
 
 @router.get("/products/{product_id}")
 def get_product(product_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    p = db.get(Product, product_id)
+    p = db.query(Product).options(
+        selectinload(Product.category),
+        selectinload(Product.manufacturer),
+        selectinload(Product.supplier),
+        selectinload(Product.comm_methods).selectinload(ProductCommMethod.method),
+        selectinload(Product.comm_protocols).selectinload(ProductCommProtocol.protocol),
+        selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
+        selectinload(Product.hardware_interfaces),
+        selectinload(Product.sensor_capabilities).selectinload(ProductSensorCapability.metric),
+        selectinload(Product.images),
+    ).get(product_id)
     if not p:
         raise HTTPException(404, "Product not found")
     p.view_count = (p.view_count or 0) + 1
@@ -339,33 +348,33 @@ def get_product(product_id: int, db: Session = Depends(get_db), user=Depends(get
 
 
 @router.post("/products")
-def create_product(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def create_product(data: ProductCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     # Validate specs if category has definitions
-    if "specs" in data and "category_id" in data:
-        spec_defs = db.query(CategorySpecDefinition).filter_by(category_id=data["category_id"]).all()
-        specs = data["specs"] if isinstance(data["specs"], dict) else json.loads(data["specs"])
+    if data.specs and data.category_id:
+        spec_defs = db.query(CategorySpecDefinition).filter_by(category_id=data.category_id).all()
+        specs = data.specs
         errors = validate_specs(specs, spec_defs)
         if errors:
             raise HTTPException(400, detail={"errors": errors})
 
     p = Product(
-        model=data.get("model", ""),
-        name=data["name"],
-        sku=data.get("sku", ""),
-        category_id=data["category_id"],
-        manufacturer_id=data.get("manufacturer_id"),
-        supplier_id=data.get("supplier_id"),
-        unit=data.get("unit", "台"),
-        base_price=data.get("base_price"),
-        cost_price=data.get("cost_price"),
-        description=data.get("description", ""),
-        image_url=data.get("image_url", ""),
-        product_url=data.get("product_url", ""),
-        status=data.get("status", "active"),
-        parent_id=data.get("parent_id"),
-        specs=data.get("specs", {}),
-        urls=data.get("urls", {}),
-        custom_fields=data.get("custom_fields", {}),
+        model=data.model,
+        name=data.name,
+        sku=data.sku,
+        category_id=data.category_id,
+        manufacturer_id=data.manufacturer_id,
+        supplier_id=data.supplier_id,
+        unit=data.unit,
+        base_price=data.base_price,
+        cost_price=data.cost_price,
+        description=data.description,
+        image_url=data.image_url,
+        product_url=data.product_url,
+        status=data.status,
+        parent_id=data.parent_id,
+        specs=data.specs,
+        urls=data.urls,
+        custom_fields=data.custom_fields,
     )
     p.pinyin_search = _build_pinyin(f"{p.name} {p.model or ''}")
     p.created_at = datetime.now()
@@ -375,7 +384,7 @@ def create_product(data: dict, db: Session = Depends(get_db), user=Depends(get_c
     db.flush()  # get p.id
 
     # Write mapping tables
-    _write_mappings(p.id, data, db)
+    _write_mappings(p.id, data.model_dump(exclude_none=True), db)
 
     db.commit()
     db.refresh(p)
@@ -386,7 +395,7 @@ def create_product(data: dict, db: Session = Depends(get_db), user=Depends(get_c
 
 
 @router.put("/products/{product_id}")
-def update_product(product_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     p = db.get(Product, product_id)
     if not p:
         raise HTTPException(404, "Product not found")
@@ -395,21 +404,22 @@ def update_product(product_id: int, data: dict, db: Session = Depends(get_db), u
     for f in ["model", "name", "sku", "category_id", "manufacturer_id", "supplier_id",
               "unit", "base_price", "cost_price", "description", "image_url", "product_url",
               "status", "parent_id"]:
-        if f in data:
-            setattr(p, f, data[f])
+        val = getattr(data, f, None)
+        if val is not None:
+            setattr(p, f, val)
 
-    if "specs" in data:
-        p.specs = data["specs"] if isinstance(data["specs"], dict) else json.loads(data["specs"])
-    if "urls" in data:
-        p.urls = data["urls"]
-    if "custom_fields" in data:
-        p.custom_fields = data["custom_fields"]
+    if data.specs:
+        p.specs = data.specs
+    if data.urls:
+        p.urls = data.urls
+    if data.custom_fields:
+        p.custom_fields = data.custom_fields
 
     p.pinyin_search = _build_pinyin(f"{p.name} {p.model or ''}")
     p.updated_at = datetime.now()
 
     # Rewrite mapping tables (delete old, insert new)
-    _rewrite_mappings(product_id, data, db)
+    _rewrite_mappings(product_id, data.model_dump(), db)
 
     db.commit()
     cats = {c.id: c.name for c in db.query(Category).all()}
@@ -430,205 +440,17 @@ def delete_product(product_id: int, db: Session = Depends(get_db), user=Depends(
 
 # --- AI-assisted URL fetch ---
 
-def _build_extraction_prompt(db: Session) -> str:
-    """Build AI system prompt for product info extraction from web pages."""
-    from app.models.category import Category as Cat, CategorySpecDefinition as SpecDef
-
-    cats = db.query(Cat).filter_by(is_active=True).order_by(Cat.sort_order).all()
-    cat_info = [f"  - slug:{c.slug} name:{c.name}" for c in cats if c.slug]
-
-    methods = db.query(DictCommMethod).all()
-    method_names = [m.name for m in methods]
-
-    protocols = db.query(DictCommProtocol).all()
-    protocol_names = [p.name for p in protocols]
-
-    powers = db.query(DictPowerSupply).all()
-    power_names = [p.name for p in powers]
-
-    manufacturers = db.query(Manufacturer).all()
-    manufacturer_names = [m.name for m in manufacturers]
-
-    metrics = db.query(DictSensorMetric).all()
-    metric_names = [f"{m.name}({m.unit})" for m in metrics]
-
-    return f"""你是一个物联网产品信息提取助手。根据网页内容提取产品结构化信息，输出必须是有效 JSON，不要包含任何其他文本。
-
-品类列表 (选择最匹配的 slug):
-{chr(10).join(cat_info)}
-
-通讯方式可选值: {json.dumps(method_names, ensure_ascii=False)}
-通讯协议可选值: {json.dumps(protocol_names, ensure_ascii=False)}
-供电方式可选值: {json.dumps(power_names, ensure_ascii=False)}
-厂商可选值: {json.dumps(manufacturer_names, ensure_ascii=False)}
-传感器指标可选值: {json.dumps(metric_names, ensure_ascii=False)}
-
-提取以下信息（未知字段设为 null 或空）:
-{{
-  "name": "产品名称",
-  "model": "产品型号",
-  "category_slug": "匹配的品类slug",
-  "manufacturer_name": "厂商名(必须从可选值匹配,否则null)",
-  "description": "产品描述(1-2句)",
-  "base_price": "价格数字或null",
-  "comm_methods": [{{"name": "Ethernet", "details": "1× 10/100Mbps"}}],
-  "comm_protocols": [{{"name": "MQTT", "direction": "both"}}],
-  "power_supplies": [{{"name": "DC", "voltage_range": "9-24V", "battery_life": null}}],
-  "hardware_interfaces": [{{"interface_name": "RS485", "quantity": 1, "description": "Modbus"}}],
-  "sensor_capabilities": [{{"metric_name": "温度", "measure_range": "-20~60", "accuracy": "±0.2"}}],
-  "specs": {{"ip_rating": "IP67", "dimensions_mm": "240×164×90.9"}}
-}}
-
-注意: comm_methods/comm_protocols/power_supplies 中的 name 字段必须从可选值中匹配，无法匹配的不要添加。"""
-
-
-def _call_ai_extract(url: str, title: str, text: str, db: Session) -> dict:
-    """Call AI (DeepSeek) to extract product info from text."""
-    from app.services.ai_engine import engine
-
-    if not settings.AI_GATEWAY_KEY:
-        return _regex_extract_from_text(title, text, db)
-
-    system_prompt = _build_extraction_prompt(db)
-    user_msg = f"""网页标题: {title}
-网页URL: {url}
-
-网页内容:
-{text[:6000]}
-
-请提取该产品的结构化信息。"""
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_msg},
-    ]
-
-    try:
-        result = engine.chat(messages, temperature=0.1, max_tokens=2000)
-        content = result["choices"][0]["message"]["content"]
-        json_match = re.search(r'\{.*\}', content, re.DOTALL)
-        if json_match:
-            return json.loads(json_match.group())
-        return _regex_extract_from_text(title, text, db)
-    except Exception:
-        return _regex_extract_from_text(title, text, db)
-
-
-def _regex_extract_from_text(title: str, text: str, db: Session) -> dict:
-    """Regex-based product info extraction as fallback when AI is unavailable."""
-    result: dict = {
-        "name": title or "",
-        "model": "",
-        "category_slug": None,
-        "manufacturer_name": None,
-        "description": "",
-        "base_price": None,
-        "comm_methods": [],
-        "comm_protocols": [],
-        "power_supplies": [],
-        "hardware_interfaces": [],
-        "sensor_capabilities": [],
-        "specs": {},
-    }
-
-    # Try to extract model number from title/text
-    model_patterns = [
-        r'\b([A-Z]{2,6}[-]?\d{2,4}(?:[-][A-Z]{1,4})?)\b',  # EG71, AM307, UG65
-        r'\b([A-Z]{1,2}\d{4}[A-Z]?(?:[-][A-Z]+)?)\b',        # VS121, EM300
-    ]
-    for pattern in model_patterns:
-        m = re.search(pattern, title + " " + text[:2000])
-        if m:
-            result["model"] = m.group(1)
-            break
-
-    # Try to match manufacturer
-    manufacturers = db.query(Manufacturer).all()
-    for mfg in manufacturers:
-        if mfg.name.lower() in (title + text[:3000]).lower():
-            result["manufacturer_name"] = mfg.name
-            break
-
-    # Try to match category by keywords
-    cat_keywords = {
-        "lorawan-gateway": ["gateway", "网关", "lora gateway", "lorawan gateway", "基站"],
-        "lorawan-sensor": ["sensor", "传感器", "检测", "监测", "探头"],
-        "4g-5g-router": ["router", "路由器", "5g", "4g", "cpe"],
-        "lorawan-controller": ["controller", "控制器", "采集器"],
-        "ip-camera-nvr": ["camera", "摄像机", "nvr", "camera"],
-        "lorawan-node": ["node", "节点", "执行器"],
-    }
-    combined = (title + " " + text[:3000]).lower()
-    for slug, keywords in cat_keywords.items():
-        if any(k in combined for k in keywords):
-            result["category_slug"] = slug
-            break
-
-    # Match comm methods, protocols, power from dict tables
-    methods = db.query(DictCommMethod).all()
-    for m in methods:
-        if m.name.lower() in combined:
-            detail = ""
-            # Try to extract detail for this method
-            detail_patterns = {
-                "Ethernet": [r'(\d+×?\s*(?:10[/]100|1000|Gigabit)[Mm][Bb][Pp][Ss])', r'(\d+个.*?网口)'],
-                "4G": [r'(LTE\s*CAT\s*\d+)', r'(CAT\d+)'],
-                "5G": [r'(5G\s*(?:NR|SA|NSA))'],
-                "LoRaWAN": [r'(\d+通道)', r'(CN\d{3})', r'(Class\s*[ABC])'],
-            }
-            if m.name in detail_patterns:
-                for dp in detail_patterns[m.name]:
-                    dm = re.search(dp, combined, re.IGNORECASE)
-                    if dm:
-                        detail = dm.group(1)
-                        break
-            result["comm_methods"].append({"name": m.name, "details": detail})
-
-    for p in db.query(DictCommProtocol).all():
-        if p.name.lower().replace("/", "").replace(" ", "") in combined.replace(" ", "").replace("/", "").lower():
-            result["comm_protocols"].append({"name": p.name, "direction": "both"})
-
-    for ps in db.query(DictPowerSupply).all():
-        if ps.name.lower() in combined:
-            voltage = ""
-            volt_match = re.search(r'(\d+(?:[.-]\d+)?\s*[Vv](?:DC)?)', text[:3000])
-            if volt_match:
-                voltage = volt_match.group(1)
-            result["power_supplies"].append({"name": ps.name, "voltage_range": voltage, "battery_life": None})
-
-    # Extract description (first meaningful paragraph)
-    paragraphs = [p.strip() for p in text[:3000].split("\n") if len(p.strip()) > 30]
-    if paragraphs:
-        result["description"] = paragraphs[0][:300]
-
-    # Extract IP rating (case-insensitive since text was lowered)
-    ip_match = re.search(r'\b(ip\d{2})\b', combined)
-    if ip_match:
-        result["specs"]["ip_rating"] = ip_match.group(1).upper()
-
-    # Extract dimensions
-    dim_match = re.search(r'(\d{2,4}\s*[×xX]\s*\d{2,4}\s*[×xX]\s*\d{2,4}\s*(?:mm)?)', combined)
-    if dim_match:
-        result["specs"]["dimensions_mm"] = dim_match.group(1).replace(" ", "")
-
-    # Extract weight
-    weight_match = re.search(r'(\d{3,5})\s*g', combined)
-    if weight_match:
-        result["specs"]["weight_g"] = int(weight_match.group(1))
-
-    return result
-
 
 @router.post("/products/ai-fetch")
-def ai_fetch_product(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def ai_fetch_product(data: AIFetchRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """AI-assisted product info extraction from URL or text."""
-    url = (data.get("url") or "").strip()
-    raw_text = (data.get("text") or "").strip()
+    url = data.url.strip()
+    raw_text = data.text.strip()
 
     if raw_text:
         # Direct text extraction mode
-        result = _call_ai_extract("", "", raw_text, db) if settings.AI_GATEWAY_KEY \
-            else _regex_extract_from_text("", raw_text, db)
+        result = call_ai_extract("", "", raw_text, db) if settings.AI_GATEWAY_KEY \
+            else regex_extract_from_text("", raw_text, db)
         return {"fetched": result}
 
     if not url:
@@ -637,6 +459,9 @@ def ai_fetch_product(data: dict, db: Session = Depends(get_db), user=Depends(get
     parsed = urlparse(url)
     if not parsed.scheme or not parsed.netloc:
         raise HTTPException(400, "Invalid URL")
+
+    if not validate_url(url):
+        raise HTTPException(400, "URL not allowed")
 
     try:
         resp = httpx.get(url, timeout=30, follow_redirects=True, headers={
@@ -658,145 +483,29 @@ def ai_fetch_product(data: dict, db: Session = Depends(get_db), user=Depends(get
     if not text:
         raise HTTPException(400, "No text content extracted from URL")
 
-    result = _call_ai_extract(url, title, text, db)
+    result = call_ai_extract(url, title, text, db)
 
     return {"fetched": {"url": url, "title": title, **result}}
-
-def _build_spec_html(p, db: Session) -> str:
-    """Build complete HTML for product spec sheet."""
-    spec_defs = db.query(CategorySpecDefinition).filter_by(category_id=p.category_id)\
-        .order_by(CategorySpecDefinition.sort_order).all()
-
-    groups: dict = {}
-    for sd in spec_defs:
-        g = sd.display_group or "基本参数"
-        if g not in groups:
-            groups[g] = []
-        groups[g].append(sd)
-
-    defined_keys = {sd.spec_key for sd in spec_defs}
-    unmatched = {k: v for k, v in (p.specs or {}).items() if k not in defined_keys}
-
-    # Product image HTML
-    img_html = ""
-    primary_img = next((img for img in p.images if img.is_primary), None)
-    if primary_img:
-        img_url = primary_img.url
-        if not img_url.startswith("http"):
-            img_url = f"file://{os.path.dirname(__file__)}/../../{img_url.lstrip('/')}"
-        img_html = f'<img src="{img_url}" class="product-img" />'
-
-    # Comm methods
-    comm_rows = ""
-    for cm in p.comm_methods:
-        if cm.method:
-            mtype = "有线" if cm.method.method_type == "wired" else "无线"
-            comm_rows += f"<tr><td>{mtype}</td><td>{cm.method.name}</td><td>{cm.details or '—'}</td></tr>"
-
-    # Protocols
-    proto_rows = ""
-    for cp in p.comm_protocols:
-        if cp.protocol:
-            proto_rows += f"<tr><td>{cp.protocol.name}</td><td>{'双向' if cp.direction == 'both' else '采集' if cp.direction == 'acquisition' else '转发'}</td></tr>"
-
-    # Power
-    power_rows = ""
-    for ps in p.power_supplies:
-        if ps.power:
-            power_rows += f"<tr><td>{ps.power.name}</td><td>{ps.voltage_range or '—'}</td><td>{ps.battery_life or '—'}</td></tr>"
-
-    # Hardware interfaces
-    iface_rows = ""
-    for hi in p.hardware_interfaces:
-        iface_rows += f"<tr><td>{hi.interface_name}</td><td>×{hi.quantity}</td><td>{hi.description or '—'}</td></tr>"
-
-    # Sensor capabilities
-    sensor_rows = ""
-    for sc in p.sensor_capabilities:
-        if sc.metric:
-            sensor_rows += f"<tr><td>{sc.metric.name} ({sc.metric.unit or ''})</td><td>{sc.measure_range or '—'}</td><td>{sc.accuracy or '—'}</td><td>{sc.resolution or '—'}</td></tr>"
-
-    # Spec groups
-    spec_group_html = ""
-    for group_name, items in groups.items():
-        rows = ""
-        for sd in items:
-            val = (p.specs or {}).get(sd.spec_key)
-            if val is None:
-                val_str = "—"
-            elif sd.spec_type == "boolean":
-                val_str = "✓" if val else "—"
-            else:
-                val_str = str(val)
-                if sd.unit:
-                    val_str += f" {sd.unit}"
-            rows += f"<tr><td>{sd.display_name}</td><td>{val_str}</td></tr>"
-        spec_group_html += f"""<h2>{group_name}</h2>
-<table>{rows}</table>"""
-
-    unmatched_rows = ""
-    if unmatched:
-        for k, v in unmatched.items():
-            unmatched_rows += f"<tr><td>{k}</td><td>{v}</td></tr>"
-
-    desc_html = f"<h2>描述</h2><p>{p.description}</p>" if p.description else ""
-    base_info = f"<p>{p.manufacturer.name if p.manufacturer else ''} | {p.category.name if p.category else ''} | 型号: {p.model or '—'}</p>"
-
-    return f"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head><meta charset="UTF-8"><title>{p.name} - 规格书</title>
-<style>
-@page {{ size: A4; margin: 20mm 18mm; @bottom-center {{ content: "第 " counter(page) " 页"; font-size: 9px; color: #94a3b8; }} }}
-body {{ font-family: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif; font-size: 12px; color: #1e293b; line-height: 1.6; }}
-.header {{ border-bottom: 3px solid #0f3460; padding-bottom: 12px; margin-bottom: 20px; }}
-.header h1 {{ font-size: 22px; margin: 0 0 4px; color: #0f3460; }}
-.header p {{ font-size: 12px; color: #64748b; margin: 2px 0; }}
-h2 {{ font-size: 14px; color: #0f3460; margin: 20px 0 8px; padding: 4px 0 4px 10px; border-left: 4px solid #0f3460; background: #f8fafc; page-break-after: avoid; }}
-table {{ width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 11px; page-break-inside: avoid; }}
-th {{ background: #f1f5f9; padding: 6px 10px; text-align: left; font-weight: 600; border-bottom: 2px solid #cbd5e1; }}
-td {{ padding: 5px 10px; border-bottom: 1px solid #e2e8f0; }}
-td:first-child {{ color: #475569; width: 160px; }}
-.badge {{ display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; margin: 1px 2px; background: #f1f5f9; border: 1px solid #e2e8f0; }}
-.product-img {{ max-width: 120px; max-height: 120px; float: right; border-radius: 6px; border: 1px solid #e2e8f0; margin-left: 16px; }}
-.footer {{ margin-top: 24px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 10px; color: #94a3b8; text-align: center; }}
-</style></head>
-<body>
-<div class="header">
-  {img_html}
-  <h1>{p.name}</h1>
-  {base_info}
-</div>
-<h2>通讯方式</h2>
-<table><tr><th>类型</th><th>方式</th><th>详情</th></tr>{comm_rows or '<tr><td colspan="3">—</td></tr>'}</table>
-
-<h2>通讯协议</h2>
-<table><tr><th>协议</th><th>方向</th></tr>{proto_rows or '<tr><td colspan="2">—</td></tr>'}</table>
-
-<h2>供电方式</h2>
-<table><tr><th>方式</th><th>电压/规格</th><th>续航</th></tr>{power_rows or '<tr><td colspan="3">—</td></tr>'}</table>
-
-{"<h2>硬件接口</h2><table><tr><th>接口</th><th>数量</th><th>描述</th></tr>" + iface_rows + "</table>" if iface_rows else ""}
-
-{"<h2>传感能力</h2><table><tr><th>指标</th><th>量程</th><th>精度</th><th>分辨率</th></tr>" + sensor_rows + "</table>" if sensor_rows else ""}
-
-{spec_group_html}
-
-{"<h2>其他参数</h2><table>" + unmatched_rows + "</table>" if unmatched_rows else ""}
-
-{desc_html}
-
-<div class="footer">© 产品数据库 — 生成于 {datetime.now().strftime("%Y-%m-%d %H:%M")}</div>
-</body></html>"""
 
 
 @router.get("/products/{product_id}/spec-sheet")
 def spec_sheet(product_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """Generate product spec sheet as PDF download or HTML view."""
-    p = db.get(Product, product_id)
+    p = db.query(Product).options(
+        selectinload(Product.category),
+        selectinload(Product.manufacturer),
+        selectinload(Product.supplier),
+        selectinload(Product.comm_methods).selectinload(ProductCommMethod.method),
+        selectinload(Product.comm_protocols).selectinload(ProductCommProtocol.protocol),
+        selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
+        selectinload(Product.hardware_interfaces),
+        selectinload(Product.sensor_capabilities).selectinload(ProductSensorCapability.metric),
+        selectinload(Product.images),
+    ).get(product_id)
     if not p:
         raise HTTPException(404, "Product not found")
 
-    html = _build_spec_html(p, db)
+    html = build_spec_html(p, db)
     filename = re.sub(r'[^\w\-_.]', '_', p.name or 'product')
 
     # Try CLI weasyprint for PDF (brew-installed at /opt/homebrew/bin/weasyprint)
@@ -808,8 +517,13 @@ def spec_sheet(product_id: int, db: Session = Depends(get_db), user=Depends(get_
         import shutil
         wp = "/opt/homebrew/bin/weasyprint" if os.path.exists("/opt/homebrew/bin/weasyprint") else shutil.which("weasyprint")
         if wp:
-            rc = os.system(f'DYLD_LIBRARY_PATH=/opt/homebrew/lib {wp} "{html_path}" "{pdf_path}" -e utf-8 2>/dev/null')
-            if rc == 0 and os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 100:
+            env = os.environ.copy()
+            env["DYLD_LIBRARY_PATH"] = "/opt/homebrew/lib"
+            result = subprocess.run(
+                [wp, html_path, pdf_path, "-e", "utf-8"],
+                env=env, capture_output=True,
+            )
+            if result.returncode == 0 and os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 100:
                 with open(pdf_path, "rb") as f2:
                     pdf_bytes = f2.read()
                 os.unlink(pdf_path)
@@ -833,14 +547,14 @@ def get_dependencies(product_id: int, db: Session = Depends(get_db), user=Depend
 
 
 @router.post("/products/{product_id}/dependencies")
-def create_dependency(product_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def create_dependency(product_id: int, data: ProductDependencyCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     dep = ProductDependency(
         product_id=product_id,
-        depends_on_product_id=data.get("depends_on_product_id"),
-        depends_on_category_id=data.get("depends_on_category_id"),
-        dependency_type=data.get("dependency_type", "required"),
-        description=data.get("description"),
-        sort_order=data.get("sort_order", 0),
+        depends_on_product_id=data.depends_on_product_id,
+        depends_on_category_id=data.depends_on_category_id,
+        dependency_type=data.dependency_type,
+        description=data.description,
+        sort_order=data.sort_order,
     )
     db.add(dep)
     db.commit()
@@ -849,13 +563,14 @@ def create_dependency(product_id: int, data: dict, db: Session = Depends(get_db)
 
 
 @router.put("/products/{product_id}/dependencies/{dep_id}")
-def update_dependency(product_id: int, dep_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_dependency(product_id: int, dep_id: int, data: ProductDependencyUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     dep = db.get(ProductDependency, dep_id)
     if not dep or dep.product_id != product_id:
         raise HTTPException(404)
     for f in ["depends_on_product_id", "depends_on_category_id", "dependency_type", "description", "sort_order"]:
-        if f in data:
-            setattr(dep, f, data[f])
+        val = getattr(data, f, None)
+        if val is not None:
+            setattr(dep, f, val)
     db.commit()
     return {"dependency": dep.to_dict()}
 
@@ -875,7 +590,7 @@ def delete_dependency(product_id: int, dep_id: int, db: Session = Depends(get_db
 def _write_mappings(product_id: int, data: dict, db: Session):
     """Write mapping tables for a product (create only)."""
     # Comm methods
-    for cm in data.get("comm_methods", []):
+    for cm in (data.get("comm_methods") or []):
         db.add(ProductCommMethod(
             product_id=product_id,
             method_id=cm.get("method_id") if isinstance(cm, dict) else cm,
@@ -883,7 +598,7 @@ def _write_mappings(product_id: int, data: dict, db: Session):
         ))
 
     # Comm protocols
-    for cp in data.get("comm_protocols", []):
+    for cp in (data.get("comm_protocols") or []):
         db.add(ProductCommProtocol(
             product_id=product_id,
             protocol_id=cp.get("protocol_id") if isinstance(cp, dict) else cp,
@@ -891,7 +606,7 @@ def _write_mappings(product_id: int, data: dict, db: Session):
         ))
 
     # Power supplies
-    for ps in data.get("power_supplies", []):
+    for ps in (data.get("power_supplies") or []):
         db.add(ProductPowerSupply(
             product_id=product_id,
             power_id=ps.get("power_id") if isinstance(ps, dict) else ps,
@@ -900,7 +615,7 @@ def _write_mappings(product_id: int, data: dict, db: Session):
         ))
 
     # Hardware interfaces
-    for hi in data.get("hardware_interfaces", []):
+    for hi in (data.get("hardware_interfaces") or []):
         db.add(ProductHardwareInterface(
             product_id=product_id,
             interface_name=hi["interface_name"],
@@ -909,7 +624,7 @@ def _write_mappings(product_id: int, data: dict, db: Session):
         ))
 
     # Sensor capabilities
-    for sc in data.get("sensor_capabilities", []):
+    for sc in (data.get("sensor_capabilities") or []):
         db.add(ProductSensorCapability(
             product_id=product_id,
             metric_id=sc.get("metric_id") if isinstance(sc, dict) else sc,
@@ -919,7 +634,7 @@ def _write_mappings(product_id: int, data: dict, db: Session):
         ))
 
     # Images
-    for idx, img in enumerate(data.get("images", [])):
+    for idx, img in enumerate((data.get("images") or [])):
         db.add(ProductImage(
             product_id=product_id,
             url=img.get("url", "") if isinstance(img, dict) else img,

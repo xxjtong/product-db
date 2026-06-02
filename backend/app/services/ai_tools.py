@@ -1,6 +1,7 @@
 """AI tool definitions for product database queries."""
 import json
 from sqlalchemy import or_
+from app.utils.escape import escape_like
 
 TOOL_DEFINITIONS = [
     {
@@ -102,40 +103,40 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
 
         if keyword:
             # Try exact keyword match first; fall back to bigram only if zero results
-            kw_filters = [Product.name.ilike(f"%{keyword}%"), Product.model.ilike(f"%{keyword}%")]
+            kw_filters = [Product.name.ilike(f"%{escape_like(keyword)}%"), Product.model.ilike(f"%{escape_like(keyword)}%")]
             hit_count = db.query(Product).filter(Product.status == "active").filter(or_(*kw_filters)).count()
             if hit_count > 0:
                 q = q.filter(or_(*kw_filters))
             elif len(keyword) >= 3:
                 parts = [keyword[i:i+2] for i in range(0, len(keyword)-1)]
-                bigram_filters = [Product.name.ilike(f"%{part}%") for part in parts[:5]]
+                bigram_filters = [Product.name.ilike(f"%{escape_like(part)}%") for part in parts[:5]]
                 q = q.filter(or_(*bigram_filters))
             else:
                 q = q.filter(or_(*kw_filters))
 
         if category:
-            cat = db.query(Category).filter(Category.name.ilike(f"%{category}%")).first()
+            cat = db.query(Category).filter(Category.name.ilike(f"%{escape_like(category)}%")).first()
             if cat:
                 q = q.filter(Product.category_id == cat.id)
 
         if manufacturer:
-            mfg = db.query(Manufacturer).filter(Manufacturer.name.ilike(f"%{manufacturer}%")).first()
+            mfg = db.query(Manufacturer).filter(Manufacturer.name.ilike(f"%{escape_like(manufacturer)}%")).first()
             if mfg:
                 q = q.filter(Product.manufacturer_id == mfg.id)
 
         if comm_method:
             q = q.filter(Product.comm_methods.any(
-                ProductCommMethod.method.has(DictCommMethod.name.ilike(f"%{comm_method}%"))
+                ProductCommMethod.method.has(DictCommMethod.name.ilike(f"%{escape_like(comm_method)}%"))
             ))
 
         if protocol:
             q = q.filter(Product.comm_protocols.any(
-                ProductCommProtocol.protocol.has(DictCommProtocol.name.ilike(f"%{protocol}%"))
+                ProductCommProtocol.protocol.has(DictCommProtocol.name.ilike(f"%{escape_like(protocol)}%"))
             ))
 
         if power:
             q = q.filter(Product.power_supplies.any(
-                ProductPowerSupply.power.has(DictPowerSupply.name.ilike(f"%{power}%"))
+                ProductPowerSupply.power.has(DictPowerSupply.name.ilike(f"%{escape_like(power)}%"))
             ))
 
         products = q.limit(limit).all()
@@ -234,7 +235,8 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
 
         total = sum(float(it.quantity or 0) * float(it.unit_price or 0) * (float(it.discount_rate or 100) / 100)
                     for it in items)
-        qt = Quotation(solution_id=solution_id, title=sol.name, client_name=sol.client_name or "",
+        qt = Quotation(solution_id=solution_id, title=sol.name,
+                       client_name=sol.client_name or "", project_name=sol.project_name or "",
                        status="draft", total_amount=total)
         db.add(qt)
         db.commit()

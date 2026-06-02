@@ -1,6 +1,6 @@
 from app.database import Base, JSONBType
 from sqlalchemy import (Column, Integer, String, Boolean, DateTime,
-                        ForeignKey, Text, Numeric)
+                        ForeignKey, Text, Numeric, func)
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -12,9 +12,9 @@ class Product(Base):
     model = Column(String(100), nullable=True, index=True)  # 产品型号: EG71, AM307
     name = Column(String(200), nullable=False, index=True)
     sku = Column(String(100), nullable=True, index=True)  # ERP SKU (optional)
-    category_id = Column(Integer, ForeignKey("device_categories.id"), nullable=False, index=True)
-    manufacturer_id = Column(Integer, ForeignKey("manufacturers.id"), nullable=True)
-    supplier_id = Column(Integer, ForeignKey("suppliers.id"), nullable=True)
+    category_id = Column(Integer, ForeignKey("device_categories.id", ondelete="SET NULL"), nullable=False, index=True)
+    manufacturer_id = Column(Integer, ForeignKey("manufacturers.id", ondelete="SET NULL"), nullable=True)
+    supplier_id = Column(Integer, ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True)
 
     unit = Column(String(20), default="台")
     base_price = Column(Numeric(10, 2), nullable=True)
@@ -23,17 +23,17 @@ class Product(Base):
     image_url = Column(String(500), nullable=True)  # 主图 URL (denormalized for list page)
     product_url = Column(String(500), nullable=True)  # 官方详情页链接
     status = Column(String(20), default="active", index=True)
-    parent_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+    parent_id = Column(Integer, ForeignKey("products.id", ondelete="SET NULL"), nullable=True, index=True)
 
-    specs = Column(JSONBType, default={})  # 物理特性兜底: 尺寸/重量/IP等级/材质等
-    urls = Column(JSONBType, default={})
-    custom_fields = Column(JSONBType, default={})
+    specs = Column(JSONBType, default=dict)  # 物理特性兜底: 尺寸/重量/IP等级/材质等
+    urls = Column(JSONBType, default=dict)
+    custom_fields = Column(JSONBType, default=dict)
 
     pinyin_search = Column(Text, nullable=True)
     view_count = Column(Integer, default=0)
 
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=datetime.now)
 
     # Relationships
     category = relationship("Category", backref="products")

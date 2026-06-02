@@ -15,7 +15,10 @@
 
   <!-- Filter panel -->
   <div class="card" style="margin-bottom:16px;padding:12px 16px">
-    <div class="filter-panel">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:4px">
+      <button class="btn-secondary btn-sm" @click="filterExpanded = !filterExpanded" style="font-size:11px">{{ filterExpanded ? '收起筛选 ▲' : '展开筛选 ▼' }}</button>
+    </div>
+    <div class="filter-panel" v-show="filterExpanded">
       <div class="filter-group" v-if="categoryTree.length">
         <span class="filter-label">品类</span>
         <span v-for="c in flatCategories" :key="c.id" :class="['filter-tag', { active: filters.category_id === c.id }]" @click="toggleCategory(c.id)">{{ c.name }}</span>
@@ -43,7 +46,7 @@
     <table class="data-table" v-if="products.length">
       <thead>
         <tr>
-          <th style="width:32px"><input type="checkbox" :checked="selectedIds.length === products.length" @change="toggleAll($event)" /></th>
+          <th style="width:32px"><input type="checkbox" :checked="selectedIds.length === products.length" @change="toggleAll($event)" title="全选" /></th>
           <th>名称</th><th>型号</th><th>品类</th><th>厂商</th><th>通讯</th><th>供电</th><th>操作</th>
         </tr>
       </thead>
@@ -69,8 +72,8 @@
             <TagBadge v-for="ps in p.power_supplies" :key="ps.power_id" :label="ps.power_name" />
           </td>
           <td>
-            <button class="btn-icon btn-sm" @click="$router.push(`/products/${p.id}/edit`)"><PencilIcon style="width:14px;height:14px" /></button>
-            <button class="btn-icon btn-sm" @click="confirmDelete(p)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
+            <button class="btn-icon btn-sm" title="编辑" @click="$router.push(`/products/${p.id}/edit`)"><PencilIcon style="width:14px;height:14px" /></button>
+            <button class="btn-icon btn-sm" title="删除" @click="confirmDelete(p)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
           </td>
         </tr>
       </tbody>
@@ -96,8 +99,10 @@ const products = ref<any[]>([])
 const total = ref(0)
 const page = ref(1)
 const perPage = 20
+const MAX_PER_PAGE = 100
 const search = ref('')
 const deleteTarget = ref<any>(null)
+const filterExpanded = ref(true)
 const selectedIds = ref<number[]>([])
 
 function toggleSelect(id: number) {
@@ -159,7 +164,7 @@ function buildParams(): string {
   if (filters.power_supply) parts.push(`power_supply=${filters.power_supply}`)
   if (filters.manufacturer_id) parts.push(`manufacturer_id=${filters.manufacturer_id}`)
   parts.push(`page=${page.value}`)
-  parts.push(`per_page=${perPage}`)
+  parts.push(`per_page=${Math.min(perPage, MAX_PER_PAGE)}`)
   return parts.join('&')
 }
 

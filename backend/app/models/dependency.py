@@ -10,8 +10,8 @@ class ProductDependency(Base):
 
     id = Column(Integer, primary_key=True)
     product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
-    depends_on_product_id = Column(Integer, ForeignKey("products.id"), nullable=True)
-    depends_on_category_id = Column(Integer, ForeignKey("device_categories.id"), nullable=True)
+    depends_on_product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=True)
+    depends_on_category_id = Column(Integer, ForeignKey("device_categories.id", ondelete="CASCADE"), nullable=True)
     dependency_type = Column(String(20), default="required")
     description = Column(Text, nullable=True)
     sort_order = Column(Integer, default=0)

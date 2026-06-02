@@ -5,16 +5,16 @@
     </div>
   </div>
   <div class="app-layout">
-    <aside class="app-sidebar">
-      <div class="sidebar-logo">产品数据库</div>
+    <aside class="app-sidebar" :class="{ collapsed: sidebarCollapsed }">
+      <div class="sidebar-logo" @click="sidebarCollapsed = !sidebarCollapsed" style="cursor:pointer">{{ sidebarCollapsed ? 'PD' : '产品数据库' }}</div>
       <nav class="sidebar-nav">
-        <router-link to="/products" class="sidebar-link"><PackageIcon />产品</router-link>
-        <router-link to="/categories" class="sidebar-link"><GridIcon />品类</router-link>
-        <router-link to="/dictionaries" class="sidebar-link"><BookIcon />字典</router-link>
-        <router-link to="/suppliers" class="sidebar-link"><TruckIcon />供应商</router-link>
-        <router-link to="/solutions" class="sidebar-link"><ClipboardListIcon />方案</router-link>
-        <router-link to="/quotations" class="sidebar-link"><FileTextIcon />报价单</router-link>
-        <router-link to="/admin" class="sidebar-link"><ShieldIcon />管理</router-link>
+        <router-link to="/products" class="sidebar-link" :title="sidebarCollapsed ? '产品' : ''"><PackageIcon /><span v-show="!sidebarCollapsed">产品</span></router-link>
+        <router-link to="/categories" class="sidebar-link" :title="sidebarCollapsed ? '品类' : ''"><GridIcon /><span v-show="!sidebarCollapsed">品类</span></router-link>
+        <router-link to="/dictionaries" class="sidebar-link" :title="sidebarCollapsed ? '字典' : ''"><BookIcon /><span v-show="!sidebarCollapsed">字典</span></router-link>
+        <router-link to="/suppliers" class="sidebar-link" :title="sidebarCollapsed ? '供应商' : ''"><TruckIcon /><span v-show="!sidebarCollapsed">供应商</span></router-link>
+        <router-link to="/solutions" class="sidebar-link" :title="sidebarCollapsed ? '方案' : ''"><ClipboardListIcon /><span v-show="!sidebarCollapsed">方案</span></router-link>
+        <router-link to="/quotations" class="sidebar-link" :title="sidebarCollapsed ? '报价单' : ''"><FileTextIcon /><span v-show="!sidebarCollapsed">报价单</span></router-link>
+        <router-link to="/admin" class="sidebar-link" :title="sidebarCollapsed ? '管理' : ''"><ShieldIcon /><span v-show="!sidebarCollapsed">管理</span></router-link>
       </nav>
     </aside>
     <main class="app-content">
@@ -30,6 +30,7 @@ import { PackageIcon, GridIcon, BookIcon, TruckIcon, ClipboardListIcon, FileText
 import AiChat from './components/AiChat.vue'
 
 interface ToastMsg { message: string; type: string }
+const sidebarCollapsed = ref(false)
 const toast = ref<ToastMsg | null>(null)
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 

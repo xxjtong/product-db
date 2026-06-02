@@ -10,7 +10,9 @@ from app.models.login_log import LoginLog
 from app.schemas.auth import (
     LoginRequest, TokenResponse, UserResponse,
     CreateUserRequest, UpdateUserRequest, UpdateProfileRequest,
+    RegistrationRequest, ResetPasswordRequest, FieldVisibilityUpdate, AIPromptUpdate,
 )
+from app.utils.escape import escape_like
 import httpx
 
 router = APIRouter()
@@ -38,7 +40,7 @@ def login(data: LoginRequest, request: Request, db: Session = Depends(get_db)):
     ip = request.client.host if request.client else ""
 
     if not user or not verify_password(data.password, user.password_hash):
-        db.add(LoginLog(user_id=None, ip_address=ip, success="0",
+        db.add(LoginLog(user_id=None, ip_address=ip, success=False,
                         user_agent=request.headers.get("User-Agent", "")))
         db.commit()
         raise HTTPException(401, "用户名或密码错误")
@@ -51,7 +53,7 @@ def login(data: LoginRequest, request: Request, db: Session = Depends(get_db)):
         user.password_hash = hash_password(data.password)
 
     region = _lookup_ip_region(ip)
-    db.add(LoginLog(user_id=user.id, ip_address=ip, region=region, success="1",
+    db.add(LoginLog(user_id=user.id, ip_address=ip, region=region, success=True,
                     user_agent=request.headers.get("User-Agent", "")))
     user.last_login = datetime.now(timezone.utc)
     db.commit()
@@ -86,24 +88,24 @@ def registration_status(db: Session = Depends(get_db)):
 
 
 @router.post("/auth/register")
-def register(data: dict, request: Request, db: Session = Depends(get_db)):
+def register(data: RegistrationRequest, request: Request, db: Session = Depends(get_db)):
     from app.models.system_setting import SystemSetting
     s = db.query(SystemSetting).filter_by(key="registration_open").first()
     if not s or s.value != "true":
         raise HTTPException(403, "注册功能未开放")
-    username = (data.get("username") or "").strip()
-    password = data.get("password") or ""
+    username = data.username.strip()
+    password = data.password
     if len(username) < 2 or len(password) < 6:
         raise HTTPException(400, "用户名至少2位，密码至少6位")
     if db.query(User).filter_by(username=username).first():
         raise HTTPException(400, "用户名已存在")
     u = User(username=username, password_hash=hash_password(password),
-             role="user", email=(data.get("email") or ""))
+             role="user", email=data.email)
     db.add(u)
     db.commit()
     db.refresh(u)
     ip = request.client.host if request.client else ""
-    db.add(LoginLog(user_id=u.id, ip_address=ip, success="1",
+    db.add(LoginLog(user_id=u.id, ip_address=ip, success=True,
                     user_agent=request.headers.get("User-Agent", "")))
     db.commit()
     token = create_token(u.id, u.username)
@@ -133,7 +135,7 @@ def list_users(search: str = "", db: Session = Depends(get_db), user=Depends(get
         raise HTTPException(403, "Admin only")
     q = db.query(User)
     if search:
-        q = q.filter(User.username.ilike(f"%{search}%"))
+        q = q.filter(User.username.ilike(f"%{escape_like(search)}%"))
     users = q.order_by(User.id).all()
     return {"users": [u.to_dict() for u in users]}
 
@@ -170,16 +172,15 @@ def update_user(uid: int, data: UpdateUserRequest, db: Session = Depends(get_db)
 
 
 @router.put("/admin/users/{uid}/password")
-def reset_user_password(uid: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def reset_user_password(uid: int, data: ResetPasswordRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(403, "Admin only")
     u = db.get(User, uid)
     if not u:
         raise HTTPException(404, "User not found")
-    pwd = data.get("password", "")
-    if len(pwd) < 8:
+    if len(data.password) < 8:
         raise HTTPException(400, "密码至少8位")
-    u.password_hash = hash_password(pwd)
+    u.password_hash = hash_password(data.password)
     db.commit()
     return {"ok": True}
 
@@ -226,12 +227,12 @@ def get_fields(db: Session = Depends(get_db), user=Depends(get_current_user)):
 
 
 @router.put("/admin/fields")
-def update_fields(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_fields(data: FieldVisibilityUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(403, "Admin only")
     from app.models.field_setting import FieldSetting
     from app.services.field_visibility import _cache
-    for field_name, visible in data.items():
+    for field_name, visible in (data.model_extra or {}).items():
         s = db.query(FieldSetting).filter_by(field_name=field_name).first()
         if s:
             s.user_visible = bool(visible)
@@ -259,7 +260,7 @@ def get_ai_prompt(db: Session = Depends(get_db), user=Depends(get_current_user))
 
 
 @router.put("/admin/prompt")
-def update_ai_prompt(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_ai_prompt(data: AIPromptUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(403, "Admin only")
     from app.models.system_setting import SystemSetting
@@ -267,7 +268,7 @@ def update_ai_prompt(data: dict, db: Session = Depends(get_db), user=Depends(get
     if not s:
         s = SystemSetting(key="ai_system_prompt")
         db.add(s)
-    s.value = data.get("prompt", "")
+    s.value = data.prompt
     # Clear AI sessions to force new prompt on next chat
     from app.models.ai_models import AIConversation
     db.query(AIConversation).delete()

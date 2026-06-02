@@ -105,7 +105,7 @@
   <Modal :title="editing ? '编辑用户' : '新增用户'" :visible="modalVisible" @close="modalVisible = false">
     <div class="form-grid">
       <div class="form-group"><label>用户名 *</label><input v-model="form.username" /></div>
-      <div class="form-group"><label>密码 {{ editing ? '(留空不修改)' : '*' }}</label><input v-model="form.password" type="text" /></div>
+      <div class="form-group"><label>密码 {{ editing ? '(留空不修改)' : '*' }}</label><input v-model="form.password" type="password" /></div>
       <div class="form-group"><label>角色</label><select v-model="form.role"><option value="user">user</option><option value="admin">admin</option></select></div>
       <div class="form-group"><label>邮箱</label><input v-model="form.email" /></div>
       <div class="form-group" v-if="editing"><label>状态</label><select v-model="form.is_active"><option :value="true">启用</option><option :value="false">停用</option></select></div>
@@ -117,7 +117,7 @@
 
   <!-- Reset password modal -->
   <Modal title="重置密码" :visible="pwdModalVisible" @close="pwdModalVisible = false">
-    <div class="form-group"><label>新密码（至少8位）</label><input v-model="newPwd" type="text" /></div>
+    <div class="form-group"><label>新密码（至少8位）</label><input v-model="newPwd" type="password" /></div>
     <template #footer>
       <button class="btn-secondary" @click="pwdModalVisible = false">取消</button><button class="btn-primary" @click="doResetPwd">确认</button>
     </template>

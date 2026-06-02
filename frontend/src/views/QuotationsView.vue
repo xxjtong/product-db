@@ -1,5 +1,9 @@
 <template>
-  <PageHeader title="报价单" />
+  <PageHeader title="报价单">
+    <button class="btn-primary" @click="$router.push('/solutions')">
+      <PlusIcon style="width:16px;height:16px" />新增
+    </button>
+  </PageHeader>
 
   <div class="card">
     <table class="data-table" v-if="quotations.length">
@@ -13,8 +17,8 @@
           <td class="font-mono">{{ q.total_amount }}</td>
           <td class="text-sm">{{ q.created_at }}</td>
           <td>
-            <button class="btn-icon btn-sm" @click="$router.push(`/quotations/${q.id}`)"><EyeIcon style="width:14px;height:14px" /></button>
-            <button class="btn-icon btn-sm" @click="confirmDelete(q)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
+            <button class="btn-icon btn-sm" title="查看" @click="$router.push(`/quotations/${q.id}`)"><EyeIcon style="width:14px;height:14px" /></button>
+            <button class="btn-icon btn-sm" title="删除" @click="confirmDelete(q)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
           </td>
         </tr>
       </tbody>
@@ -28,7 +32,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, inject } from 'vue'
-import { Trash2Icon, InboxIcon, EyeIcon } from 'lucide-vue-next'
+import { PlusIcon, Trash2Icon, InboxIcon, EyeIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Pagination from '../components/Pagination.vue'

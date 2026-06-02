@@ -11,6 +11,8 @@ from app.models.solution import Solution, SolutionItem
 from app.models.product import Product
 from app.auth import get_current_user
 from app.models.user import User
+from app.schemas.bom_template import BOMTemplateCreate, BOMTemplateUpdate, SaveAsTemplateRequest
+from app.schemas.solution import BOMSnapshotSave
 from datetime import datetime
 from io import BytesIO
 
@@ -26,13 +28,13 @@ def list_templates(db: Session = Depends(get_db), user=Depends(get_current_user)
 
 
 @router.post("/bom-templates")
-def create_template(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def create_template(data: BOMTemplateCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     t = BOMTemplate(
-        name=data["name"],
-        description=data.get("description"),
-        sheet_name=data.get("sheet_name", "Sheet1"),
-        snapshot=data.get("snapshot", {}),
-        is_default=data.get("is_default", False),
+        name=data.name,
+        description=data.description,
+        sheet_name=data.sheet_name,
+        snapshot=data.snapshot,
+        is_default=data.is_default,
         created_by=user.id,
     )
     db.add(t)
@@ -50,13 +52,14 @@ def get_template(template_id: int, db: Session = Depends(get_db), user=Depends(g
 
 
 @router.put("/bom-templates/{template_id}")
-def update_template(template_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_template(template_id: int, data: BOMTemplateUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     t = db.get(BOMTemplate, template_id)
     if not t:
         raise HTTPException(404, "Template not found")
     for f in ["name", "description", "sheet_name", "snapshot", "is_default"]:
-        if f in data:
-            setattr(t, f, data[f])
+        val = getattr(data, f, None)
+        if val is not None:
+            setattr(t, f, val)
     t.updated_at = datetime.now()
     db.commit()
     return {"template": t.to_dict()}
@@ -123,20 +126,20 @@ def get_bom_snapshot(solution_id: int, db: Session = Depends(get_db), user=Depen
 
 
 @router.put("/solutions/{solution_id}/bom-snapshot")
-def save_bom_snapshot(solution_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def save_bom_snapshot(solution_id: int, data: BOMSnapshotSave, db: Session = Depends(get_db), user=Depends(get_current_user)):
     sol = db.get(Solution, solution_id)
     if not sol:
         raise HTTPException(404, "Solution not found")
 
     existing = db.query(SolutionBOMSnapshot).filter_by(solution_id=solution_id).first()
     if existing:
-        existing.snapshot = data.get("snapshot", existing.snapshot)
+        existing.snapshot = data.snapshot if data.snapshot else existing.snapshot
         existing.updated_at = datetime.now()
     else:
         existing = SolutionBOMSnapshot(
             solution_id=solution_id,
-            template_id=data.get("template_id"),
-            snapshot=data.get("snapshot", {}),
+            template_id=None,
+            snapshot=data.snapshot,
         )
         db.add(existing)
     db.commit()
@@ -145,15 +148,15 @@ def save_bom_snapshot(solution_id: int, data: dict, db: Session = Depends(get_db
 
 
 @router.post("/solutions/{solution_id}/bom-snapshot/save-as-template")
-def save_as_template(solution_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def save_as_template(solution_id: int, data: SaveAsTemplateRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
     snap = db.query(SolutionBOMSnapshot).filter_by(solution_id=solution_id).first()
     if not snap:
         raise HTTPException(404, "No BOM snapshot found for this solution")
 
     t = BOMTemplate(
-        name=data.get("name", f"Template from Solution #{solution_id}"),
-        description=data.get("description"),
-        sheet_name=data.get("sheet_name", "Sheet1"),
+        name=data.name or f"Template from Solution #{solution_id}",
+        description=data.description,
+        sheet_name=data.sheet_name,
         snapshot=snap.snapshot,
         is_default=False,
         created_by=user.id,

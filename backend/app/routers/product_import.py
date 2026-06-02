@@ -6,6 +6,8 @@ from app.models.product import Product
 from app.models.category import Category
 from app.models.dictionary import Manufacturer
 from app.auth import get_current_user
+from app.utils.escape import escape_like
+from app.schemas.product import ProductImportConfirm
 import openpyxl
 from io import BytesIO
 
@@ -34,10 +36,10 @@ def import_preview(file: UploadFile = File(...), db: Session = Depends(get_db), 
 
 
 @router.post("/products/import-confirm")
-def import_confirm(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def import_confirm(data: ProductImportConfirm, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """Save products from imported data with column mapping."""
-    mapping = data.get("mapping", {})
-    rows = data.get("rows", [])
+    mapping = data.mapping
+    rows = data.rows
     if not rows or not mapping:
         raise HTTPException(400, "No data to import")
 
@@ -59,7 +61,7 @@ def import_confirm(data: dict, db: Session = Depends(get_db), user=Depends(get_c
         if cat_name:
             cat = db.query(Category).filter(Category.name == cat_name).first()
             if not cat:
-                cat = db.query(Category).filter(Category.name.ilike(f"%{cat_name}%")).first()
+                cat = db.query(Category).filter(Category.name.ilike(f"%{escape_like(cat_name)}%")).first()
             if cat:
                 category_id = cat.id
 

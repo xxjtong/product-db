@@ -22,4 +22,13 @@ const router = createRouter({
   ],
 })
 
+router.beforeEach((to, _from, next) => {
+  const token = localStorage.getItem('token')
+  if (to.meta.admin && !token) {
+    next('/login')
+  } else {
+    next()
+  }
+})
+
 export default router

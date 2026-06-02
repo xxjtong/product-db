@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from app.database import engine, Base
+from app.database import Base
 from app.models import *  # noqa: ensure all models registered
 from app.routers import products, product_import, product_specs, categories, suppliers, solutions, quotations, bom_templates, ai, dictionaries, auth_routes, system_settings
 from app.config import settings
@@ -11,9 +11,8 @@ import os
 import sys
 import time
 
-# Table creation via Alembic for production; auto-create in dev mode
-if settings.DEV_MODE:
-    Base.metadata.create_all(bind=engine)
+# Table creation is handled by Alembic migrations.
+# Do NOT use Base.metadata.create_all here — always run alembic upgrade head.
 
 # Configure structured logging
 logger.remove()

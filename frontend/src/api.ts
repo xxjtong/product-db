@@ -11,8 +11,11 @@ export class ApiError extends Error {
 }
 
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = localStorage.getItem('token')
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (token) headers['Authorization'] = `Bearer ${token}`
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     ...options,
   })
   if (!res.ok) {
@@ -60,7 +63,11 @@ export const compareProducts = (ids: string) =>
 export const exportProducts = (params = '') => `${API_BASE}/products/export${params ? '?' + params : ''}`
 export const specSheetUrl = (id: number) => `${API_BASE}/products/${id}/spec-sheet`
 export const uploadProductImage = (formData: FormData) =>
-  fetch(`${API_BASE}/products/upload-image`, { method: 'POST', body: formData }).then(r => r.json())
+  fetch(`${API_BASE}/products/upload-image`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
+    body: formData,
+  }).then(r => r.json())
 export const downloadProductImage = (url: string) =>
   api<{ url: string }>('/products/download-image', { method: 'POST', body: JSON.stringify({ url }) })
 
@@ -111,9 +118,12 @@ export const quotationExportUrl = (qtId: number) => `${API_BASE}/quotations/${qt
 
 // --- AI ---
 export async function* streamAiChat(input: string, conversationId?: number | null) {
+  const token = localStorage.getItem('token')
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (token) headers['Authorization'] = `Bearer ${token}`
   const res = await fetch(`${API_BASE}/ai/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({ input, conversation_id: conversationId }),
   })
   const reader = res.body!.getReader()
