@@ -21,9 +21,14 @@
       </nav>
       <!-- AI stats -->
       <div v-if="!sidebarCollapsed && aiStats" class="sidebar-stats">
-        <div class="sidebar-stats-row">
-          <span class="sidebar-stats-num">{{ aiStats.total }}</span><span class="sidebar-stats-label">总请求</span>
-          <span class="sidebar-stats-num">{{ aiStats.success }}</span><span class="sidebar-stats-label">成功</span>
+        <div class="sidebar-stats-item">
+          <span class="sidebar-stats-num">{{ aiStats.total.toLocaleString() }}</span>
+          <span class="sidebar-stats-label">总请求</span>
+        </div>
+        <div class="sidebar-stats-divider"></div>
+        <div class="sidebar-stats-item">
+          <span class="sidebar-stats-num">{{ aiStats.success.toLocaleString() }}</span>
+          <span class="sidebar-stats-label">成功</span>
         </div>
       </div>
       <div v-show="!sidebarCollapsed" class="sidebar-version">v2.0</div>
@@ -256,24 +261,38 @@ watch(() => route.path, (to, from) => {
 .sidebar-search input::placeholder { color: rgba(255,255,255,.35); }
 .sidebar-search input:focus { outline: none; border-color: var(--color-accent); }
 .sidebar-stats {
-  padding: 6px 12px;
-  border-top: 1px solid rgba(255,255,255,.06);
-}
-.sidebar-stats-row {
+  margin: 8px 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.05);
   display: flex;
-  gap: 6px;
-  align-items: baseline;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+}
+.sidebar-stats-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 56px;
 }
 .sidebar-stats-num {
-  font-size: 13px;
-  font-weight: 600;
-  color: rgba(255,255,255,.7);
+  font-size: 15px;
+  font-weight: 700;
+  color: rgba(255,255,255,.85);
   font-variant-numeric: tabular-nums;
+  line-height: 1.2;
 }
 .sidebar-stats-label {
   font-size: 10px;
   color: rgba(255,255,255,.35);
-  margin-right: 10px;
+  margin-top: 1px;
+}
+.sidebar-stats-divider {
+  width: 1px;
+  height: 28px;
+  background: rgba(255,255,255,.1);
+  margin: 0 14px;
 }
 .sidebar-version {
   padding: 4px 16px;
