@@ -13,8 +13,8 @@ def _save_usage(user_id: int, tokens_in: int, tokens_out: int, duration_ms: int,
     conn = sqlite3.connect('/Users/tong/product-db/backend/product_db.db', timeout=30)
     try:
         conn.execute(
-            "INSERT INTO ai_usage_logs (user_id, operation, tokens_in, tokens_out, duration_ms, success) "
-            "VALUES (?, 'chat', ?, ?, ?, ?)",
+            "INSERT INTO ai_usage_logs (user_id, operation, tokens_in, tokens_out, duration_ms, success, created_at) "
+            "VALUES (?, 'chat', ?, ?, ?, ?, datetime('now', 'localtime'))",
             (user_id, tokens_in, tokens_out, duration_ms, 1 if success else 0)
         )
         conn.commit()
