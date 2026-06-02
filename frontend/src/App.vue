@@ -23,7 +23,7 @@
           <span class="sidebar-username">{{ currentUser.username }}</span>
         </button>
         <button class="sidebar-logout" title="退出登录" @click="showLogout = true">
-          <LogOutIcon :size="14" color="rgba(255, 255, 255, 0.85)" />
+          <span style="color:rgba(255,255,255,.7);display:flex;align-items:center">⏻</span>
         </button>
       </div>
     </aside>
@@ -76,7 +76,7 @@
 <script setup lang="ts">
 import { ref, provide, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { PackageIcon, GridIcon, BookIcon, TruckIcon, ClipboardListIcon, FileTextIcon, ShieldIcon, UserIcon, LogOutIcon } from 'lucide-vue-next'
+import { PackageIcon, GridIcon, BookIcon, TruckIcon, ClipboardListIcon, FileTextIcon, ShieldIcon, UserIcon } from 'lucide-vue-next'
 import AiChat from './components/AiChat.vue'
 
 const router = useRouter()
@@ -207,9 +207,12 @@ onMounted(loadSession)
   width: 28px; height: 28px;
   border: none; border-radius: 6px;
   background: transparent;
+  color: rgba(255,255,255,.7);
   cursor: pointer;
   flex-shrink: 0;
+  font-size: 18px;
 }
+.sidebar-logout:hover { background: rgba(255,255,255,.15); color: #fff; }
 
 /* Modal */
 .modal-overlay {
