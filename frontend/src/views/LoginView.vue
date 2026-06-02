@@ -7,7 +7,7 @@
       <div class="form-group"><label>用户名</label><input v-model="username" @keyup.enter="submit" /></div>
       <div class="form-group"><label>密码</label><input v-model="password" type="password" @keyup.enter="submit" /></div>
       <p v-if="error" class="text-sm" style="color:var(--color-danger)">{{ error }}</p>
-      <button class="btn-primary" style="width:100%" @click="submit" :disabled="loading">{{ loading ? '提交中...' : isRegister ? '注册' : '登录' }}</button>
+      <button class="btn-primary" style="width:100%;margin-top:16px" @click="submit" :disabled="loading">{{ loading ? '提交中...' : isRegister ? '注册' : '登录' }}</button>
       <p v-if="regOpen" class="text-sm text-muted" style="text-align:center;margin-top:12px;cursor:pointer" @click="isRegister = !isRegister; error = ''">
         {{ isRegister ? '已有账号？去登录' : '没有账号？注册' }}
       </p>
