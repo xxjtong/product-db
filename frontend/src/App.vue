@@ -5,7 +5,7 @@
     </div>
   </div>
   <div class="app-layout">
-    <aside class="app-sidebar" :class="{ collapsed: sidebarCollapsed }">
+    <aside v-if="$route.path !== '/login'" class="app-sidebar" :class="{ collapsed: sidebarCollapsed }">
       <div class="sidebar-logo" @click="sidebarCollapsed = !sidebarCollapsed" style="cursor:pointer">{{ sidebarCollapsed ? 'PD' : '产品数据库' }}</div>
       <nav class="sidebar-nav">
         <router-link to="/products" class="sidebar-link" :title="sidebarCollapsed ? '产品' : ''"><PackageIcon /><span v-show="!sidebarCollapsed">产品</span></router-link>
@@ -21,7 +21,7 @@
       <router-view />
     </main>
   </div>
-  <AiChat />
+  <AiChat v-if="$route.path !== '/login'" />
 </template>
 
 <script setup lang="ts">
