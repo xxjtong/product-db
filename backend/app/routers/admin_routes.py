@@ -145,7 +145,7 @@ def update_fields(data: FieldVisibilityUpdate, db: Session = Depends(get_db), us
 
 _PROMPT_DEFAULTS = {
     "ai_system_prompt": "你是产品数据库AI助手。帮助用户查询产品、推荐方案、录入产品信息。\n数据库包含 IoT 产品和设施管理产品。\n用中文简洁回答，查产品时调用 search_products 工具。",
-    "ai_keyword_prompt": "从用户查询提取搜索参数，返回JSON: {\"keyword\":\"关键词\",\"category\":\"品类\",\"comm_method\":\"通讯方式\"}。品类从:网关/传感器/节点终端/安防/工具/执行器/蜂窝设备 中选择。只返回JSON。",
+    "ai_keyword_prompt": "从用户查询提取搜索参数。如果查询涉及多个产品类型，用最具体的词作为keyword。对模糊词进行同义替换：漏水→水浸/液位/漏水检测、开关→智能开关/开关面板、灯→灯光/照明、锁→智能锁/门锁、表→电表/水表。返回JSON: {\"keyword\":\"关键词\",\"category\":\"品类\",\"comm_method\":\"通讯方式\"}。品类从:网关/传感器/节点终端/安防/工具/执行器/蜂窝设备 中选择。只返回JSON。",
     "ai_extract_prompt": "你是一个物联网产品信息提取助手。根据网页内容提取产品结构化信息，输出必须是有效 JSON。",
 }
 _MODEL_DEFAULTS = {"ai_chat_model": "deepseek-v4-flash", "ai_keyword_model": "deepseek-v4-flash", "ai_extract_model": "deepseek-v4-flash"}

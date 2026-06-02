@@ -152,6 +152,18 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
             selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
         ).limit(limit).all()
 
+        if not products and keyword:
+            # Try synonym replacement for common mismatches
+            synonyms = {"漏水": "水浸", "水浸": "漏水", "开关": "智能开关", "灯光": "照明", "照明": "灯光"}
+            for old, new in synonyms.items():
+                if old in keyword:
+                    alt_kw = keyword.replace(old, new)
+                    q2 = db.query(Product).filter(Product.status == "active")
+                    q2 = q2.filter(or_(Product.name.ilike(f"%{escape_like(alt_kw)}%"), Product.model.ilike(f"%{escape_like(alt_kw)}%")))
+                    alt_products = q2.options(selectinload(Product.category), selectinload(Product.manufacturer)).limit(limit).all()
+                    if alt_products:
+                        products = alt_products
+                        break
         if not products:
             return json.dumps({"found": 0, "message": "未找到匹配产品"}, ensure_ascii=False)
 
