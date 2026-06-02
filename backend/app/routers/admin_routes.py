@@ -147,7 +147,7 @@ _PROMPT_DEFAULTS = {
     "ai_keyword_prompt": "从用户查询提取搜索参数，返回JSON: {\"keyword\":\"关键词\",\"category\":\"品类\",\"comm_method\":\"通讯方式\"}。品类从:网关/传感器/节点终端/安防/工具/执行器/蜂窝设备 中选择。只返回JSON。",
     "ai_extract_prompt": "你是一个物联网产品信息提取助手。根据网页内容提取产品结构化信息，输出必须是有效 JSON。",
 }
-_MODEL_DEFAULTS = {"ai_chat_model": "deepseek-chat", "ai_keyword_model": "deepseek-chat", "ai_extract_model": "deepseek-chat"}
+_MODEL_DEFAULTS = {"ai_chat_model": "deepseek-v4-flash", "ai_keyword_model": "deepseek-v4-flash", "ai_extract_model": "deepseek-v4-flash"}
 
 @router.get("/admin/ai-settings")
 def get_ai_settings(db: Session = Depends(get_db), user=Depends(get_current_user)):

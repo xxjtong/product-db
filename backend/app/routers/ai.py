@@ -276,7 +276,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
     user_query = messages[-1]["content"] if messages else ""
     try:
         kw_prompt = _get_ai_setting("ai_keyword_prompt", "从用户查询提取搜索参数，返回JSON: {\"keyword\":\"关键词\",\"category\":\"品类\",\"comm_method\":\"通讯方式\"}。品类从:网关/传感器/节点终端/安防/工具/执行器/蜂窝设备 中选择。只返回JSON。")
-        kw_model = _get_ai_setting("ai_keyword_model", "deepseek-chat")
+        kw_model = _get_ai_setting("ai_keyword_model", "deepseek-v4-flash")
         extract_prompt = [
             {"role": "system", "content": kw_prompt},
             {"role": "user", "content": user_query},
@@ -315,7 +315,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
     except Exception:
         pass  # Fall through to normal agent
 
-    chat_model = _get_ai_setting("ai_chat_model", "deepseek-chat")
+    chat_model = _get_ai_setting("ai_chat_model", "deepseek-v4-flash")
     for turn in range(max_turns):
         try:
             response = await engine.chat(current_messages, model=chat_model, tools=TOOL_DEFINITIONS if turn == 0 and not products_found else None, temperature=0.3)

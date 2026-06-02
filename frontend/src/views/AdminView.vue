@@ -28,9 +28,8 @@
         <div class="form-group" v-for="(defVal, key) in aiSettings?.model_defaults || {}" :key="key">
           <label style="font-size:12px">{{ modelLabels[key] || key }}</label>
           <select v-model="aiModels[key]" style="font-size:12px">
-            <option value="deepseek-chat">DeepSeek V3</option>
-            <option value="deepseek-v4-pro">DeepSeek V4 Pro</option>
-            <option value="deepseek-reasoner">DeepSeek R1</option>
+            <option value="deepseek-v4-pro">V4 Pro</option>
+            <option value="deepseek-v4-flash">V4 Flash</option>
           </select>
         </div>
       </div>
