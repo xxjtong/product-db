@@ -79,7 +79,7 @@ import SolutionProductCard from './GenUI/SolutionProductCard.vue'
 import QuoteDraftCard from './GenUI/QuoteDraftCard.vue'
 import { fetchConversations, fetchConversation, deleteConversation } from '../api'
 import DOMPurify from 'dompurify'
-import { formatAiContent } from '../utils/markdown'
+import { formatAiContent, escapeHtml } from '../utils/markdown'
 
 function sanitize(html: string): string { return DOMPurify.sanitize(html) as string }
 
