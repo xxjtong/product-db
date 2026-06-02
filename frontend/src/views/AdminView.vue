@@ -17,14 +17,32 @@
     </div>
   </div>
 
-  <!-- AI System Prompt -->
+  <!-- AI Settings: Prompts + Models -->
   <div class="card mb-16">
-    <h3>AI 系统提示词 <span class="text-sm text-muted" :style="{color: aiPromptIsDefault ? 'var(--color-text-secondary)' : 'var(--color-danger)'}">{{ aiPromptIsDefault ? '（默认）' : '（自定义）' }}</span></h3>
-    <textarea v-model="aiPrompt" rows="6" style="width:100%;font-family:monospace;font-size:12px"></textarea>
-    <div class="flex gap-8 mt-8">
-      <button class="btn-primary btn-sm" @click="saveAiPrompt" :disabled="aiPromptSaving">{{ aiPromptSaving ? '保存中...' : '保存' }}</button>
-      <button v-if="!aiPromptIsDefault" class="btn-secondary btn-sm" @click="resetAiPrompt">恢复默认</button>
-      <span class="text-sm text-muted">{{ aiPrompt?.length || 0 }} 字符</span>
+    <h3>AI 设置</h3>
+
+    <!-- Model selection -->
+    <div class="mb-8">
+      <h4 style="margin:8px 0 4px">模型选择</h4>
+      <div class="form-grid" style="gap:8px">
+        <div class="form-group" v-for="(defVal, key) in aiSettings?.model_defaults || {}" :key="key">
+          <label style="font-size:12px">{{ modelLabels[key] || key }}</label>
+          <select v-model="aiModels[key]" style="font-size:12px">
+            <option value="deepseek-chat">DeepSeek V3 (chat)</option>
+            <option value="deepseek-reasoner">DeepSeek R1 (reasoner)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Prompts -->
+    <div>
+      <h4 style="margin:8px 0 4px">提示词</h4>
+      <div v-for="(defPrompt, key) in aiSettings?.prompt_defaults || {}" :key="key" class="mb-8">
+        <label style="font-size:12px;font-weight:600">{{ promptLabels[key] || key }}</label>
+        <textarea v-model="aiPrompts[key]" rows="3" style="width:100%;font-family:monospace;font-size:11px;margin-top:2px"></textarea>
+      </div>
+      <button class="btn-primary btn-sm" @click="saveAiSettings" :disabled="aiSaving">{{ aiSaving ? '保存中...' : '保存 AI 设置' }}</button>
     </div>
   </div>
 
@@ -178,10 +196,13 @@ const fieldList = ref([
   { key: 'product_url', label: '产品URL', visible: true },
 ])
 
-// AI prompt
-const aiPrompt = ref('')
-const aiPromptSaving = ref(false)
-const aiPromptIsDefault = ref(true)
+// AI settings
+const aiSettings = ref<any>(null)
+const aiPrompts = ref<Record<string,string>>({})
+const aiModels = ref<Record<string,string>>({})
+const aiSaving = ref(false)
+const promptLabels: Record<string,string> = { ai_system_prompt: '系统提示词', ai_keyword_prompt: '关键词提取提示词', ai_extract_prompt: '产品提取提示词' }
+const modelLabels: Record<string,string> = { ai_chat_model: 'AI 对话', ai_keyword_model: '关键词提取', ai_extract_model: '产品提取' }
 
 // AI usage
 const aiUsage = ref<any>(null)
@@ -203,7 +224,7 @@ async function load() {
       adminApi('/api/admin/users'),
       adminApi('/api/admin/login-logs'),
       adminApi('/api/admin/fields'),
-      adminApi('/api/admin/prompt'),
+      adminApi('/api/admin/ai-settings'),
       adminApi('/api/admin/ai-usage'),
       adminApi('/api/admin/download-logs'),
       fetch('/api/auth/registration-status').then(r => r.json()),
@@ -213,8 +234,9 @@ async function load() {
     dlogs.value = dRes.logs || []
     const fields = fRes.fields || {}
     for (const fv of fieldList.value) { if (fv.key in fields) fv.visible = fields[fv.key] }
-    aiPrompt.value = pRes.prompt || ''
-    aiPromptIsDefault.value = pRes.is_default !== false
+    aiSettings.value = pRes
+    aiPrompts.value = { ...(pRes.prompt_defaults || {}), ...(pRes.prompts || {}) }
+    aiModels.value = { ...(pRes.model_defaults || {}), ...(pRes.models || {}) }
     aiUsage.value = aRes
     regOpen.value = rRes.open || false
   } catch (e: any) {
@@ -233,22 +255,16 @@ async function toggleField(key: string) {
 }
 
 // AI prompt
-async function saveAiPrompt() {
-  aiPromptSaving.value = true
+async function saveAiSettings() {
+  aiSaving.value = true
   try {
-    await fetch('/api/admin/prompt', { method: 'PUT', headers: h(), body: JSON.stringify({ prompt: aiPrompt.value }) })
-    aiPromptIsDefault.value = false; showToast('已保存', 'success')
+    await fetch('/api/admin/ai-settings', {
+      method: 'PUT', headers: h(),
+      body: JSON.stringify({ prompts: aiPrompts.value, models: aiModels.value }),
+    })
+    showToast('已保存', 'success')
   } catch (e: any) { showToast(e.message, 'error') }
-  aiPromptSaving.value = false
-}
-
-async function resetAiPrompt() {
-  showConfirm('恢复默认提示词', '确定恢复默认提示词？所有AI对话将被清除。', async () => {
-    const res = await fetch('/api/admin/prompt', { method: 'DELETE', headers: h() })
-    const data = await res.json()
-    aiPrompt.value = data.prompt
-    aiPromptIsDefault.value = true; showToast('已恢复默认', 'success')
-  })
+  aiSaving.value = false
 }
 
 // Registration

@@ -140,43 +140,40 @@ def update_fields(data: FieldVisibilityUpdate, db: Session = Depends(get_db), us
     return {"ok": True}
 
 
-# --- AI Prompt Management ---
+# --- AI Prompts & Models ---
 
-@router.get("/admin/prompt")
-def get_ai_prompt(db: Session = Depends(get_db), user=Depends(get_current_user)):
+_PROMPT_DEFAULTS = {
+    "ai_system_prompt": "你是产品数据库AI助手。帮助用户查询产品、推荐方案、录入产品信息。\n数据库包含 IoT 产品和设施管理产品。\n用中文简洁回答，查产品时调用 search_products 工具。",
+    "ai_keyword_prompt": "从用户查询提取搜索参数，返回JSON: {\"keyword\":\"关键词\",\"category\":\"品类\",\"comm_method\":\"通讯方式\"}。品类从:网关/传感器/节点终端/安防/工具/执行器/蜂窝设备 中选择。只返回JSON。",
+    "ai_extract_prompt": "你是一个物联网产品信息提取助手。根据网页内容提取产品结构化信息，输出必须是有效 JSON。",
+}
+_MODEL_DEFAULTS = {"ai_chat_model": "deepseek-chat", "ai_keyword_model": "deepseek-chat", "ai_extract_model": "deepseek-chat"}
+
+@router.get("/admin/ai-settings")
+def get_ai_settings(db: Session = Depends(get_db), user=Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(403, "Admin only")
     from app.models.system_setting import SystemSetting
-    s = db.query(SystemSetting).filter_by(key="ai_system_prompt").first()
-    return {"prompt": s.value if s else DEFAULT_AI_PROMPT, "is_default": not s}
+    result = {"prompts": {}, "models": {}}
+    for s in db.query(SystemSetting).all():
+        if s.key in _PROMPT_DEFAULTS: result["prompts"][s.key] = s.value
+        elif s.key in _MODEL_DEFAULTS: result["models"][s.key] = s.value
+    return result
 
-
-@router.put("/admin/prompt")
-def update_ai_prompt(data: AIPromptUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+@router.put("/admin/ai-settings")
+def update_ai_settings(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(403, "Admin only")
     from app.models.system_setting import SystemSetting
-    s = db.query(SystemSetting).filter_by(key="ai_system_prompt").first()
-    if not s:
-        s = SystemSetting(key="ai_system_prompt")
-        db.add(s)
-    s.value = data.prompt
-    from app.models.ai_models import AIConversation
-    db.query(AIConversation).delete()
+    for kv in [data.get("prompts", {}), data.get("models", {})]:
+        for key, value in kv.items():
+            s = db.query(SystemSetting).filter_by(key=key).first()
+            if not s: s = SystemSetting(key=key); db.add(s)
+            s.value = value
+    if data.get("prompts"):
+        from app.models.ai_models import AIConversation; db.query(AIConversation).delete()
     db.commit()
     return {"ok": True}
-
-
-@router.delete("/admin/prompt")
-def reset_ai_prompt(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    if user.role != "admin":
-        raise HTTPException(403, "Admin only")
-    from app.models.system_setting import SystemSetting
-    s = db.query(SystemSetting).filter_by(key="ai_system_prompt").first()
-    if s:
-        db.delete(s)
-        db.commit()
-    return {"prompt": DEFAULT_AI_PROMPT}
 
 
 # --- AI Usage Stats ---
