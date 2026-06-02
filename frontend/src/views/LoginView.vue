@@ -8,7 +8,7 @@
       <div class="form-group"><input v-model="password" type="password" placeholder="密码" @keyup.enter="submit" /></div>
       <p v-if="error" class="text-sm" style="color:var(--color-danger)">{{ error }}</p>
       <button class="btn-primary" style="width:100%;margin-top:16px" @click="submit" :disabled="loading">{{ loading ? '提交中...' : isRegister ? '注册' : '登录' }}</button>
-      <p v-if="regOpen" class="text-sm" style="text-align:center;margin-top:16px;color:var(--color-text-secondary)">
+      <p class="text-sm" style="text-align:center;margin-top:16px;color:var(--color-text-secondary)">
         {{ isRegister ? '已有账号？' : '没有账号？' }}
         <a href="#" @click.prevent="isRegister = !isRegister; error = ''">{{ isRegister ? '去登录' : '注册新账号' }}</a>
       </p>
