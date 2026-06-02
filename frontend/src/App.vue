@@ -266,7 +266,7 @@ watch(() => route.path, (to, from) => {
 .sidebar-stats-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   padding: 4px 0;
 }
 .sidebar-stats-label {
@@ -274,11 +274,11 @@ watch(() => route.path, (to, from) => {
   color: rgba(255,255,255,.55);
 }
 .sidebar-stats-num {
-  width: 28px;
+  width: 18px;
   text-align: right;
   font-size: 14px;
   font-weight: 600;
-  color: rgba(255,255,255,.8);
+  color: rgba(255,255,255,.85);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
