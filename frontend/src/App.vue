@@ -21,11 +21,9 @@
         <button class="sidebar-user-btn" @click="openProfile">
           <UserIcon style="width:14px;height:14px;flex-shrink:0" />
           <span class="sidebar-username">{{ currentUser.username }}</span>
-          <span style="font-size:10px;opacity:.5;margin-left:auto;flex-shrink:0">{{ currentUser.role === 'admin' ? '管理员' : '' }}</span>
         </button>
-        <button class="sidebar-user-btn" style="margin-top:1px" @click="showLogout = true">
-          <LogOutIcon style="width:14px;height:14px;opacity:.5;flex-shrink:0" />
-          <span style="opacity:.5">退出登录</span>
+        <button class="sidebar-logout" title="退出登录" @click="showLogout = true">
+          <LogOutIcon style="width:14px;height:14px" />
         </button>
       </div>
     </aside>
@@ -177,8 +175,8 @@ onMounted(loadSession)
   border-top: 1px solid rgba(255,255,255,.1);
   padding: 8px 10px;
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  align-items: center;
+  gap: 4px;
 }
 .sidebar-user-btn {
   display: flex;
@@ -200,7 +198,20 @@ onMounted(loadSession)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
 }
+.sidebar-logout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px; height: 28px;
+  border: none; border-radius: 6px;
+  background: transparent;
+  color: rgba(255,255,255,.5);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.sidebar-logout:hover { background: rgba(255,255,255,.1); color: #fff; }
 
 /* Modal */
 .modal-overlay {
