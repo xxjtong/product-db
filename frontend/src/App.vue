@@ -19,6 +19,13 @@
         <router-link to="/quotations" class="sidebar-link" :title="sidebarCollapsed ? '报价单' : ''"><FileTextIcon /><span v-show="!sidebarCollapsed">报价单</span></router-link>
         <router-link to="/admin" class="sidebar-link" :title="sidebarCollapsed ? '管理' : ''"><ShieldIcon /><span v-show="!sidebarCollapsed">管理</span></router-link>
       </nav>
+      <!-- AI stats -->
+      <div v-if="!sidebarCollapsed && aiStats" class="sidebar-stats">
+        <div class="sidebar-stats-row">
+          <span class="sidebar-stats-num">{{ aiStats.total }}</span><span class="sidebar-stats-label">总请求</span>
+          <span class="sidebar-stats-num">{{ aiStats.success }}</span><span class="sidebar-stats-label">成功</span>
+        </div>
+      </div>
       <div v-show="!sidebarCollapsed" class="sidebar-version">v2.0</div>
       <!-- User section -->
       <div v-if="currentUser" class="sidebar-user" ref="userMenuRef">
@@ -127,8 +134,20 @@ provide('toast', showToast)
 // Load session data on mount
 const currentUser = ref<any>(null)
 const fieldVisibility = ref<Record<string, boolean>>({})
+const aiStats = ref<{ total: number; success: number } | null>(null)
 provide('currentUser', currentUser)
 provide('fieldVisibility', fieldVisibility)
+
+async function loadAiStats() {
+  try {
+    const token = localStorage.getItem('token')
+    const res = await fetch('/api/admin/ai-usage', { headers: { 'Authorization': `Bearer ${token}` } })
+    if (res.ok) {
+      const data = await res.json()
+      aiStats.value = data.summary || null
+    }
+  } catch { /* ignore */ }
+}
 
 async function loadSession() {
   try {
@@ -190,11 +209,12 @@ async function saveProfile() {
   } catch (e: any) { profileError.value = e.message }
 }
 
-onMounted(loadSession)
+onMounted(() => { loadSession(); loadAiStats() })
 
 watch(() => route.path, (to, from) => {
   if (from === '/login' && to !== '/login' && localStorage.getItem('token')) {
     loadSession()
+    loadAiStats()
   }
 })
 </script>
@@ -235,10 +255,30 @@ watch(() => route.path, (to, from) => {
 }
 .sidebar-search input::placeholder { color: rgba(255,255,255,.35); }
 .sidebar-search input:focus { outline: none; border-color: var(--color-accent); }
+.sidebar-stats {
+  padding: 6px 12px;
+  border-top: 1px solid rgba(255,255,255,.06);
+}
+.sidebar-stats-row {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.sidebar-stats-num {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,.7);
+  font-variant-numeric: tabular-nums;
+}
+.sidebar-stats-label {
+  font-size: 10px;
+  color: rgba(255,255,255,.35);
+  margin-right: 10px;
+}
 .sidebar-version {
   padding: 4px 16px;
   font-size: 10px;
-  color: rgba(255,255,255,.3);
+  color: rgba(255,255,255,.25);
   text-align: center;
 }
 .sidebar-username {
