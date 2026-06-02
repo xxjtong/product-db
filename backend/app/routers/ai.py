@@ -418,3 +418,12 @@ def delete_conversation(conv_id: int, db: Session = Depends(get_db), user=Depend
     db.delete(conv)
     db.commit()
     return {"ok": True}
+
+
+@router.get("/ai/stats")
+def get_ai_stats(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Return total and current-user AI usage counts."""
+    from app.models.ai_usage_log import AIUsageLog
+    total = db.query(AIUsageLog).count()
+    user_count = db.query(AIUsageLog).filter_by(user_id=user.id).count()
+    return {"total": total, "user_count": user_count}

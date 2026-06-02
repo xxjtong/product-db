@@ -20,15 +20,15 @@
         <router-link to="/admin" class="sidebar-link" :title="sidebarCollapsed ? '管理' : ''"><ShieldIcon /><span v-show="!sidebarCollapsed">管理</span></router-link>
       </nav>
       <!-- AI stats -->
-      <div v-if="!sidebarCollapsed && aiStats" class="sidebar-stats">
+      <div v-if="aiStats" class="sidebar-stats" :class="{ collapsed: sidebarCollapsed }">
         <div class="sidebar-stats-item">
           <span class="sidebar-stats-num">{{ aiStats.total.toLocaleString() }}</span>
-          <span class="sidebar-stats-label">总请求</span>
+          <span class="sidebar-stats-label">{{ sidebarCollapsed ? '总量' : '总请求' }}</span>
         </div>
         <div class="sidebar-stats-divider"></div>
         <div class="sidebar-stats-item">
-          <span class="sidebar-stats-num">{{ aiStats.success.toLocaleString() }}</span>
-          <span class="sidebar-stats-label">成功</span>
+          <span class="sidebar-stats-num">{{ aiStats.user_count.toLocaleString() }}</span>
+          <span class="sidebar-stats-label">{{ sidebarCollapsed ? '我的' : '我的使用' }}</span>
         </div>
       </div>
       <div v-show="!sidebarCollapsed" class="sidebar-version">v2.0</div>
@@ -139,17 +139,17 @@ provide('toast', showToast)
 // Load session data on mount
 const currentUser = ref<any>(null)
 const fieldVisibility = ref<Record<string, boolean>>({})
-const aiStats = ref<{ total: number; success: number } | null>(null)
+const aiStats = ref<{ total: number; user_count: number } | null>(null)
 provide('currentUser', currentUser)
 provide('fieldVisibility', fieldVisibility)
 
 async function loadAiStats() {
   try {
     const token = localStorage.getItem('token')
-    const res = await fetch('/api/admin/ai-usage', { headers: { 'Authorization': `Bearer ${token}` } })
+    const res = await fetch('/api/ai/stats', { headers: { 'Authorization': `Bearer ${token}` } })
     if (res.ok) {
       const data = await res.json()
-      aiStats.value = data.summary || null
+      aiStats.value = data
     }
   } catch { /* ignore */ }
 }
@@ -270,6 +270,16 @@ watch(() => route.path, (to, from) => {
   justify-content: center;
   gap: 0;
 }
+.sidebar-stats.collapsed {
+  margin: 6px 6px;
+  padding: 6px 4px;
+  flex-direction: column;
+  gap: 4px;
+}
+.sidebar-stats.collapsed .sidebar-stats-divider { display: none; }
+.sidebar-stats.collapsed .sidebar-stats-item { flex-direction: row; gap: 4px; }
+.sidebar-stats.collapsed .sidebar-stats-num { font-size: 12px; }
+.sidebar-stats.collapsed .sidebar-stats-label { font-size: 9px; margin-top: 0; }
 .sidebar-stats-item {
   display: flex;
   flex-direction: column;
