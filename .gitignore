@@ -24,3 +24,8 @@ uploads/
 .vscode/
 *.swp
 *.swo
+backend/*.txt
+backend/*.png
+backend/screenshots/
+*.db-shm
+*.db-wal
