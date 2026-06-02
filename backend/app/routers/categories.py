@@ -38,9 +38,16 @@ def category_tree(db: Session = Depends(get_db), user=Depends(get_current_user))
 
 @router.post("/categories")
 def create_category(data: CategoryCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    slug = data.slug or data.name.lower().replace(" ", "-")
+    # Ensure uniqueness
+    base_slug = slug
+    cnt = 1
+    while db.query(Category).filter_by(slug=slug).first():
+        slug = f"{base_slug}-{cnt}"
+        cnt += 1
     cat = Category(
         name=data.name,
-        slug=data.slug or data.name.lower().replace(" ", "-"),
+        slug=slug,
         parent_id=data.parent_id,
         level=data.level,
         sort_order=data.sort_order,

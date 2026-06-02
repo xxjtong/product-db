@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import select
 from app.database import get_db
 from app.models.quotation import Quotation, QuotationItem
 from app.models.product import Product
@@ -24,7 +25,7 @@ def _generate_quote_number(db: Session) -> str:
     today = datetime.now().strftime("%Y%m%d")
     prefix = f"QT-{today}-"
     last = db.query(Quotation).filter(Quotation.quote_number.like(f"{prefix}%"))\
-        .order_by(Quotation.id.desc()).first()
+        .order_by(Quotation.id.desc()).with_for_update().first()
     seq = 1
     if last and last.quote_number:
         try:
@@ -148,9 +149,9 @@ def create_quotation(data: QuotationCreate, db: Session = Depends(get_db), user=
 
 @router.get("/quotations/{quotation_id}")
 def get_quotation(quotation_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    qt = db.query(Quotation).options(
+    qt = db.scalar(select(Quotation).options(
         selectinload(Quotation.items),
-    ).get(quotation_id)
+    ).where(Quotation.id == quotation_id))
     if not qt:
         raise HTTPException(404, "Quotation not found")
     return {"quotation": qt.to_dict()}
@@ -167,9 +168,9 @@ def update_quotation(quotation_id: int, data: QuotationUpdate, db: Session = Dep
             setattr(qt, f, val)
     qt.updated_at = datetime.now()
     db.commit()
-    qt = db.query(Quotation).options(
+    qt = db.scalar(select(Quotation).options(
         selectinload(Quotation.items),
-    ).get(quotation_id)
+    ).where(Quotation.id == quotation_id))
     return {"quotation": qt.to_dict()}
 
 

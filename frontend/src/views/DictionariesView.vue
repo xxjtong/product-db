@@ -1,6 +1,10 @@
 <template>
   <PageHeader title="字典管理" />
 
+  <div v-if="loading" class="empty-state"><p>加载中...</p></div>
+  <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="onMounted(() => {})">重试</button></div>
+  <template v-else>
+
   <div class="card" style="margin-bottom:16px">
     <h3 style="margin-bottom:12px">通讯方式</h3>
     <table class="data-table">
@@ -87,6 +91,8 @@
       </template>
     </Modal>
   </div>
+  <ConfirmDialog title="删除厂商" :message="`确定删除该厂商？`" :visible="confirmState.visible" @confirm="confirmState.action(); confirmState.visible = false" @cancel="confirmState.visible = false" />
+  </template>
 </template>
 
 <script setup lang="ts">
@@ -94,15 +100,21 @@ import { ref, onMounted, inject } from 'vue'
 import { PencilIcon, Trash2Icon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import Modal from '../components/Modal.vue'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { fetchCommMethods, fetchCommProtocols, fetchPowerSupplies, fetchSensorMetrics, fetchManufacturers, createManufacturer, updateManufacturer } from '../api'
+import type { Manufacturer } from '../types'
 
-const showToast = inject<(msg: string, type?: string) => void>('toast')!
+const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
+const confirmState = ref({ visible: false, action: () => {} })
+function showConfirm(action: () => void) { confirmState.value = { visible: true, action } }
 
-const commMethods = ref<any[]>([])
-const commProtocols = ref<any[]>([])
-const powerSupplies = ref<any[]>([])
-const sensorMetrics = ref<any[]>([])
-const manufacturers = ref<any[]>([])
+interface DictItem { id: number; name: string; method_type?: string; supply_category?: string; unit?: string }
+
+const commMethods = ref<DictItem[]>([])
+const commProtocols = ref<DictItem[]>([])
+const powerSupplies = ref<DictItem[]>([])
+const sensorMetrics = ref<DictItem[]>([])
+const manufacturers = ref<Manufacturer[]>([])
 
 const mfgModalVisible = ref(false)
 const editingMfg = ref<any>(null)
@@ -135,26 +147,46 @@ async function saveMfg() {
 }
 
 async function doDeleteMfg(m: any) {
-  if (!confirm(`删除厂商「${m.name}」？`)) return
-  try {
-    // No delete API yet, but would call deleteManufacturer(m.id)
-    showToast('删除功能待实现', 'error')
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  showConfirm(async () => {
+    try {
+      // No delete API yet, but would call deleteManufacturer(m.id)
+      showToast('删除功能待实现', 'error')
+    } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  })
 }
+
+const loading = ref(false)
+const loadError = ref('')
 
 async function loadManufacturers() {
-  const res = await fetchManufacturers()
-  manufacturers.value = res.manufacturers
+  loading.value = true
+  loadError.value = ''
+  try {
+    const res = await fetchManufacturers()
+    manufacturers.value = res.manufacturers
+  } catch (e: any) {
+    loadError.value = e.message || '加载失败'
+  }
+  loading.value = false
 }
 
-onMounted(async () => {
-  const [cm, cp, ps, sm, mfg] = await Promise.all([
-    fetchCommMethods(), fetchCommProtocols(), fetchPowerSupplies(), fetchSensorMetrics(), fetchManufacturers(),
-  ])
-  commMethods.value = cm.comm_methods
-  commProtocols.value = cp.comm_protocols
-  powerSupplies.value = ps.power_supplies
-  sensorMetrics.value = sm.sensor_metrics
-  manufacturers.value = mfg.manufacturers
-})
+async function loadAll() {
+  loading.value = true
+  loadError.value = ''
+  try {
+    const [cm, cp, ps, sm, mfg] = await Promise.all([
+      fetchCommMethods(), fetchCommProtocols(), fetchPowerSupplies(), fetchSensorMetrics(), fetchManufacturers(),
+    ])
+    commMethods.value = cm.comm_methods
+    commProtocols.value = cp.comm_protocols
+    powerSupplies.value = ps.power_supplies
+    sensorMetrics.value = sm.sensor_metrics
+    manufacturers.value = mfg.manufacturers
+  } catch (e: any) {
+    loadError.value = e.message || '加载失败'
+  }
+  loading.value = false
+}
+
+onMounted(loadAll)
 </script>

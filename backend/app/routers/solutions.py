@@ -4,6 +4,7 @@ import json
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import select
 from sqlalchemy import func
 from app.database import get_db
 from app.models.solution import Solution, SolutionItem
@@ -85,9 +86,9 @@ def create_solution(data: SolutionCreate, db: Session = Depends(get_db), user=De
 
 @router.get("/solutions/{solution_id}")
 def get_solution(solution_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    sol = db.query(Solution).options(
+    sol = db.scalar(select(Solution).options(
         selectinload(Solution.items).selectinload(SolutionItem.product),
-    ).get(solution_id)
+    ).where(Solution.id == solution_id))
     if not sol:
         raise HTTPException(404, "Solution not found")
     return {"solution": sol.to_dict()}
@@ -104,9 +105,9 @@ def update_solution(solution_id: int, data: SolutionUpdate, db: Session = Depend
             setattr(sol, f, val)
     sol.updated_at = datetime.now()
     db.commit()
-    sol = db.query(Solution).options(
+    sol = db.scalar(select(Solution).options(
         selectinload(Solution.items).selectinload(SolutionItem.product),
-    ).get(solution_id)
+    ).where(Solution.id == solution_id))
     return {"solution": sol.to_dict()}
 
 
@@ -204,12 +205,27 @@ def check_solution(solution_id: int, db: Session = Depends(get_db), user=Depends
     solution_products = db.query(Product).filter(Product.id.in_(solution_product_ids)).all()
     solution_category_ids = {p.category_id for p in solution_products}
 
+    # Preload all dependencies for products in solution
+    all_deps = db.query(ProductDependency).filter(
+        ProductDependency.product_id.in_(solution_product_ids),
+        ProductDependency.dependency_type == "required",
+    ).all()
+    deps_by_product: dict = {}
+    for d in all_deps:
+        deps_by_product.setdefault(d.product_id, []).append(d)
+
+    # Preload missing target products and categories
+    missing_ids = {d.depends_on_product_id for d in all_deps if d.depends_on_product_id and d.depends_on_product_id not in solution_product_ids}
+    missing_cat_ids = {d.depends_on_category_id for d in all_deps if d.depends_on_category_id and d.depends_on_category_id not in solution_category_ids}
+    product_map = {p.id: p for p in db.query(Product).filter(Product.id.in_(missing_ids)).all()} if missing_ids else {}
+    cat_map = {c.id: c for c in db.query(Category).filter(Category.id.in_(missing_cat_ids)).all()} if missing_cat_ids else {}
+
     warnings = []
     for item in items:
-        deps = db.query(ProductDependency).filter_by(product_id=item.product_id, dependency_type="required").all()
+        deps = deps_by_product.get(item.product_id, [])
         for dep in deps:
             if dep.depends_on_product_id and dep.depends_on_product_id not in solution_product_ids:
-                target = db.get(Product, dep.depends_on_product_id)
+                target = product_map.get(dep.depends_on_product_id)
                 warnings.append({
                     "type": "missing_product",
                     "product_id": item.product_id,
@@ -218,7 +234,7 @@ def check_solution(solution_id: int, db: Session = Depends(get_db), user=Depends
                     "description": dep.description or "",
                 })
             if dep.depends_on_category_id and dep.depends_on_category_id not in solution_category_ids:
-                cat = db.get(Category, dep.depends_on_category_id)
+                cat = cat_map.get(dep.depends_on_category_id)
                 warnings.append({
                     "type": "missing_category",
                     "product_id": item.product_id,
@@ -242,6 +258,9 @@ def suggest_solution(solution_id: int, db: Session = Depends(get_db), user=Depen
     solution_products = db.query(Product).filter(Product.id.in_(solution_product_ids)).all()
     solution_category_ids = {p.category_id for p in solution_products}
 
+    # Preload categories for name lookup
+    cat_map = {c.id: c for c in db.query(Category).all()}
+
     suggestions = []
     seen = set()
     for item in items:
@@ -254,7 +273,7 @@ def suggest_solution(solution_id: int, db: Session = Depends(get_db), user=Depen
                 candidates = db.query(Product).options(
                     selectinload(Product.manufacturer),
                 ).filter_by(category_id=dep.depends_on_category_id, status="active").all()
-                cat = db.get(Category, dep.depends_on_category_id)
+                cat = cat_map.get(dep.depends_on_category_id)
                 suggestions.append({
                     "missing_category": cat.name if cat else "Unknown",
                     "category_id": dep.depends_on_category_id,

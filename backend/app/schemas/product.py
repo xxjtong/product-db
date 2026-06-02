@@ -8,6 +8,7 @@ class ProductCreate(BaseModel):
     model: str = ""
     sku: str = ""
     category_id: int
+    category_ids: list[int] = []
     manufacturer_id: Optional[int] = None
     supplier_id: Optional[int] = None
     unit: str = "台"
@@ -35,6 +36,7 @@ class ProductUpdate(BaseModel):
     model: Optional[str] = None
     sku: Optional[str] = None
     category_id: Optional[int] = None
+    category_ids: Optional[list[int]] = None
     manufacturer_id: Optional[int] = None
     supplier_id: Optional[int] = None
     unit: Optional[str] = None

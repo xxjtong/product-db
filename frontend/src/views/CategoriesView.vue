@@ -112,26 +112,27 @@ import Pagination from '../components/Pagination.vue'
 import Modal from '../components/Modal.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { fetchCategories, createCategory, updateCategory, deleteCategory, fetchSpecDefinitions, createSpecDefinition, updateSpecDefinition, deleteSpecDefinition } from '../api'
+import type { Category, SpecDefinition } from '../types'
 
-const showToast = inject<(msg: string, type?: string) => void>('toast')!
+const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
-const categories = ref<any[]>([])
-const allCats = ref<any[]>([])
+const categories = ref<Category[]>([])
+const allCats = ref<Category[]>([])
 const total = ref(0)
 const page = ref(1)
 const perPage = 25
 
 // Category CRUD
 const catModalVisible = ref(false)
-const editingCat = ref<any>(null)
+const editingCat = ref<Category | null>(null)
 const catForm = reactive({ name: '', slug: '', parent_id: null as number | null, sort_order: 0, is_active: true })
-const deleteTarget = ref<any>(null)
+const deleteTarget = ref<Category | null>(null)
 
 // Spec definitions
-const specDefCat = ref<any>(null)
-const specDefs = ref<any[]>([])
+const specDefCat = ref<Category | null>(null)
+const specDefs = ref<SpecDefinition[]>([])
 const specDefFormVisible = ref(false)
-const editingSpecDef = ref<any>(null)
+const editingSpecDef = ref<SpecDefinition | null>(null)
 const specDefForm = reactive({ spec_key: '', display_name: '', spec_type: 'string', unit: '', display_group: '', sort_order: 0, is_filterable: true })
 
 const flatList = computed(() => {
@@ -142,15 +143,15 @@ const flatList = computed(() => {
 
 async function loadCategories() {
   try {
-    const res = await (await fetch(`/api/categories?page=${page.value}&per_page=${perPage}`)).json()
+    const res = await fetchCategories(`page=${page.value}&per_page=${perPage}`)
     categories.value = res.categories
-    total.value = res.total
+    total.value = res.total || 0
   } catch (e: any) { showToast(e.message || '加载失败', 'error') }
 }
 
 async function loadAllCats() {
   try {
-    const res = await (await fetch('/api/categories?per_page=1000')).json()
+    const res = await fetchCategories('per_page=1000')
     allCats.value = res.categories
   } catch { /* ignore */ }
 }

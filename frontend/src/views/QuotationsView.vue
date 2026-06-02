@@ -5,15 +5,30 @@
     </button>
   </PageHeader>
 
+  <div class="card" style="margin-bottom:16px;padding:8px 12px">
+    <div style="display:flex;gap:12px;align-items:center">
+      <input v-model="search" placeholder="搜索编号/标题/客户..." style="width:240px" @input="onSearch" />
+      <select v-model="statusFilter" style="width:120px" @change="load()">
+        <option value="">全部状态</option>
+        <option value="draft">草稿</option>
+        <option value="sent">已发送</option>
+        <option value="accepted">已确认</option>
+        <option value="done">已完成</option>
+      </select>
+    </div>
+  </div>
+
   <div class="card">
-    <table class="data-table" v-if="quotations.length">
+    <div v-if="loading" class="empty-state"><p>加载中...</p></div>
+    <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="load">重试</button></div>
+    <table v-else-if="quotations.length" class="data-table">
       <thead><tr><th>编号</th><th>标题</th><th>客户</th><th>状态</th><th>金额</th><th>创建时间</th><th>操作</th></tr></thead>
       <tbody>
         <tr v-for="q in quotations" :key="q.id">
           <td class="font-mono text-sm">{{ q.quote_number }}</td>
           <td>{{ q.title || '—' }}</td>
           <td>{{ q.client_name || '—' }}</td>
-          <td><span :class="['tag', q.status === 'draft' ? 'tag-default' : q.status === 'sent' ? 'tag-wifi' : 'tag-lorawan']">{{ q.status }}</span></td>
+          <td><span :class="['tag', `tag-${q.status}`]">{{ q.status }}</span></td>
           <td class="font-mono">{{ q.total_amount }}</td>
           <td class="text-sm">{{ q.created_at }}</td>
           <td>
@@ -37,19 +52,41 @@ import PageHeader from '../components/PageHeader.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Pagination from '../components/Pagination.vue'
 import { fetchQuotations, deleteQuotation } from '../api'
+import type { Quotation } from '../types'
 
-const showToast = inject<(msg: string, type?: string) => void>('toast')!
+const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
-const quotations = ref<any[]>([])
+const quotations = ref<Quotation[]>([])
 const total = ref(0)
 const page = ref(1)
 const perPage = 20
 const deleteTarget = ref<any>(null)
+const search = ref('')
+const statusFilter = ref('')
+let searchTimer: any = null
+
+const loading = ref(false)
+const loadError = ref('')
+
+function onSearch() {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => { page.value = 1; load() }, 300)
+}
 
 async function load() {
-  const res = await fetchQuotations(`page=${page.value}&per_page=${perPage}`)
-  quotations.value = res.quotations
-  total.value = res.total
+  loading.value = true
+  loadError.value = ''
+  try {
+    let params = `page=${page.value}&per_page=${perPage}`
+    if (search.value) params += `&search=${encodeURIComponent(search.value)}`
+    if (statusFilter.value) params += `&status=${statusFilter.value}`
+    const res = await fetchQuotations(params)
+    quotations.value = res.quotations
+    total.value = res.total
+  } catch (e: any) {
+    loadError.value = e.message || '加载失败'
+  }
+  loading.value = false
 }
 
 function confirmDelete(q: any) { deleteTarget.value = q }

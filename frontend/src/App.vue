@@ -1,12 +1,15 @@
 <template>
   <div class="toast-container">
     <div v-if="toast" :class="['toast', toast.type === 'success' ? 'toast-success' : toast.type === 'error' ? 'toast-error' : '']">
-      {{ toast.message }}
+      <span v-if="toast.type === 'success'">✅</span><span v-else-if="toast.type === 'error'">❌</span><span v-else>ℹ️</span> {{ toast.message }}
     </div>
   </div>
   <div class="app-layout">
     <aside v-if="$route.path !== '/login'" class="app-sidebar" :class="{ collapsed: sidebarCollapsed }">
-      <div class="sidebar-logo" @click="sidebarCollapsed = !sidebarCollapsed" style="cursor:pointer">{{ sidebarCollapsed ? 'PD' : '产品数据库' }}</div>
+      <div class="sidebar-logo" @click="sidebarCollapsed = !sidebarCollapsed">{{ sidebarCollapsed ? 'PD' : '产品数据库' }}</div>
+      <div v-show="!sidebarCollapsed" class="sidebar-search">
+        <input v-model="globalSearch" placeholder="搜索产品..." @keyup.enter="doGlobalSearch" />
+      </div>
       <nav class="sidebar-nav">
         <router-link to="/products" class="sidebar-link" :title="sidebarCollapsed ? '产品' : ''"><PackageIcon /><span v-show="!sidebarCollapsed">产品</span></router-link>
         <router-link to="/categories" class="sidebar-link" :title="sidebarCollapsed ? '品类' : ''"><GridIcon /><span v-show="!sidebarCollapsed">品类</span></router-link>
@@ -16,15 +19,17 @@
         <router-link to="/quotations" class="sidebar-link" :title="sidebarCollapsed ? '报价单' : ''"><FileTextIcon /><span v-show="!sidebarCollapsed">报价单</span></router-link>
         <router-link to="/admin" class="sidebar-link" :title="sidebarCollapsed ? '管理' : ''"><ShieldIcon /><span v-show="!sidebarCollapsed">管理</span></router-link>
       </nav>
+      <div v-show="!sidebarCollapsed" class="sidebar-version">v2.0</div>
       <!-- User section -->
-      <div v-if="currentUser" class="sidebar-user">
-        <button class="sidebar-user-btn" @click="openProfile">
+      <div v-if="currentUser" class="sidebar-user" ref="userMenuRef">
+        <button class="sidebar-user-btn" @click="showUserMenu = !showUserMenu">
           <UserIcon :size="14" color="rgba(255, 255, 255, 0.85)" style="flex-shrink:0" />
           <span v-show="!sidebarCollapsed" class="sidebar-username">{{ currentUser.username }}</span>
         </button>
-        <button v-show="!sidebarCollapsed" class="sidebar-logout" title="退出登录" @click="showLogout = true">
-          ⏻
-        </button>
+        <div v-if="showUserMenu" class="user-dropdown">
+          <button class="user-dropdown-item" @click="showUserMenu = false; openProfile()"><UserCircleIcon :size="14" />个人信息</button>
+          <button class="user-dropdown-item user-dropdown-item--danger" @click="showUserMenu = false; showLogout = true"><LogOutIcon :size="14" />退出</button>
+        </div>
       </div>
     </aside>
     <main class="app-content">
@@ -74,19 +79,38 @@
 </template>
 
 <script setup lang="ts">
-import { ref, provide, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { PackageIcon, GridIcon, BookIcon, TruckIcon, ClipboardListIcon, FileTextIcon, ShieldIcon, UserIcon } from 'lucide-vue-next'
+import { ref, provide, onMounted, onBeforeUnmount, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { PackageIcon, GridIcon, BookIcon, TruckIcon, ClipboardListIcon, FileTextIcon, ShieldIcon, UserIcon, UserCircleIcon, LogOutIcon } from 'lucide-vue-next'
 import AiChat from './components/AiChat.vue'
 
 const router = useRouter()
+const route = useRoute()
 
 interface ToastMsg { message: string; type: string }
 const sidebarCollapsed = ref(false)
 const toast = ref<ToastMsg | null>(null)
 let toastTimer: ReturnType<typeof setTimeout> | null = null
+const showUserMenu = ref(false)
+const userMenuRef = ref<HTMLElement | null>(null)
 const showProfile = ref(false)
 const showLogout = ref(false)
+
+const globalSearch = ref('')
+function doGlobalSearch() {
+  if (globalSearch.value.trim()) {
+    router.push(`/products?search=${encodeURIComponent(globalSearch.value.trim())}`)
+    globalSearch.value = ''
+  }
+}
+
+function onOutsideClick(e: MouseEvent) {
+  if (userMenuRef.value && !userMenuRef.value.contains(e.target as Node)) {
+    showUserMenu.value = false
+  }
+}
+onMounted(() => document.addEventListener('click', onOutsideClick))
+onBeforeUnmount(() => document.removeEventListener('click', onOutsideClick))
 const profileEmail = ref('')
 const profileCurPw = ref('')
 const profileNewPw = ref('')
@@ -167,6 +191,12 @@ async function saveProfile() {
 }
 
 onMounted(loadSession)
+
+watch(() => route.path, (to, from) => {
+  if (from === '/login' && to !== '/login' && localStorage.getItem('token')) {
+    loadSession()
+  }
+})
 </script>
 
 <style scoped>
@@ -174,9 +204,7 @@ onMounted(loadSession)
   margin-top: auto;
   border-top: 1px solid rgba(255,255,255,.1);
   padding: 8px 10px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  position: relative;
 }
 .sidebar-user-btn {
   display: flex;
@@ -193,6 +221,26 @@ onMounted(loadSession)
   text-align: left;
 }
 .sidebar-user-btn:hover { background: rgba(255,255,255,.1); color: #fff; }
+.sidebar-search {
+  padding: 8px 12px;
+}
+.sidebar-search input {
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,.15);
+  background: rgba(255,255,255,.08);
+  color: rgba(255,255,255,.85);
+  font-size: 12px;
+}
+.sidebar-search input::placeholder { color: rgba(255,255,255,.35); }
+.sidebar-search input:focus { outline: none; border-color: var(--color-accent); }
+.sidebar-version {
+  padding: 4px 16px;
+  font-size: 10px;
+  color: rgba(255,255,255,.3);
+  text-align: center;
+}
 .sidebar-username {
   font-weight: 500;
   overflow: hidden;
@@ -200,19 +248,36 @@ onMounted(loadSession)
   white-space: nowrap;
   flex: 1;
 }
-.sidebar-logout {
+.user-dropdown {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 100%;
+  margin-bottom: 4px;
+  background: var(--color-secondary);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  z-index: 100;
+}
+.user-dropdown-item {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 28px; height: 28px;
-  border: none; border-radius: 6px;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 6px;
   background: transparent;
-  color: rgba(255,255,255,.7);
+  color: rgba(255,255,255,.85);
+  font-size: 13px;
   cursor: pointer;
-  flex-shrink: 0;
-  font-size: 18px;
+  text-align: left;
 }
-.sidebar-logout:hover { background: rgba(255,255,255,.15); color: #fff; }
+.user-dropdown-item:hover { background: rgba(255,255,255,.1); color: #fff; }
+.user-dropdown-item--danger { color: var(--color-danger); }
+.user-dropdown-item--danger:hover { background: rgba(233,69,96,.15); color: var(--color-danger); }
 
 /* Modal */
 .modal-overlay {
@@ -225,7 +290,7 @@ onMounted(loadSession)
   justify-content: center;
 }
 .modal-card {
-  background: #fff;
+  background: var(--color-card);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
 }

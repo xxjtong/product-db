@@ -41,8 +41,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, inject } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
+
+const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
 const fields = [
   { label: '产品名称', value: 'name' }, { label: '型号', value: 'model' },
@@ -66,13 +68,16 @@ async function onFileSelect(e: Event) {
   loading.value = true; result.value = null
   const formData = new FormData(); formData.append('file', file)
   try {
-    const res = await (await fetch('/api/products/import-preview', { method: 'POST', body: formData })).json()
+    const headers: Record<string,string> = {}
+    const token = localStorage.getItem('token')
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const res = await (await fetch('/api/products/import-preview', { method: 'POST', body: formData, headers })).json()
     headers.value = res.headers
     rows.value = res.rows
     previewRows.value = res.rows.slice(0, 10)
     mapping.value = {}
     autoMap()
-  } catch (e: any) { alert(e.message) }
+  } catch (e: any) { showToast(e.message, 'error') }
   loading.value = false
 }
 
@@ -95,12 +100,15 @@ function autoMap() {
 async function doImport() {
   importing.value = true
   try {
+    const h: Record<string,string> = { 'Content-Type': 'application/json' }
+    const t = localStorage.getItem('token')
+    if (t) h['Authorization'] = `Bearer ${t}`
     const res = await (await fetch('/api/products/import-confirm', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: h,
       body: JSON.stringify({ mapping: mapping.value, rows: rows.value }),
     })).json()
     result.value = res
-  } catch (e: any) { alert(e.message) }
+  } catch (e: any) { showToast(e.message, 'error') }
   importing.value = false
 }
 </script>

@@ -1,6 +1,6 @@
 from app.database import Base
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class LoginLog(Base):

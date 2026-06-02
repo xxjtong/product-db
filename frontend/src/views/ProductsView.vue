@@ -15,35 +15,59 @@
 
   <!-- Filter panel -->
   <div class="card" style="margin-bottom:16px;padding:12px 16px">
-    <div style="display:flex;justify-content:flex-end;margin-bottom:4px">
-      <button class="btn-secondary btn-sm" @click="filterExpanded = !filterExpanded" style="font-size:11px">{{ filterExpanded ? '收起筛选 ▲' : '展开筛选 ▼' }}</button>
-    </div>
-    <div class="filter-panel" v-show="filterExpanded">
+    <div class="filter-panel">
+      <!-- 品类 — default open -->
       <div class="filter-group" v-if="categoryTree.length">
-        <span class="filter-label">品类</span>
-        <span v-for="c in flatCategories" :key="c.id" :class="['filter-tag', { active: filters.category_id === c.id }]" @click="toggleCategory(c.id)">{{ c.name }}</span>
+        <div class="filter-group-header" @click="filterOpen.category = !filterOpen.category">
+          <span class="filter-label">品类</span><span class="filter-toggle">{{ filterOpen.category ? '▲' : '▼' }}</span>
+        </div>
+        <div :class="['filter-tags', filterOpen.category ? 'expanded' : 'collapsed']">
+          <span v-for="c in flatCategories" :key="c.id" :class="['filter-tag', { active: filters.category_id === c.id }]" @click="toggleCategory(c.id)">{{ c.name }}</span>
+        </div>
       </div>
-      <div class="filter-group">
-        <span class="filter-label">通讯方式</span>
-        <span v-for="m in commMethods" :key="m.id" :class="['filter-tag', { active: filters.comm_method === m.id }]" @click="toggleFilter('comm_method', m.id)">{{ m.name }}</span>
-      </div>
-      <div class="filter-group">
-        <span class="filter-label">协议</span>
-        <span v-for="p in commProtocols" :key="p.id" :class="['filter-tag', { active: filters.comm_protocol === p.id }]" @click="toggleFilter('comm_protocol', p.id)">{{ p.name }}</span>
-      </div>
-      <div class="filter-group">
-        <span class="filter-label">供电</span>
-        <span v-for="p in powerSupplies" :key="p.id" :class="['filter-tag', { active: filters.power_supply === p.id }]" @click="toggleFilter('power_supply', p.id)">{{ p.name }}</span>
-      </div>
+      <!-- 厂商 — default open -->
       <div class="filter-group" v-if="manufacturers.length > 1">
-        <span class="filter-label">厂商</span>
-        <span v-for="m in manufacturers" :key="m.id" :class="['filter-tag', { active: filters.manufacturer_id === m.id }]" @click="toggleFilter('manufacturer_id', m.id)">{{ m.name }}</span>
+        <div class="filter-group-header" @click="filterOpen.manufacturer = !filterOpen.manufacturer">
+          <span class="filter-label">厂商</span><span class="filter-toggle">{{ filterOpen.manufacturer ? '▲' : '▼' }}</span>
+        </div>
+        <div :class="['filter-tags', filterOpen.manufacturer ? 'expanded' : 'collapsed']">
+          <span v-for="m in manufacturers" :key="m.id" :class="['filter-tag', { active: filters.manufacturer_id === m.id }]" @click="toggleFilter('manufacturer_id', m.id)">{{ m.name }}</span>
+        </div>
+      </div>
+      <!-- 通讯方式/协议/供电 — same row -->
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        <div class="filter-group" style="flex:1;min-width:140px">
+          <div class="filter-group-header" @click="filterOpen.comm_method = !filterOpen.comm_method">
+            <span class="filter-label">通讯方式</span><span class="filter-toggle">{{ filterOpen.comm_method ? '▲' : '▼' }}</span>
+          </div>
+          <div :class="['filter-tags', filterOpen.comm_method ? 'expanded' : 'collapsed']">
+            <span v-for="m in commMethods" :key="m.id" :class="['filter-tag', { active: filters.comm_method === m.id }]" @click="toggleFilter('comm_method', m.id)">{{ m.name }}</span>
+          </div>
+        </div>
+        <div class="filter-group" style="flex:1;min-width:140px">
+          <div class="filter-group-header" @click="filterOpen.comm_protocol = !filterOpen.comm_protocol">
+            <span class="filter-label">协议</span><span class="filter-toggle">{{ filterOpen.comm_protocol ? '▲' : '▼' }}</span>
+          </div>
+          <div :class="['filter-tags', filterOpen.comm_protocol ? 'expanded' : 'collapsed']">
+            <span v-for="p in commProtocols" :key="p.id" :class="['filter-tag', { active: filters.comm_protocol === p.id }]" @click="toggleFilter('comm_protocol', p.id)">{{ p.name }}</span>
+          </div>
+        </div>
+        <div class="filter-group" style="flex:1;min-width:140px">
+          <div class="filter-group-header" @click="filterOpen.power_supply = !filterOpen.power_supply">
+            <span class="filter-label">供电</span><span class="filter-toggle">{{ filterOpen.power_supply ? '▲' : '▼' }}</span>
+          </div>
+          <div :class="['filter-tags', filterOpen.power_supply ? 'expanded' : 'collapsed']">
+            <span v-for="p in powerSupplies" :key="p.id" :class="['filter-tag', { active: filters.power_supply === p.id }]" @click="toggleFilter('power_supply', p.id)">{{ p.name }}</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
   <div class="card">
-    <table class="data-table" v-if="products.length">
+    <div v-if="loading" class="empty-state"><p>加载中...</p></div>
+    <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="loadProducts()">重试</button></div>
+    <table v-else-if="products.length" class="data-table">
       <thead>
         <tr>
           <th style="width:32px"><input type="checkbox" :checked="selectedIds.length === products.length" @change="toggleAll($event)" title="全选" /></th>
@@ -88,21 +112,32 @@
 <script setup lang="ts">
 import { ref, reactive, watch, onMounted } from 'vue'
 import { PlusIcon, PencilIcon, Trash2Icon, InboxIcon, DownloadIcon } from 'lucide-vue-next'
+import { useRoute } from 'vue-router'
 import PageHeader from '../components/PageHeader.vue'
 import SearchInput from '../components/SearchInput.vue'
 import TagBadge from '../components/TagBadge.vue'
 import Pagination from '../components/Pagination.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { fetchProducts, deleteProduct, exportProducts, fetchCommMethods, fetchCommProtocols, fetchPowerSupplies, fetchManufacturers, fetchCategoryTree } from '../api'
+import type { Product, Manufacturer } from '../types'
 
-const products = ref<any[]>([])
+const route = useRoute()
+
+const products = ref<Product[]>([])
 const total = ref(0)
 const page = ref(1)
 const perPage = 20
 const MAX_PER_PAGE = 100
 const search = ref('')
-const deleteTarget = ref<any>(null)
+const deleteTarget = ref<Product | null>(null)
 const filterExpanded = ref(true)
+const filterOpen = reactive({
+  category: true,
+  manufacturer: true,
+  comm_method: false,
+  comm_protocol: false,
+  power_supply: false,
+})
 const selectedIds = ref<number[]>([])
 
 function toggleSelect(id: number) {
@@ -118,10 +153,12 @@ function toggleAll(e: Event) {
   selectedIds.value = checked ? products.value.map((p: any) => p.id).slice(0, 6) : []
 }
 
-const commMethods = ref<any[]>([])
-const commProtocols = ref<any[]>([])
-const powerSupplies = ref<any[]>([])
-const manufacturers = ref<any[]>([])
+interface DictItem { id: number; name: string }
+
+const commMethods = ref<DictItem[]>([])
+const commProtocols = ref<DictItem[]>([])
+const powerSupplies = ref<DictItem[]>([])
+const manufacturers = ref<Manufacturer[]>([])
 const categoryTree = ref<any[]>([])
 const flatCategories = ref<any[]>([])
 
@@ -168,14 +205,22 @@ function buildParams(): string {
   return parts.join('&')
 }
 
+const loading = ref(false)
+const loadError = ref('')
+
 async function loadProducts() {
+  loading.value = true
+  loadError.value = ''
   try {
     const res = await fetchProducts(buildParams())
     products.value = res.products
     total.value = res.total
   } catch (e: any) {
-    console.error(e)
+    loadError.value = e.message || '加载失败'
+    products.value = []
+    total.value = 0
   }
+  loading.value = false
 }
 
 function confirmDelete(p: any) { deleteTarget.value = p }
@@ -194,6 +239,8 @@ async function doDelete() {
 watch(search, () => { page.value = 1; loadProducts() })
 
 onMounted(async () => {
+  const q = (route.query.search as string) || ''
+  if (q) search.value = q
   const [cmRes, cpRes, psRes, mfgRes, catRes] = await Promise.all([
     fetchCommMethods(), fetchCommProtocols(), fetchPowerSupplies(), fetchManufacturers(), fetchCategoryTree(),
   ])

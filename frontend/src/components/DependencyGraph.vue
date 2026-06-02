@@ -13,7 +13,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
-import { fetchSolution } from '../api'
+import { fetchSolution, fetchDependencies, fetchCategories, fetchProduct } from '../api'
 
 const props = defineProps<{ solutionId: number }>()
 
@@ -55,8 +55,7 @@ async function loadGraph() {
 
   for (const pid of productIds) {
     try {
-      const r = await fetch(`/api/products/${pid}/dependencies`)
-      const data = await r.json()
+      const data = await fetchDependencies(pid)
       for (const d of data.dependencies || []) {
         allDeps.push(d)
       }
@@ -72,8 +71,7 @@ async function loadGraph() {
 
   // Fetch category names for dependency targets
   try {
-    const catRes = await fetch('/api/categories')
-    const catData = await catRes.json()
+    const catData = await fetchCategories()
     for (const c of catData.categories || []) {
       catMap[c.id] = c.name
     }
@@ -83,8 +81,7 @@ async function loadGraph() {
   for (const d of allDeps) {
     if (d.depends_on_product_id && !prodMap[d.depends_on_product_id]) {
       try {
-        const pr = await fetch(`/api/products/${d.depends_on_product_id}`)
-        const pd = await pr.json()
+        const pd = await fetchProduct(d.depends_on_product_id)
         prodMap[d.depends_on_product_id] = pd.product?.name || `#${d.depends_on_product_id}`
         if (!productIds.includes(d.depends_on_product_id)) {
           productIds.push(d.depends_on_product_id)

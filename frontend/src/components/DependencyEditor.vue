@@ -28,6 +28,7 @@
       </tbody>
     </table>
     <div v-else class="text-sm text-muted">暂无依赖</div>
+    <div style="border-bottom:1px solid var(--color-border);margin:12px 0"></div>
 
     <!-- Add form -->
     <div v-if="showAdd" class="card" style="padding:12px;margin-top:8px">
@@ -71,11 +72,11 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, inject } from 'vue'
 import { Trash2Icon } from 'lucide-vue-next'
-import { fetchCategories, fetchProducts } from '../api'
+import { fetchCategories, fetchProducts, fetchDependencies, createDependency, updateDependency, deleteDependency } from '../api'
 
 const props = defineProps<{ productId: number }>()
 const emit = defineEmits<{ change: [] }>()
-const showToast = inject<(msg: string, type?: string) => void>('toast')!
+const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
 const deps = ref<any[]>([])
 const categories = ref<any[]>([])
@@ -107,8 +108,8 @@ function resetNewDep() {
 
 async function loadDeps() {
   try {
-    const res = await fetch(`/api/products/${props.productId}/dependencies`)
-    deps.value = (await res.json()).dependencies || []
+    const res = await fetchDependencies(props.productId)
+    deps.value = res.dependencies || []
   } catch { deps.value = [] }
 }
 
@@ -129,11 +130,7 @@ async function addDep() {
     data.depends_on_product_id = newDep.value.depends_on_product_id
   }
   try {
-    await fetch(`/api/products/${props.productId}/dependencies`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    })
+    await createDependency(props.productId, data)
     showToast('依赖已添加', 'success')
     showAdd.value = false
     resetNewDep()
@@ -146,13 +143,9 @@ async function addDep() {
 
 async function updateDep(d: any) {
   try {
-    await fetch(`/api/products/${props.productId}/dependencies/${d.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        dependency_type: d.dependency_type,
-        description: d.description,
-      }),
+    await updateDependency(props.productId, d.id, {
+      dependency_type: d.dependency_type,
+      description: d.description,
     })
     emit('change')
   } catch (e: any) {
@@ -162,7 +155,7 @@ async function updateDep(d: any) {
 
 async function deleteDep(depId: number) {
   try {
-    await fetch(`/api/products/${props.productId}/dependencies/${depId}`, { method: 'DELETE' })
+    await deleteDependency(props.productId, depId)
     showToast('已删除', 'success')
     await loadDeps()
     emit('change')

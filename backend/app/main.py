@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from app.database import Base
 from app.models import *  # noqa: ensure all models registered
-from app.routers import products, product_import, product_specs, categories, suppliers, solutions, quotations, bom_templates, ai, dictionaries, auth_routes, system_settings
+from app.routers import products, product_import, categories, suppliers, solutions, quotations, bom_templates, ai, dictionaries, auth_routes, admin_routes, system_settings
 from app.config import settings
 from loguru import logger
 import os
@@ -43,7 +43,7 @@ async def log_requests(request: Request, call_next):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[o.strip() for o in settings.CORS_ORIGINS.split(",")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -53,13 +53,13 @@ app.include_router(dictionaries.router, prefix="/api", tags=["dictionaries"])
 app.include_router(categories.router, prefix="/api", tags=["categories"])
 app.include_router(products.router, prefix="/api", tags=["products"])
 app.include_router(product_import.router, prefix="/api", tags=["products"])
-app.include_router(product_specs.router, prefix="/api", tags=["products"])
 app.include_router(suppliers.router, prefix="/api", tags=["suppliers"])
 app.include_router(solutions.router, prefix="/api", tags=["solutions"])
 app.include_router(quotations.router, prefix="/api", tags=["quotations"])
 app.include_router(bom_templates.router, prefix="/api", tags=["bom-templates"])
 app.include_router(ai.router, prefix="/api", tags=["ai"])
 app.include_router(auth_routes.router, prefix="/api", tags=["auth"])
+app.include_router(admin_routes.router, prefix="/api", tags=["admin"])
 app.include_router(system_settings.router, prefix="/api", tags=["settings"])
 
 # Static file serving for uploaded images

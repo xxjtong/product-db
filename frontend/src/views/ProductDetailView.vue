@@ -1,5 +1,5 @@
 <template>
-  <PageHeader :title="product?.name || '产品详情'">
+  <PageHeader :title="product?.name || '产品详情'" :breadcrumb="[{ label: '产品列表', to: '/products' }, { label: product?.name || '产品详情', to: '' }]">
     <button v-if="product?.product_url" class="btn-secondary" @click="openUrl(product.product_url)">产品URL</button>
     <button v-if="product" class="btn-secondary" @click="openUrl(specSheetUrl(product.id))">
       <FileTextIcon style="width:14px;height:14px" />规格书
@@ -28,18 +28,22 @@
     <div class="info-bar">
       <div class="info-item"><label>型号</label><span>{{ product.model || '—' }}</span></div>
       <div class="info-item"><label>SKU</label><span>{{ product.sku || '—' }}</span></div>
-      <div class="info-item"><label>品类</label><span>{{ product.category_name }}</span></div>
       <div class="info-item"><label>厂商</label><span>{{ product.manufacturer_name || '—' }}</span></div>
       <div class="info-item"><label>供应商</label><span>{{ product.supplier_name || '—' }}</span></div>
       <div class="info-item"><label>价格</label><span class="font-mono">{{ product.base_price || '—' }}</span></div>
       <div class="info-item"><label>成本</label><span class="font-mono">{{ product.cost_price || '—' }}</span></div>
-      <div class="info-item"><label>状态</label><span>{{ product.status }}</span></div>
       <div class="info-item"><label>浏览</label><span>{{ product.view_count || 0 }} 次</span></div>
+    </div>
+    <div class="info-bar" style="margin-top:4px">
+      <div class="info-item"><label>状态</label><span :class="['tag', `tag-${product.status}`]">{{ product.status }}</span></div>
+      <div class="info-item" style="flex:1"><label>品类</label>
+        <span v-for="cid in (product.category_ids || [product.category_id])" :key="cid" class="tag tag-default" style="margin:0 3px">{{ categoryNames[cid] || cid }}</span>
+      </div>
     </div>
 
     <!-- Comm Methods -->
-    <h3>通讯方式</h3>
-    <table class="data-table">
+    <h3 v-if="product.comm_methods?.length">通讯方式</h3>
+    <table v-if="product.comm_methods?.length" class="data-table">
       <thead><tr><th>类型</th><th>方式</th><th>详情</th></tr></thead>
       <tbody>
         <tr v-for="cm in product.comm_methods" :key="cm.method_id">
@@ -49,6 +53,7 @@
         </tr>
       </tbody>
     </table>
+    <p v-else class="text-muted text-sm" style="margin-bottom:16px">暂无通讯方式</p>
 
     <!-- Comm Protocols -->
     <h3 v-if="product.comm_protocols?.length">通讯协议</h3>
@@ -157,6 +162,7 @@
       <p class="text-sm" style="white-space:pre-wrap">{{ product.custom_fields.remark }}</p>
     </div>
   </div>
+  <div v-else-if="loadError" style="text-align:center;padding:48px;color:var(--color-danger)">{{ loadError }}<br /><button class="btn-primary btn-sm" style="margin-top:12px" @click="load">重试</button></div>
   <div v-else style="text-align:center;padding:48px;color:var(--color-text-secondary)">加载中...</div>
 </template>
 
@@ -167,11 +173,13 @@ import { PencilIcon, FileTextIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import TagBadge from '../components/TagBadge.vue'
 import DependencyEditor from '../components/DependencyEditor.vue'
-import { fetchProduct, specSheetUrl } from '../api'
+import { fetchProduct, specSheetUrl, fetchCategories } from '../api'
+import type { Product, SpecDefinition } from '../types'
 
 const route = useRoute()
-const product = ref<any>(null)
-const specDefs = ref<any[]>([])
+const product = ref<Product | null>(null)
+const categoryNames = ref<Record<number, string>>({})
+const specDefs = ref<SpecDefinition[]>([])
 const lightboxIdx = ref<number | null>(null)
 
 const allImages = computed(() => {
@@ -212,13 +220,28 @@ function formatSpec(val: any, sd: any): string {
   return String(val)
 }
 
-async function load() {
-  const res = await fetchProduct(Number(route.params.id))
-  product.value = res.product
-  specDefs.value = res.product.spec_definitions || []
+const loadError = ref('')
+async function loadCategories() {
+  try {
+    const res = await fetchCategories('per_page=1000')
+    for (const c of (res.categories || [])) {
+      categoryNames.value[c.id] = c.name
+    }
+  } catch { /* ignore */ }
 }
 
-onMounted(load)
+async function load() {
+  loadError.value = ''
+  try {
+    const res = await fetchProduct(Number(route.params.id))
+    product.value = res.product
+    specDefs.value = res.product.spec_definitions || []
+  } catch (e: any) {
+    loadError.value = e.message || '加载失败'
+  }
+}
+
+onMounted(() => { loadCategories(); load() })
 watch(() => route.params.id, () => { if (route.params.id) load() })
 
 function reload() {
@@ -237,6 +260,7 @@ function reload() {
 }
 .info-item {
   display: flex;
+  align-items: center;
   gap: 4px;
   font-size: 13px;
   line-height: 1.5;

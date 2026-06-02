@@ -18,14 +18,16 @@
   </div>
 
   <div class="card">
-    <table class="data-table" v-if="solutions.length">
+    <div v-if="loading" class="empty-state"><p>加载中...</p></div>
+    <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="load">重试</button></div>
+    <table v-else-if="solutions.length" class="data-table">
       <thead><tr><th>名称</th><th>客户</th><th>项目</th><th>状态</th><th>总价</th><th>更新时间</th><th>操作</th></tr></thead>
       <tbody>
         <tr v-for="s in solutions" :key="s.id">
           <td>{{ s.name }}</td>
           <td>{{ s.client_name || '—' }}</td>
           <td>{{ s.project_name || '—' }}</td>
-          <td><span :class="['tag', s.status === 'draft' ? 'tag-default' : s.status === 'sent' ? 'tag-wifi' : 'tag-lorawan']">{{ s.status }}</span></td>
+          <td><span :class="['tag', `tag-${s.status}`]">{{ s.status }}</span></td>
           <td class="font-mono">{{ s.total_price }}</td>
           <td class="text-sm">{{ s.updated_at }}</td>
           <td>
@@ -36,7 +38,7 @@
         </tr>
       </tbody>
     </table>
-    <div v-else class="empty-state"><InboxIcon /><p>暂无方案</p></div>
+    <div v-else-if="!loading" class="empty-state"><InboxIcon /><p>暂无方案</p></div>
     <Pagination :total="total" :page="page" :per-page="perPage" @change="p => { page = p; load() }" />
   </div>
 
@@ -65,13 +67,14 @@ import Modal from '../components/Modal.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Pagination from '../components/Pagination.vue'
 import { fetchSolutions, createSolution, updateSolution, deleteSolution } from '../api'
+import type { Solution } from '../types'
 
 const router = useRouter()
-const showToast = inject<(msg: string, type?: string) => void>('toast')!
+const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
 const search = ref('')
+const solutions = ref<Solution[]>([])
 const statusFilter = ref('')
-const solutions = ref<any[]>([])
 const total = ref(0)
 const page = ref(1)
 const perPage = 20
@@ -86,13 +89,23 @@ function onSearch() {
   searchTimer = setTimeout(() => { page.value = 1; load() }, 300)
 }
 
+const loading = ref(false)
+const loadError = ref('')
+
 async function load() {
-  let params = `page=${page.value}&per_page=${perPage}`
-  if (search.value) params += `&search=${encodeURIComponent(search.value)}`
-  if (statusFilter.value) params += `&status=${statusFilter.value}`
-  const res = await fetchSolutions(params)
-  solutions.value = res.solutions
-  total.value = res.total
+  loading.value = true
+  loadError.value = ''
+  try {
+    let params = `page=${page.value}&per_page=${perPage}`
+    if (search.value) params += `&search=${encodeURIComponent(search.value)}`
+    if (statusFilter.value) params += `&status=${statusFilter.value}`
+    const res = await fetchSolutions(params)
+    solutions.value = res.solutions
+    total.value = res.total
+  } catch (e: any) {
+    loadError.value = e.message || '加载失败'
+  }
+  loading.value = false
 }
 
 function openAdd() {

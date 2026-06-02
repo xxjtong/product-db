@@ -1,5 +1,5 @@
 <template>
-  <PageHeader :title="solution ? `方案: ${solution.name}` : '方案详情'">
+  <PageHeader :title="solution ? `方案: ${solution.name}` : '方案详情'" :breadcrumb="[{ label: '方案管理', to: '/solutions' }, { label: solution?.name || '方案详情', to: '' }]">
     <button class="btn-secondary" @click="checkDeps"><ShieldCheckIcon style="width:14px;height:14px" />依赖检查</button>
     <button class="btn-secondary" @click="doCreateQuotation">生成报价单</button>
     <button class="btn-secondary" @click="showBom = !showBom">{{ showBom ? '收起' : '编辑' }} BOM 表格</button>
@@ -30,7 +30,7 @@
         <div v-if="!chatText && !chatComponents.length" class="text-sm text-muted">
           告诉我你的需求，帮你挑选产品加入方案。例如："10个温湿度传感器 + 1个LoRaWAN网关"
         </div>
-        <div style="font-size:13px;white-space:pre-wrap" v-html="chatText" />
+        <div style="font-size:13px;white-space:pre-wrap" v-html="sanitize(chatText)" />
         <!-- GenUI components from SSE -->
         <component
           v-for="(comp, i) in chatComponents"
@@ -92,6 +92,7 @@
       <BOMSpreadsheet :solutionId="Number(route.params.id)" />
     </div>
   </div>
+  <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="load">重试</button></div>
   <div v-else class="empty-state"><p>加载中...</p></div>
 
   <!-- Batch product picker modal -->
@@ -120,23 +121,30 @@ import { ref, onMounted, inject, computed, nextTick, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ShieldCheckIcon, Trash2Icon, PlusIcon, InboxIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
-import BOMSpreadsheet from '../components/BOMSpreadsheet.vue'
+import { defineAsyncComponent } from 'vue'
+const BOMSpreadsheet = defineAsyncComponent(() => import('../components/BOMSpreadsheet.vue'))
 import DependencyGraph from '../components/DependencyGraph.vue'
 import Modal from '../components/Modal.vue'
 import SolutionProductCard from '../components/GenUI/SolutionProductCard.vue'
 import QuoteDraftCard from '../components/GenUI/QuoteDraftCard.vue'
 import { fetchSolution, fetchProducts, addSolutionItem, updateSolutionItem, deleteSolutionItem, checkSolution, createQuotation, updateSolution, streamAiChat } from '../api'
+import type { Solution, Product } from '../types'
+import DOMPurify from 'dompurify'
+
+function sanitize(html: string): string { return DOMPurify.sanitize(html) as string }
 
 const componentRegistry: Record<string, any> = { SolutionProductCard, QuoteDraftCard }
 
 const route = useRoute()
 const router = useRouter()
 const showBom = ref(false)
-const showToast = inject<(msg: string, type?: string) => void>('toast')!
+const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
-const solution = ref<any>(null)
-const allProducts = ref<any[]>([])
-const checkResult = ref<any>(null)
+const solution = ref<Solution | null>(null)
+const allProducts = ref<Product[]>([])
+interface CheckWarning { type: string; description: string; target_name?: string }
+interface CheckResult { ok: boolean; warnings: CheckWarning[] }
+const checkResult = ref<CheckResult | null>(null)
 
 // AI chat
 const chatInput = ref('')
@@ -159,13 +167,23 @@ const pickerFiltered = computed(() => {
   ).slice(0, 100)
 })
 
+const loading = ref(false)
+const loadError = ref('')
+
 async function load() {
-  const [solRes, prodRes] = await Promise.all([
-    fetchSolution(Number(route.params.id)),
-    fetchProducts('per_page=500'),
-  ])
-  solution.value = solRes.solution
-  allProducts.value = prodRes.products
+  loading.value = true
+  loadError.value = ''
+  try {
+    const [solRes, prodRes] = await Promise.all([
+      fetchSolution(Number(route.params.id)),
+      fetchProducts('per_page=500'),
+    ])
+    solution.value = solRes.solution
+    allProducts.value = prodRes.products
+  } catch (e: any) {
+    loadError.value = e.message || '加载失败'
+  }
+  loading.value = false
 }
 
 async function saveInfo() {
@@ -266,7 +284,7 @@ async function sendChat() {
         } catch { /* skip */ }
         continue
       }
-      buffer += text; chatText.value += text; scrollChat()
+      buffer += text; chatText.value += escapeHtml(text); scrollChat()
     }
     chatText.value += '<br><br>'; scrollChat()
   } catch (e: any) {

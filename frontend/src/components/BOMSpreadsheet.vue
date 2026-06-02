@@ -14,10 +14,10 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, inject } from 'vue'
 import { RefreshCwIcon, SaveIcon, DownloadIcon, CopyIcon } from 'lucide-vue-next'
-import { fetchBomSnapshot, saveBomSnapshot, bomExportUrl } from '../api'
+import { fetchBomSnapshot, saveBomSnapshot, bomExportUrl, saveBomAsTemplate } from '../api'
 
 const props = defineProps<{ solutionId: number }>()
-const showToast = inject<(msg: string, type?: string) => void>('toast')!
+const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
 const container = ref<HTMLElement | null>(null)
 const dirty = ref(false)
@@ -252,7 +252,7 @@ function univerToSnapshot(wb: any): any {
 
   // Access style sheet for cell style lookup
   let styles: any = null
-  try { styles = wb.getStyles() } catch {}
+  try { styles = wb.getStyles() } catch { console.warn('BOMSpreadsheet: parse failed') }
 
   for (let r = 0; r < rowCount; r++) {
     for (let c = 0; c < columnCount; c++) {
@@ -268,7 +268,7 @@ function univerToSnapshot(wb: any): any {
           const style = typeof cell.s === 'string' ? styles.get(cell.s) : cell.s
           const inline = _univerStyleToInline(style)
           if (inline) cellData.s = inline
-        } catch {}
+        } catch { console.warn('BOMSpreadsheet: parse failed') }
       }
 
       cells[ref] = cellData
@@ -283,7 +283,7 @@ function univerToSnapshot(wb: any): any {
       if (w !== undefined && w !== null) {
         colWidths[colToLetter(c)] = w
       }
-    } catch {}
+    } catch { console.warn('BOMSpreadsheet: parse failed') }
   }
 
   // Extract row heights
@@ -294,7 +294,7 @@ function univerToSnapshot(wb: any): any {
       if (h !== undefined && h !== null) {
         rowHeights[String(r + 1)] = h
       }
-    } catch {}
+    } catch { console.warn('BOMSpreadsheet: parse failed') }
   }
 
   // Extract merged cells
@@ -306,7 +306,7 @@ function univerToSnapshot(wb: any): any {
       const endRef = rowColToCellRef(range.endRow, range.endColumn)
       return startRef === endRef ? startRef : `${startRef}:${endRef}`
     })
-  } catch {}
+  } catch { console.warn('BOMSpreadsheet: parse failed') }
 
   return {
     cells,
@@ -327,12 +327,7 @@ async function saveAsTemplate() {
   try {
     const wb = getWorkbook()
     const snapshot = wb ? univerToSnapshot(wb) : currentSnapshot || {}
-    const res = await fetch(`/api/solutions/${props.solutionId}/bom-snapshot/save-as-template`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, snapshot }),
-    })
-    if (!res.ok) throw new Error('Failed')
+    await saveBomAsTemplate(props.solutionId, { name, snapshot })
     showToast('模板已保存', 'success')
   } catch (e: any) {
     showToast('保存模板失败', 'error')

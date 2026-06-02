@@ -4,6 +4,7 @@ from app.database import get_db
 from app.models.supplier import Supplier
 from app.auth import get_current_user
 from app.utils.escape import escape_like
+from app.utils.helpers import apply_partial_update
 from app.schemas.supplier import SupplierCreate, SupplierUpdate
 
 router = APIRouter()
@@ -30,6 +31,14 @@ def list_suppliers(
     return {"suppliers": [s.to_dict() for s in suppliers], "total": total, "page": page, "per_page": per_page}
 
 
+@router.get("/suppliers/{supplier_id}")
+def get_supplier(supplier_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    s = db.get(Supplier, supplier_id)
+    if not s:
+        raise HTTPException(404, "Supplier not found")
+    return {"supplier": s.to_dict()}
+
+
 @router.post("/suppliers")
 def create_supplier(data: SupplierCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     s = Supplier(
@@ -51,10 +60,7 @@ def update_supplier(supplier_id: int, data: SupplierUpdate, db: Session = Depend
     s = db.get(Supplier, supplier_id)
     if not s:
         raise HTTPException(404, "Supplier not found")
-    for f in ["name", "contact_person", "phone", "email", "website", "notes"]:
-        val = getattr(data, f, None)
-        if val is not None:
-            setattr(s, f, val)
+    apply_partial_update(s, data, ["name", "contact_person", "phone", "email", "website", "notes"])
     db.commit()
     return {"supplier": s.to_dict()}
 

@@ -31,17 +31,22 @@ def delete_file(url: str) -> bool:
     if not url or "/api/uploads/products/" not in url:
         return False
     filename = url.split("/api/uploads/products/")[-1]
-    filepath = os.path.join(UPLOAD_DIR, filename)
-    if os.path.exists(filepath):
-        os.remove(filepath)
+    filepath = Path(os.path.join(UPLOAD_DIR, filename)).resolve()
+    if not filepath.is_relative_to(UPLOAD_DIR.resolve()):
+        return False
+    if filepath.exists():
+        filepath.unlink()
         return True
     return False
 
 
 def upload_from_url(source_url: str, product_id: int = 0) -> str:
     """Download image from URL and save locally. Returns local URL path."""
-    import requests as http_requests
-    resp = http_requests.get(source_url, timeout=30, headers={
+    from app.utils.security import validate_url
+    if not validate_url(source_url):
+        raise ValueError(f"URL not allowed: {source_url}")
+    import httpx
+    resp = httpx.get(source_url, timeout=30, follow_redirects=False, headers={
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
     })
     resp.raise_for_status()

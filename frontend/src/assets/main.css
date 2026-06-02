@@ -46,7 +46,7 @@ h1, h2, h3 {
 
 h1 { font-size: 20px; }
 h2 { font-size: 18px; }
-h3 { font-size: 16px; }
+h3 { font-size: 16px; margin: 0; }
 .card h3 { font-size: 13px; margin: 12px 0 4px; }
 .card table.data-table { margin-bottom: 8px; }
 .card table.data-table th,
@@ -157,6 +157,7 @@ button {
   font-weight: 600;
   letter-spacing: .5px;
   border-bottom: 1px solid rgba(255,255,255,.1);
+  cursor: pointer;
 }
 .sidebar-nav { padding: 8px 0; }
 .sidebar-link {
@@ -221,6 +222,14 @@ button {
 .tag-modbus { background: #fef9c3; color: #854d0e; }
 .tag-nfc { background: #cffafe; color: #0e7490; }
 .tag-default { background: #f1f5f9; color: #475569; }
+.tag-draft { background: #f1f5f9; color: #475569; }
+.tag-active { background: #d1fae5; color: #047857; }
+.tag-done { background: #dbeafe; color: #1d4ed8; }
+.tag-archived { background: #f1f5f9; color: #94a3b8; }
+.tag-sent { background: #fef3c7; color: #92400e; }
+.tag-accepted { background: #d1fae5; color: #047857; }
+.tag-rejected { background: #fee2e2; color: #991b1b; }
+.tag-danger { background: #fee2e2; color: #991b1b; }
 
 /* Modal */
 .modal-overlay {
@@ -352,17 +361,39 @@ button {
   align-items: center;
 }
 .filter-group {
+  margin-bottom: 8px;
+}
+.filter-group-header {
   display: flex;
   align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: 4px;
 }
+.filter-group-header:hover .filter-label { color: var(--color-accent); }
 .filter-group .filter-label {
   font-size: 12px;
   font-weight: 600;
   color: var(--color-text-secondary);
-  margin-right: 4px;
   min-width: 56px;
+}
+.filter-toggle { font-size: 10px; color: var(--color-text-secondary); }
+.filter-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.filter-tags.collapsed {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+}
+.filter-tags.expanded {
+  max-height: 600px;
+  opacity: 1;
+  transition: max-height 0.3s ease, opacity 0.3s ease;
 }
 .filter-tag {
   padding: 4px 10px;
@@ -403,6 +434,19 @@ button {
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ===== Responsive ===== */
+
+/* Scrollable tables on small screens */
+.data-table { width: 100%; }
+@media (max-width: 768px) {
+  .data-table { display: block; overflow-x: auto; white-space: nowrap; }
+  .card:has(.data-table) {
+    background: linear-gradient(to right, white 30%, transparent),
+                radial-gradient(at right, rgba(0,0,0,.08), transparent 70%) right;
+    background-size: 40px 100%, 40px 100%;
+    background-repeat: no-repeat;
+    background-attachment: scroll, scroll;
+  }
+}
 
 /* Tablet: collapse sidebar to icon-only */
 @media (max-width: 768px) {

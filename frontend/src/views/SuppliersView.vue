@@ -7,7 +7,8 @@
   </PageHeader>
 
   <div class="card">
-    <table class="data-table" v-if="suppliers.length">
+    <div v-if="loading" class="empty-state"><p>加载中...</p></div>
+    <table v-else-if="suppliers.length" class="data-table">
       <thead><tr><th>名称</th><th>联系人</th><th>电话</th><th>邮箱</th><th>操作</th></tr></thead>
       <tbody>
         <tr v-for="s in suppliers" :key="s.id">
@@ -53,10 +54,11 @@ import Pagination from '../components/Pagination.vue'
 import Modal from '../components/Modal.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { fetchSuppliersPaginated, createSupplier, updateSupplier, deleteSupplier } from '../api'
+import type { Supplier } from '../types'
 
-const showToast = inject<(msg: string, type?: string) => void>('toast')!
+const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
-const suppliers = ref<any[]>([])
+const suppliers = ref<Supplier[]>([])
 const total = ref(0)
 const page = ref(1)
 const perPage = 25
@@ -74,12 +76,16 @@ function buildQuery() {
   return parts.join('&')
 }
 
+const loading = ref(false)
+
 async function load() {
+  loading.value = true
   try {
     const res = await fetchSuppliersPaginated(buildQuery())
     suppliers.value = res.suppliers
     total.value = res.total
   } catch (e: any) { showToast(e.message || '加载失败', 'error') }
+  loading.value = false
 }
 
 function openAdd() {

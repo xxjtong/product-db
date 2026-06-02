@@ -1,6 +1,5 @@
 """Self-contained LLM engine — direct DeepSeek API calls, no Gateway dependency."""
 import json
-import time
 import httpx
 from app.config import settings
 
@@ -9,7 +8,7 @@ DEFAULT_MODEL = "deepseek-chat"
 
 
 class LlmEngine:
-    """OpenAI-compatible HTTP client for DeepSeek API."""
+    """OpenAI-compatible async HTTP client for DeepSeek API."""
 
     def __init__(self, api_key: str = "", base_url: str = ""):
         self.api_key = api_key or settings.AI_GATEWAY_KEY
@@ -21,9 +20,9 @@ class LlmEngine:
             "Content-Type": "application/json",
         }
 
-    def chat(self, messages: list, model: str = DEFAULT_MODEL, tools: list = None,
-             temperature: float = 0.7, max_tokens: int = 2000, **kwargs) -> dict:
-        """Non-streaming chat completion."""
+    async def chat(self, messages: list, model: str = DEFAULT_MODEL, tools: list = None,
+                   temperature: float = 0.7, max_tokens: int = 2000, **kwargs) -> dict:
+        """Non-streaming chat completion (async)."""
         payload = {
             "model": model,
             "messages": messages,
@@ -34,18 +33,18 @@ class LlmEngine:
         if tools:
             payload["tools"] = tools
 
-        resp = httpx.post(
-            f"{self.base_url}/v1/chat/completions",
-            json=payload,
-            headers=self._headers(),
-            timeout=120,
-        )
-        resp.raise_for_status()
-        return resp.json()
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(
+                f"{self.base_url}/v1/chat/completions",
+                json=payload,
+                headers=self._headers(),
+            )
+            resp.raise_for_status()
+            return resp.json()
 
-    def chat_stream(self, messages: list, model: str = DEFAULT_MODEL, tools: list = None,
-                    temperature: float = 0.7, max_tokens: int = 2000, **kwargs):
-        """Streaming chat completion — yields SSE chunks."""
+    async def chat_stream(self, messages: list, model: str = DEFAULT_MODEL, tools: list = None,
+                          temperature: float = 0.7, max_tokens: int = 2000, **kwargs):
+        """Streaming chat completion — yields SSE chunks (async)."""
         payload = {
             "model": model,
             "messages": messages,
@@ -57,32 +56,32 @@ class LlmEngine:
         if tools:
             payload["tools"] = tools
 
-        with httpx.stream(
-            "POST",
-            f"{self.base_url}/v1/chat/completions",
-            json=payload,
-            headers=self._headers(),
-            timeout=120,
-        ) as resp:
-            resp.raise_for_status()
-            for line in resp.iter_lines():
-                if line.startswith("data: "):
-                    data = line[6:]
-                    if data.strip() == "[DONE]":
-                        yield {"done": True}
-                        return
-                    try:
-                        yield json.loads(data)
-                    except json.JSONDecodeError:
-                        pass
+        async with httpx.AsyncClient(timeout=120) as client:
+            async with client.stream(
+                "POST",
+                f"{self.base_url}/v1/chat/completions",
+                json=payload,
+                headers=self._headers(),
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if line.startswith("data: "):
+                        data = line[6:]
+                        if data.strip() == "[DONE]":
+                            yield {"done": True}
+                            return
+                        try:
+                            yield json.loads(data)
+                        except json.JSONDecodeError:
+                            pass
 
-    def simple_chat(self, user_input: str, system_prompt: str = "", model: str = DEFAULT_MODEL) -> str:
+    async def simple_chat(self, user_input: str, system_prompt: str = "", model: str = DEFAULT_MODEL) -> str:
         """Quick one-shot chat — returns text response."""
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": user_input})
-        result = self.chat(messages, model=model)
+        result = await self.chat(messages, model=model)
         return result["choices"][0]["message"]["content"]
 
 

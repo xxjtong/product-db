@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     AI_GATEWAY_URL: str = "http://127.0.0.1:8642"
     AI_GATEWAY_KEY: str = ""
     DEV_MODE: bool = False
+    CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+    DISABLE_IP_LOOKUP: bool = False
+    LOGIN_RATE_LIMIT: int = 10  # max failed attempts per window
+    LOGIN_RATE_WINDOW: int = 300  # window in seconds
 
     class Config:
         env_file = ".env"

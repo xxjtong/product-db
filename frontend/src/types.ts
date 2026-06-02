@@ -24,6 +24,14 @@ export interface SpecDefinition {
   validation: Record<string, number> | null
 }
 
+export interface ProductCommMethod { method_id: number; method_name: string; method_type: string; details: string }
+export interface ProductCommProtocol { protocol_id: number; protocol_name: string; direction: string }
+export interface ProductPowerSupply { power_id: number; power_name: string; voltage_range: string; battery_life: string }
+export interface ProductHardwareInterface { id: number; interface_name: string; quantity: number; description: string }
+export interface ProductSensorCapability { metric_id: number; metric_name: string; unit: string; measure_range: string; accuracy: string; resolution: string }
+export interface ProductImage { id: number; url: string; is_primary: boolean; sort_order: number; alt_text: string }
+export interface ProductDependency { id: number; product_id: number; depends_on_product_id: number; depends_on_category_id: number | null; dependency_type: string; description: string; sort_order: number }
+
 export interface Product {
   id: number
   name: string
@@ -43,17 +51,27 @@ export interface Product {
   product_url: string
   status: string
   parent_id: number | null
-  comm_methods: any[]
-  comm_protocols: any[]
-  power_supplies: any[]
-  hardware_interfaces: any[]
-  sensor_capabilities: any[]
-  images: any[]
+  comm_methods: ProductCommMethod[]
+  comm_protocols: ProductCommProtocol[]
+  power_supplies: ProductPowerSupply[]
+  hardware_interfaces: ProductHardwareInterface[]
+  sensor_capabilities: ProductSensorCapability[]
+  images: ProductImage[]
   specs: Record<string, any>
   urls: Record<string, string>
   custom_fields: Record<string, any>
   created_at: string
   updated_at: string
+  view_count?: number
+  variants?: { id: number; name: string; model: string }[]
+  spec_definitions?: SpecDefinition[]
+}
+
+export interface Manufacturer {
+  id: number
+  name: string
+  website?: string
+  description?: string
 }
 
 export interface Supplier {

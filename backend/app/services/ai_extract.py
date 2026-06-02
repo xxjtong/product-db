@@ -13,9 +13,17 @@ from app.models.dictionary import (
     Manufacturer, DictCommMethod, DictCommProtocol, DictPowerSupply, DictSensorMetric,
 )
 
+# TTL cache for extraction prompt (30s to match field_visibility pattern)
+_prompt_cache: dict = {"ts": 0, "value": ""}
+
 
 def build_extraction_prompt(db: Session) -> str:
-    """Build system prompt for product extraction AI."""
+    """Build system prompt for product extraction AI (cached 30s)."""
+    import time as _time
+    now = _time.time()
+    if now - _prompt_cache["ts"] < 30:
+        return _prompt_cache["value"]
+
     cats = db.query(Category).filter_by(is_active=True).order_by(Category.sort_order).all()
     cat_info = [f"  - slug:{c.slug} name:{c.name}" for c in cats if c.slug]
 
@@ -34,7 +42,7 @@ def build_extraction_prompt(db: Session) -> str:
     metrics = db.query(DictSensorMetric).all()
     metric_names = [f"{m.name}({m.unit})" for m in metrics]
 
-    return f"""你是一个物联网产品信息提取助手。根据网页内容提取产品结构化信息，输出必须是有效 JSON，不要包含任何其他文本。
+    result = f"""你是一个物联网产品信息提取助手。根据网页内容提取产品结构化信息，输出必须是有效 JSON，不要包含任何其他文本。
 
 品类列表 (选择最匹配的 slug):
 {chr(10).join(cat_info)}
@@ -63,12 +71,17 @@ def build_extraction_prompt(db: Session) -> str:
 
 注意: comm_methods/comm_protocols/power_supplies 中的 name 字段必须从可选值中匹配，无法匹配的不要添加。"""
 
+    _prompt_cache["value"] = result
+    _prompt_cache["ts"] = now
+    return result
+
 
 def call_ai_extract(url: str, title: str, text: str, db: Session) -> dict:
     """Call AI (DeepSeek) to extract product info from text.
 
     Falls back to regex extraction if no API key or on error.
     """
+    import asyncio
     from app.services.ai_engine import engine
 
     if not settings.AI_GATEWAY_KEY:
@@ -89,7 +102,7 @@ def call_ai_extract(url: str, title: str, text: str, db: Session) -> dict:
     ]
 
     try:
-        result = engine.chat(messages, temperature=0.1, max_tokens=2000)
+        result = asyncio.run(engine.chat(messages, temperature=0.1, max_tokens=2000))
         content = result["choices"][0]["message"]["content"]
         json_match = re.search(r'\{.*\}', content, re.DOTALL)
         if json_match:

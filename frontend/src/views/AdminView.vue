@@ -1,6 +1,10 @@
 <template>
   <PageHeader title="管理面板" />
 
+  <div v-if="loading" class="empty-state"><p>加载中...</p></div>
+  <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="load">重试</button></div>
+  <template v-else>
+
   <!-- Field Visibility -->
   <div class="card mb-16">
     <h3>字段可见性 <span class="text-sm text-muted">（普通用户视图）</span></h3>
@@ -122,6 +126,8 @@
       <button class="btn-secondary" @click="pwdModalVisible = false">取消</button><button class="btn-primary" @click="doResetPwd">确认</button>
     </template>
   </Modal>
+  <ConfirmDialog :title="confirmState.title" :message="confirmState.message" :visible="confirmState.visible" @confirm="confirmState.action(); confirmState.visible = false" @cancel="confirmState.visible = false" />
+  </template>
 </template>
 
 <script setup lang="ts">
@@ -129,21 +135,31 @@ import { ref, onMounted, inject } from 'vue'
 import { PencilIcon, Trash2Icon, KeyIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import Modal from '../components/Modal.vue'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 
-const showToast = inject<(msg: string, type?: string) => void>('toast')!
+const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 const token = () => localStorage.getItem('token') || ''
 const h = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` })
 
-const users = ref<any[]>([])
-const logs = ref<any[]>([])
-const dlogs = ref<any[]>([])
+interface AdminUser { id: number; username: string; role: string; email: string; is_active: boolean; created_at: string; last_login: string }
+interface LogEntry { id: number; user_id: number | null; ip_address: string; region: string; success: boolean; created_at: string }
+interface DownloadLog { id: number; user_id: number; file_type: string; entity_id: number; ip_address: string; created_at: string }
+
+const users = ref<AdminUser[]>([])
+const logs = ref<LogEntry[]>([])
+const dlogs = ref<DownloadLog[]>([])
 const modalVisible = ref(false)
-const editing = ref<any>(null)
+const editing = ref<AdminUser | null>(null)
 const form = ref({ username: '', password: '', role: 'user', email: '', is_active: true })
 const pwdModalVisible = ref(false)
-const pwdTarget = ref<any>(null)
+const pwdTarget = ref<AdminUser | null>(null)
 const newPwd = ref('')
 const regOpen = ref(false)
+const confirmState = ref({ visible: false, title: '', message: '', action: () => {} })
+
+function showConfirm(title: string, message: string, action: () => void) {
+  confirmState.value = { visible: true, title, message, action }
+}
 
 // Field visibility
 const fieldList = ref([
@@ -161,21 +177,26 @@ const aiPromptIsDefault = ref(true)
 // AI usage
 const aiUsage = ref<any>(null)
 
-async function api(url: string, opts?: any) {
+async function adminApi(url: string, opts?: any) {
   const res = await fetch(url, { headers: h(), ...opts })
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || '请求失败')
   return res.json()
 }
 
+const loading = ref(false)
+const loadError = ref('')
+
 async function load() {
+  loading.value = true
+  loadError.value = ''
   try {
     const [uRes, lRes, fRes, pRes, aRes, dRes, rRes] = await Promise.all([
-      api('/api/admin/users'),
-      api('/api/admin/login-logs'),
-      api('/api/admin/fields'),
-      api('/api/admin/prompt'),
-      api('/api/admin/ai-usage'),
-      api('/api/admin/download-logs'),
+      adminApi('/api/admin/users'),
+      adminApi('/api/admin/login-logs'),
+      adminApi('/api/admin/fields'),
+      adminApi('/api/admin/prompt'),
+      adminApi('/api/admin/ai-usage'),
+      adminApi('/api/admin/download-logs'),
       fetch('/api/auth/registration-status').then(r => r.json()),
     ])
     users.value = uRes.users || []
@@ -187,14 +208,19 @@ async function load() {
     aiPromptIsDefault.value = pRes.is_default !== false
     aiUsage.value = aRes
     regOpen.value = rRes.open || false
-  } catch { /* ignore */ }
+  } catch (e: any) {
+    loadError.value = e.message || '加载失败'
+  }
+  loading.value = false
 }
 
 // Field visibility
 async function toggleField(key: string) {
   const fv = fieldList.value.find(f => f.key === key)
   if (!fv) return; fv.visible = !fv.visible
-  await fetch('/api/admin/fields', { method: 'PUT', headers: h(), body: JSON.stringify({ [key]: fv.visible }) })
+  try {
+    await fetch('/api/admin/fields', { method: 'PUT', headers: h(), body: JSON.stringify({ [key]: fv.visible }) })
+  } catch { fv.visible = !fv.visible; showToast('保存失败', 'error') }
 }
 
 // AI prompt
@@ -208,18 +234,21 @@ async function saveAiPrompt() {
 }
 
 async function resetAiPrompt() {
-  if (!confirm('确定恢复默认提示词？所有AI对话将被清除。')) return
-  const res = await fetch('/api/admin/prompt', { method: 'DELETE', headers: h() })
-  const data = await res.json()
-  aiPrompt.value = data.prompt
-  aiPromptIsDefault.value = true; showToast('已恢复默认', 'success')
+  showConfirm('恢复默认提示词', '确定恢复默认提示词？所有AI对话将被清除。', async () => {
+    const res = await fetch('/api/admin/prompt', { method: 'DELETE', headers: h() })
+    const data = await res.json()
+    aiPrompt.value = data.prompt
+    aiPromptIsDefault.value = true; showToast('已恢复默认', 'success')
+  })
 }
 
 // Registration
 async function toggleReg() {
   regOpen.value = !regOpen.value
-  await fetch('/api/settings/registration_open', { method: 'PUT', headers: h(), body: JSON.stringify({ value: regOpen.value ? 'true' : 'false' }) })
-  showToast(regOpen.value ? '注册已开放' : '注册已关闭', 'success')
+  try {
+    await fetch('/api/settings/registration_open', { method: 'PUT', headers: h(), body: JSON.stringify({ value: regOpen.value ? 'true' : 'false' }) })
+    showToast(regOpen.value ? '注册已开放' : '注册已关闭', 'success')
+  } catch { regOpen.value = !regOpen.value; showToast('保存失败', 'error') }
 }
 
 // Users
@@ -238,14 +267,20 @@ function resetPwd(u: any) { pwdTarget.value = u; newPwd.value = ''; pwdModalVisi
 
 async function doResetPwd() {
   if (!newPwd.value || newPwd.value.length < 8) { showToast('密码至少8位', 'error'); return }
-  await fetch(`/api/admin/users/${pwdTarget.value.id}/password`, { method: 'PUT', headers: h(), body: JSON.stringify({ password: newPwd.value }) })
-  pwdModalVisible.value = false; showToast('密码已重置', 'success')
+  if (!pwdTarget.value) return
+  try {
+    await fetch(`/api/admin/users/${pwdTarget.value.id}/password`, { method: 'PUT', headers: h(), body: JSON.stringify({ password: newPwd.value }) })
+    pwdModalVisible.value = false; showToast('密码已重置', 'success')
+  } catch (e: any) { showToast('重置失败', 'error') }
 }
 
 async function doDelete(u: any) {
-  if (!confirm(`确定删除用户「${u.username}」？`)) return
-  await fetch(`/api/admin/users/${u.id}`, { method: 'DELETE', headers: h() })
-  showToast('已删除', 'success'); load()
+  showConfirm('删除用户', `确定删除用户「${u.username}」？`, async () => {
+    try {
+      await fetch(`/api/admin/users/${u.id}`, { method: 'DELETE', headers: h() })
+      showToast('已删除', 'success'); load()
+    } catch (e: any) { showToast('删除失败', 'error') }
+  })
 }
 
 onMounted(load)

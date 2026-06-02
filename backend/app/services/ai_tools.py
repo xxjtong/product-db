@@ -1,6 +1,7 @@
 """AI tool definitions for product database queries."""
 import json
 from sqlalchemy import or_
+from sqlalchemy.orm import selectinload
 from app.utils.escape import escape_like
 
 TOOL_DEFINITIONS = [
@@ -139,7 +140,12 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
                 ProductPowerSupply.power.has(DictPowerSupply.name.ilike(f"%{escape_like(power)}%"))
             ))
 
-        products = q.limit(limit).all()
+        products = q.options(
+            selectinload(Product.category),
+            selectinload(Product.manufacturer),
+            selectinload(Product.comm_methods).selectinload(ProductCommMethod.method),
+            selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
+        ).limit(limit).all()
 
         if not products:
             return json.dumps({"found": 0, "message": "未找到匹配产品"}, ensure_ascii=False)

@@ -36,7 +36,7 @@ class Product(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=datetime.now)
 
     # Relationships
-    category = relationship("Category", backref="products")
+    category = relationship("Category", backref="products", foreign_keys=[category_id])
     manufacturer = relationship("Manufacturer", backref="products")
     supplier = relationship("Supplier", backref="products")
     parent = relationship("Product", remote_side=[id], backref="variants")
@@ -80,6 +80,7 @@ class Product(Base):
             "sku": self.sku or "",
             "category_id": self.category_id,
             "category_name": cat_name or "",
+            "category_ids": [self.category_id] if self.category_id else [],
             "manufacturer_id": self.manufacturer_id,
             "manufacturer_name": manufacturer_name or "",
             "supplier_id": self.supplier_id,

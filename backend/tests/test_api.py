@@ -29,6 +29,17 @@ client = TestClient(app)
 def setup_db():
     """Create all tables and seed admin user before each test."""
     Base.metadata.create_all(bind=engine)
+    # Create product_categories junction table (raw SQL, not in ORM metadata)
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        conn.execute(text('''
+            CREATE TABLE IF NOT EXISTS product_categories (
+                product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+                category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+                PRIMARY KEY (product_id, category_id)
+            )
+        '''))
+        conn.commit()
     db = SessionLocal()
     if not db.query(User).filter_by(username="admin").first():
         db.add(User(username="admin", password_hash=hash_password("admin"), role="admin"))

@@ -1,5 +1,5 @@
 <template>
-  <PageHeader :title="isEdit ? '编辑产品' : '新增产品'">
+  <PageHeader :title="isEdit ? '编辑产品' : '新增产品'" :breadcrumb="[{ label: '产品列表', to: '/products' }, { label: isEdit ? '编辑产品' : '新增产品', to: '' }]">
     <button class="btn-secondary" @click="$router.back()">取消</button>
     <button class="btn-primary" @click="save">保存</button>
   </PageHeader>
@@ -10,12 +10,6 @@
       <div class="form-group"><label>产品名称 *</label><input v-model="form.name" /></div>
       <div class="form-group"><label>型号</label><input v-model="form.model" placeholder="e.g. EG71" /></div>
       <div class="form-group"><label>SKU</label><input v-model="form.sku" /></div>
-      <div class="form-group">
-        <label>品类 *</label>
-        <select v-model="form.category_id" @change="onCategoryChange">
-          <option v-for="c in flatCategories" :key="c.id" :value="c.id">{{ c.name }}</option>
-        </select>
-      </div>
       <div class="form-group">
         <label>厂商</label>
         <select v-model="form.manufacturer_id">
@@ -36,6 +30,17 @@
         <select v-model="form.status"><option value="active">在售</option><option value="discontinued">停售</option><option value="planned">规划中</option></select>
       </div>
       <div class="form-group full"><label>产品URL</label><input v-model="form.product_url" placeholder="https://..." /></div>
+      <div class="form-group full">
+        <label>品类 *</label>
+        <div class="category-tags">
+          <span v-for="c in flatCategories" :key="c.id"
+                :class="['filter-tag', { active: form.category_ids.includes(c.id) }]"
+                @click="selectCategory(c.id)"
+                >
+            {{ c.name }}
+          </span>
+        </div>
+      </div>
     </div>
 
     <!-- AI Fetch Section -->
@@ -223,7 +228,7 @@ import { fetchCategories, fetchSuppliers, fetchProducts, fetchProduct, createPro
 
 const route = useRoute()
 const router = useRouter()
-const showToast = inject<(msg: string, type?: string) => void>('toast')!
+const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
 const isEdit = computed(() => !!route.params.id)
 const loaded = ref(false)
@@ -253,9 +258,10 @@ async function onAiFetch() {
   if (!url && !text) { showToast('请输入URL或文本', 'error'); return }
   aiFetching.value = true
   try {
+    const token = localStorage.getItem('token')
     const res = await (await fetch('/api/products/ai-fetch', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify(url ? { url } : { text }),
     })).json()
     aiPreview.value = res.fetched
@@ -359,7 +365,7 @@ function flattenTree(nodes: any[], result: any[] = []): any[] {
 }
 
 const form = ref<any>({
-  name: '', model: '', sku: '', category_id: null, manufacturer_id: null, supplier_id: null,
+  name: '', model: '', sku: '', category_id: null, category_ids: [] as number[], manufacturer_id: null, supplier_id: null,
   base_price: 0, cost_price: 0, description: '', status: 'active', parent_id: null,
   comm_methods: [], comm_protocols: [], power_supplies: [],
   hardware_interfaces: [], sensor_capabilities: [], images: [],
@@ -395,18 +401,33 @@ async function onDownloadImage() {
   imageDownloading.value = false
 }
 
+let _catChangeSeq = 0
+
+function selectCategory(id: number) {
+  const idx = form.value.category_ids.indexOf(id)
+  if (idx >= 0) {
+    form.value.category_ids.splice(idx, 1)
+  } else {
+    form.value.category_ids.push(id)
+  }
+  form.value.category_id = form.value.category_ids[0] || null
+  onCategoryChange()
+}
+
 async function onCategoryChange() {
   form.value.specs = {}
-  if (form.value.category_id) {
-    const res = await fetchSpecDefinitions(form.value.category_id)
-    specDefs.value = res.spec_definitions
-    for (const sd of specDefs.value) {
-      if (!(sd.spec_key in form.value.specs)) {
-        form.value.specs[sd.spec_key] = sd.spec_type === 'boolean' ? false : null
-      }
-    }
-  } else {
+  if (!form.value.category_id) {
     specDefs.value = []
+    return
+  }
+  const seq = ++_catChangeSeq
+  const res = await fetchSpecDefinitions(form.value.category_id)
+  if (seq !== _catChangeSeq) return  // ignore stale response
+  specDefs.value = res.spec_definitions
+  for (const sd of specDefs.value) {
+    if (!(sd.spec_key in form.value.specs)) {
+      form.value.specs[sd.spec_key] = sd.spec_type === 'boolean' ? false : null
+    }
   }
 }
 
@@ -452,7 +473,7 @@ onMounted(async () => {
     const res = await fetchProduct(Number(route.params.id))
     const p = res.product
     form.value = {
-      name: p.name, model: p.model, sku: p.sku, category_id: p.category_id,
+      name: p.name, model: p.model, sku: p.sku, category_id: p.category_id, category_ids: p.category_ids || [p.category_id],
       manufacturer_id: p.manufacturer_id, supplier_id: p.supplier_id,
       base_price: p.base_price, cost_price: p.cost_price,
       description: p.description, status: p.status, parent_id: p.parent_id,
@@ -472,3 +493,15 @@ onMounted(async () => {
   loaded.value = true
 })
 </script>
+
+<style scoped>
+.category-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 0;
+}
+.category-tags .filter-tag {
+  margin: 0;
+}
+</style>

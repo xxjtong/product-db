@@ -4,6 +4,10 @@
     <button v-if="productList.length >= 2" class="btn-secondary" @click="clearAll">清除全部</button>
   </PageHeader>
 
+  <div v-if="!loaded" class="empty-state"><p>加载中...</p></div>
+  <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="loadCompare(productList.map(p => p.id))">重试</button></div>
+  <template v-else>
+
   <!-- Product selector -->
   <div class="card" style="margin-bottom:16px;padding:12px 16px">
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -54,6 +58,7 @@
   <div v-else-if="productList.length === 1" class="card" style="text-align:center;padding:48px;color:var(--color-text-secondary)">
     <p>请至少选择 2 个产品进行对比</p>
   </div>
+  </template>
 </template>
 
 <script setup lang="ts">
@@ -61,16 +66,18 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../components/PageHeader.vue'
 import SearchInput from '../components/SearchInput.vue'
-import { compareProducts, fetchProducts } from '../api'
+import { compareProducts, fetchProducts, fetchProduct } from '../api'
+import type { Product } from '../types'
 
 const route = useRoute()
 const router = useRouter()
 const loaded = ref(false)
-const matrix = ref<Record<string, Record<number, any>> | null>(null)
-const products = ref<Record<number, any>>({})
+const loadError = ref('')
+const matrix = ref<Record<string, Record<number, string>> | null>(null)
+const products = ref<Record<number, Product>>({})
 const displayNames = ref<Record<string, string>>({})
 const searchText = ref('')
-const searchResults = ref<any[]>([])
+const searchResults = ref<Product[]>([])
 let searchTimer: any = null
 
 const productList = computed(() => Object.values(products.value))
@@ -80,7 +87,7 @@ function formatVal(val: any): string {
   if (val === null || val === undefined) return '—'
   if (typeof val === 'boolean') return val ? '✓' : '—'
   if (typeof val === 'number') {
-    return val === 0 ? '—' : String(val)
+    return String(val)
   }
   if (Array.isArray(val)) return val.join(', ')
   return String(val)
@@ -140,11 +147,12 @@ function updateUrl() {
 }
 
 async function loadCompare(ids: number[]) {
+  loadError.value = ''
   if (ids.length < 2) {
     // Load single products
     for (const id of ids) {
       try {
-        const res = await (await fetch(`/api/products/${id}`)).json()
+        const res = await fetchProduct(id)
         products.value = { ...products.value, [id]: res.product }
       } catch {}
     }
@@ -156,7 +164,9 @@ async function loadCompare(ids: number[]) {
     matrix.value = res.matrix
     products.value = { ...products.value, ...res.products }
     displayNames.value = res.display_names || {}
-  } catch {}
+  } catch (e: any) {
+    loadError.value = e.message || '加载对比数据失败'
+  }
   loaded.value = true
 }
 

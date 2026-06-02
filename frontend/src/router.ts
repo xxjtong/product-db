@@ -22,13 +22,48 @@ const router = createRouter({
   ],
 })
 
+function isTokenExpired(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]))
+    return payload.exp * 1000 < Date.now()
+  } catch {
+    return false  // can't decode, assume valid (handled by backend 401)
+  }
+}
+
+function clearAuth() {
+  localStorage.removeItem('token')
+  localStorage.removeItem('user')
+}
+
 router.beforeEach((to, _from, next) => {
   const token = localStorage.getItem('token')
+
+  if (token && isTokenExpired(token)) {
+    clearAuth()
+    if (!to.meta.guest) {
+      next('/login')
+      return
+    }
+  }
+
   if (!to.meta.guest && !token) {
     next('/login')
-  } else {
-    next()
+    return
   }
+  if (to.meta.admin) {
+    try {
+      const user = JSON.parse(localStorage.getItem('user') || '{}')
+      if (user.role !== 'admin') {
+        next('/products')
+        return
+      }
+    } catch {
+      next('/products')
+      return
+    }
+  }
+  next()
 })
 
 export default router

@@ -1,10 +1,12 @@
 <template>
-  <PageHeader :title="quotation ? `报价单 ${quotation.quote_number}` : '报价单详情'">
+  <PageHeader :title="quotation ? `报价单 ${quotation.quote_number}` : '报价单详情'" :breadcrumb="[{ label: '报价单', to: '/quotations' }, { label: quotation?.quote_number || '详情', to: '' }]">
     <button v-if="quotation" class="btn-secondary" @click="openExport">导出 xlsx</button>
     <button class="btn-secondary" @click="$router.back()">返回</button>
   </PageHeader>
 
-  <div v-if="quotation" class="card mb-16">
+  <div v-if="loading" class="empty-state"><p>加载中...</p></div>
+  <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="load">重试</button></div>
+  <div v-else-if="quotation" class="card mb-16">
     <div class="form-grid" style="margin-bottom:16px">
       <div><span class="text-muted text-sm">编号</span><br class="font-mono">{{ quotation.quote_number }}</div>
       <div><span class="text-muted text-sm">客户</span><br>{{ quotation.client_name || '—' }}</div>
@@ -34,18 +36,31 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, inject } from 'vue'
 import { useRoute } from 'vue-router'
 import PageHeader from '../components/PageHeader.vue'
 import { fetchQuotation, quotationExportUrl } from '../api'
+import type { Quotation } from '../types'
 
 const route = useRoute()
-const quotation = ref<any>(null)
+const quotation = ref<Quotation | null>(null)
+const loading = ref(false)
+const loadError = ref('')
+const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
 function openExport() { if (quotation.value) window.open(quotationExportUrl(quotation.value.id), '_blank') }
 
-onMounted(async () => {
-  const res = await fetchQuotation(Number(route.params.id))
-  quotation.value = res.quotation
-})
+async function load() {
+  loading.value = true
+  loadError.value = ''
+  try {
+    const res = await fetchQuotation(Number(route.params.id))
+    quotation.value = res.quotation
+  } catch (e: any) {
+    loadError.value = e.message || '加载失败'
+  }
+  loading.value = false
+}
+
+onMounted(load)
 </script>

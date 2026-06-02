@@ -1,3 +1,5 @@
+import type { Product, Category, Supplier, Solution, Quotation, SpecDefinition, Manufacturer, ProductDependency } from './types'
+
 const API_BASE = '/api'
 
 export class ApiError extends Error {
@@ -10,7 +12,7 @@ export class ApiError extends Error {
   }
 }
 
-async function api<T>(path: string, options?: RequestInit): Promise<T> {
+export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem('token')
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) headers['Authorization'] = `Bearer ${token}`
@@ -19,24 +21,30 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
   })
   if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new ApiError(res.status, text)
+    let message = ''
+    try {
+      const body = await res.json()
+      message = body.detail || JSON.stringify(body)
+    } catch {
+      message = await res.text().catch(() => '') || res.statusText
+    }
+    throw new ApiError(res.status, message)
   }
   if (res.status === 204) return {} as T
   return res.json()
 }
 
 // --- Dictionaries ---
-export const fetchCommMethods = () => api<{ comm_methods: any[] }>('/dicts/comm-methods')
-export const fetchCommProtocols = () => api<{ comm_protocols: any[] }>('/dicts/comm-protocols')
-export const fetchPowerSupplies = () => api<{ power_supplies: any[] }>('/dicts/power-supplies')
-export const fetchSensorMetrics = () => api<{ sensor_metrics: any[] }>('/dicts/sensor-metrics')
-export const fetchManufacturers = () => api<{ manufacturers: any[] }>('/dicts/manufacturers')
+export const fetchCommMethods = () => api<{ comm_methods: { id: number; name: string }[] }>('/dicts/comm-methods')
+export const fetchCommProtocols = () => api<{ comm_protocols: { id: number; name: string }[] }>('/dicts/comm-protocols')
+export const fetchPowerSupplies = () => api<{ power_supplies: { id: number; name: string }[] }>('/dicts/power-supplies')
+export const fetchSensorMetrics = () => api<{ sensor_metrics: { id: number; name: string }[] }>('/dicts/sensor-metrics')
+export const fetchManufacturers = () => api<{ manufacturers: Manufacturer[] }>('/dicts/manufacturers')
 export const createManufacturer = (data: any) => api('/dicts/manufacturers', { method: 'POST', body: JSON.stringify(data) })
 export const updateManufacturer = (id: number, data: any) => api(`/dicts/manufacturers/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 
 // --- Categories ---
-export const fetchCategories = () => api<{ categories: any[] }>('/categories?per_page=1000')
+export const fetchCategories = (params: string = 'per_page=1000') => api<{ categories: Category[]; total?: number }>(`/categories?${params}`)
 export const fetchCategoryTree = () => api<{ tree: any[] }>('/categories/tree')
 export const createCategory = (data: any) => api('/categories', { method: 'POST', body: JSON.stringify(data) })
 export const updateCategory = (id: number, data: any) => api(`/categories/${id}`, { method: 'PUT', body: JSON.stringify(data) })
@@ -54,7 +62,7 @@ export const deleteSpecDefinition = (catId: number, specId: number) =>
 // --- Products ---
 export const fetchProducts = (params: string = '') =>
   api<{ products: any[]; total: number; page: number; per_page: number }>(`/products${params ? '?' + params : ''}`)
-export const fetchProduct = (id: number) => api<{ product: any }>(`/products/${id}`)
+export const fetchProduct = (id: number) => api<{ product: Product }>(`/products/${id}`)
 export const createProduct = (data: any) => api('/products', { method: 'POST', body: JSON.stringify(data) })
 export const updateProduct = (id: number, data: any) => api(`/products/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteProduct = (id: number) => api(`/products/${id}`, { method: 'DELETE' })
@@ -62,6 +70,17 @@ export const compareProducts = (ids: string) =>
   api<{ products: Record<number, any>; matrix: Record<string, Record<number, any>>; display_names: Record<string, string> }>(`/products/compare?product_ids=${ids}`)
 export const exportProducts = (params = '') => `${API_BASE}/products/export${params ? '?' + params : ''}`
 export const specSheetUrl = (id: number) => `${API_BASE}/products/${id}/spec-sheet`
+
+// --- Product Dependencies ---
+export const fetchDependencies = (productId: number) =>
+  api<{ dependencies: ProductDependency[] }>(`/products/${productId}/dependencies`)
+export const createDependency = (productId: number, data: Record<string, unknown>) =>
+  api(`/products/${productId}/dependencies`, { method: 'POST', body: JSON.stringify(data) })
+export const updateDependency = (productId: number, depId: number, data: Record<string, unknown>) =>
+  api(`/products/${productId}/dependencies/${depId}`, { method: 'PUT', body: JSON.stringify(data) })
+export const deleteDependency = (productId: number, depId: number) =>
+  api(`/products/${productId}/dependencies/${depId}`, { method: 'DELETE' })
+
 export const uploadProductImage = (formData: FormData) =>
   fetch(`${API_BASE}/products/upload-image`, {
     method: 'POST',
@@ -73,18 +92,18 @@ export const downloadProductImage = (url: string) =>
 
 // --- Suppliers ---
 export const fetchSuppliers = (search = '', all = false) =>
-  api<{ suppliers: any[]; total: number }>(`/suppliers${search ? '?search=' + encodeURIComponent(search) + '&all=' + all : '?all=' + all}`)
+  api<{ suppliers: Supplier[]; total: number }>(`/suppliers${search ? '?search=' + encodeURIComponent(search) + '&all=' + all : '?all=' + all}`)
 
 export const fetchSuppliersPaginated = (params: string = '') =>
-  api<{ suppliers: any[]; total: number }>(`/suppliers${params ? '?' + params : ''}`)
+  api<{ suppliers: Supplier[]; total: number }>(`/suppliers${params ? '?' + params : ''}`)
 export const createSupplier = (data: any) => api('/suppliers', { method: 'POST', body: JSON.stringify(data) })
 export const updateSupplier = (id: number, data: any) => api(`/suppliers/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteSupplier = (id: number) => api(`/suppliers/${id}`, { method: 'DELETE' })
 
 // --- Solutions ---
 export const fetchSolutions = (params: string = '') =>
-  api<{ solutions: any[]; total: number; page: number; per_page: number }>(`/solutions${params ? '?' + params : ''}`)
-export const fetchSolution = (id: number) => api<{ solution: any }>(`/solutions/${id}`)
+  api<{ solutions: Solution[]; total: number; page: number; per_page: number }>(`/solutions${params ? '?' + params : ''}`)
+export const fetchSolution = (id: number) => api<{ solution: Solution }>(`/solutions/${id}`)
 export const createSolution = (data: any) => api('/solutions', { method: 'POST', body: JSON.stringify(data) })
 export const updateSolution = (id: number, data: any) => api(`/solutions/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteSolution = (id: number) => api(`/solutions/${id}`, { method: 'DELETE' })
@@ -103,8 +122,8 @@ export const bomExportUrl = (solId: number) => `${API_BASE}/solutions/${solId}/b
 
 // --- Quotations ---
 export const fetchQuotations = (params: string = '') =>
-  api<{ quotations: any[]; total: number; page: number; per_page: number }>(`/quotations${params ? '?' + params : ''}`)
-export const fetchQuotation = (id: number) => api<{ quotation: any }>(`/quotations/${id}`)
+  api<{ quotations: Quotation[]; total: number; page: number; per_page: number }>(`/quotations${params ? '?' + params : ''}`)
+export const fetchQuotation = (id: number) => api<{ quotation: Quotation }>(`/quotations/${id}`)
 export const createQuotation = (data: any) => api('/quotations', { method: 'POST', body: JSON.stringify(data) })
 export const updateQuotation = (id: number, data: any) => api(`/quotations/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteQuotation = (id: number) => api(`/quotations/${id}`, { method: 'DELETE' })
@@ -126,7 +145,8 @@ export async function* streamAiChat(input: string, conversationId?: number | nul
     headers,
     body: JSON.stringify({ input, conversation_id: conversationId }),
   })
-  const reader = res.body!.getReader()
+  if (!res.body) throw new ApiError(res.status, 'Response body is empty')
+  const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
   while (true) {
@@ -153,3 +173,17 @@ export async function* streamAiChat(input: string, conversationId?: number | nul
     }
   }
 }
+
+// --- AI Conversations ---
+export const fetchConversations = () => api<{ conversations: any[] }>('/ai/conversations')
+export const fetchConversation = (id: number) => api<{ conversation: { id: number; title: string; messages?: { role: string; content: string; tool_calls?: string }[] } }>(`/ai/conversations/${id}`)
+export const deleteConversation = (id: number) => api(`/ai/conversations/${id}`, { method: 'DELETE' })
+
+// --- Settings ---
+export const updateSetting = (key: string, value: string) =>
+  api('/settings/' + key, { method: 'PUT', body: JSON.stringify({ value }) })
+
+// --- BOM ---
+export const saveBomAsTemplate = (solutionId: number, data: Record<string, unknown>) =>
+  api(`/solutions/${solutionId}/bom-snapshot/save-as-template`, { method: 'POST', body: JSON.stringify(data) })
+

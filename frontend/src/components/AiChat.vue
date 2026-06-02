@@ -31,7 +31,7 @@
           <button v-for="q in sampleQuestions" :key="q" class="btn-secondary btn-sm" @click="send(q)">{{ q }}</button>
         </div>
         <div v-for="(m, i) in messages" :key="i" :class="['ai-msg', m.role]">
-          <div class="ai-msg-text" v-html="m.content" v-if="!m.products?.length" />
+          <div class="ai-msg-text" v-html="sanitize(m.content)" v-if="!m.products?.length" />
           <div v-if="m.products?.length" class="ai-products">
             <div class="ai-products-header">找到 {{ m.products.length }} 个产品：</div>
             <div v-for="p in m.products" :key="p.id" class="ai-product-card" @click="router.push('/products/' + p.id)">
@@ -77,6 +77,11 @@ import { useRouter } from 'vue-router'
 import { MessageCircleIcon, Minimize2Icon } from 'lucide-vue-next'
 import SolutionProductCard from './GenUI/SolutionProductCard.vue'
 import QuoteDraftCard from './GenUI/QuoteDraftCard.vue'
+import { fetchConversations, fetchConversation, deleteConversation } from '../api'
+import DOMPurify from 'dompurify'
+import { formatAiContent } from '../utils/markdown'
+
+function sanitize(html: string): string { return DOMPurify.sanitize(html) as string }
 
 const genuiRegistry: Record<string, any> = { SolutionProductCard, QuoteDraftCard }
 
@@ -108,10 +113,6 @@ function collapseTools(tools: string[]): { name: string; count: number }[] {
     else result.push({ name: t, count: 1 })
   }
   return result
-}
-
-function escapeHtml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')
 }
 
 function toggleSize() {
@@ -168,14 +169,14 @@ function stopDragHeader() {
 
 async function loadConvs() {
   try {
-    const res = await fetch('/api/ai/conversations').then(r => r.json())
+    const res = await fetchConversations()
     convs.value = res.conversations || []
-  } catch { /* ignore */ }
+  } catch { console.warn('AiChat: failed to load conversations') }
 }
 
 async function loadConv(id: number) {
   try {
-    const res = await (await fetch(`/api/ai/conversations/${id}`)).json()
+    const res = await fetchConversation(id)
     convId.value = id
     messages.value = (res.messages || []).map((m: any) => ({
       role: m.role,
@@ -183,15 +184,15 @@ async function loadConv(id: number) {
       products: extractProducts(m.content, m.role),
     }))
     scrollDown()
-  } catch { /* ignore */ }
+  } catch { console.warn('AiChat: failed to load conversations') }
 }
 
 async function deleteConv(id: number) {
   try {
-    await fetch(`/api/ai/conversations/${id}`, { method: 'DELETE' })
+    await deleteConversation(id)
     convs.value = convs.value.filter(c => c.id !== id)
     if (convId.value === id) { convId.value = null; messages.value = [] }
-  } catch { /* ignore */ }
+  } catch { console.warn('AiChat: failed to load conversations') }
 }
 
 function extractProducts(text: string, role: string): any[] {
@@ -199,8 +200,12 @@ function extractProducts(text: string, role: string): any[] {
   try {
     const d = JSON.parse(text)
     if (d.products) return d.products
-  } catch { /* ignore */ }
+  } catch { console.warn('AiChat: failed to load conversations') }
   return []
+}
+
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
 function formatContent(text: string, role: string): string {
@@ -210,13 +215,13 @@ function formatContent(text: string, role: string): string {
       const d = JSON.parse(text)
       if (d.products) {
         return d.products.map((p: any) =>
-          `<b>${p.name}</b> <span class="font-mono">${p.model || ''}</span> — ¥${p.price || 0}<br><span class="text-muted" style="font-size:11px">${[p.category, p.manufacturer].filter(Boolean).join(' | ')}</span>`
+          `<b>${esc(p.name || '')}</b> <span class="font-mono">${esc(p.model || '')}</span> — ¥${p.price || 0}<br><span class="text-muted" style="font-size:11px">${[p.category, p.manufacturer].filter(Boolean).map(esc).join(' | ')}</span>`
         ).join('<br>')
       }
       if (d.found !== undefined) return `<b>找到 ${d.found} 个产品</b>`
-      if (d.categories) return d.categories.map((c: any) => c.name).join('、')
-      return `<pre style="font-size:11px;margin:0">${JSON.stringify(d, null, 2)}</pre>`
-    } catch { /* ignore */ }
+      if (d.categories) return d.categories.map((c: any) => esc(c.name)).join('、')
+      return `<pre style="font-size:11px;margin:0">${esc(JSON.stringify(d, null, 2))}</pre>`
+    } catch { console.warn('AiChat: failed to load conversations') }
   }
   return mdToHtml(text)
 }
@@ -287,9 +292,12 @@ async function send(question?: string) {
   scrollDown()
 
   try {
+    const headers: Record<string,string> = { 'Content-Type': 'application/json' }
+    const token = localStorage.getItem('token')
+    if (token) headers['Authorization'] = `Bearer ${token}`
     const reader = (await fetch('/api/ai/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ input: q, conversation_id: convId.value }),
     })).body!.getReader()
 

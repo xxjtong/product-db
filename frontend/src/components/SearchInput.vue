@@ -15,7 +15,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { SearchIcon } from 'lucide-vue-next'
 
 const props = defineProps<{ modelValue: string; placeholder?: string; autofocus?: boolean }>()
@@ -48,6 +48,10 @@ function clear() {
   if (timer) clearTimeout(timer)
   emit('update:modelValue', '')
 }
+
+onBeforeUnmount(() => {
+  if (timer) clearTimeout(timer)
+})
 </script>
 
 <style scoped>

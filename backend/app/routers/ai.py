@@ -18,11 +18,19 @@ router = APIRouter()
 
 MAX_CONTEXT = 20  # max messages to include in context
 
+# Context cache (TTL 60s)
+_ctx_cache: dict = {"ts": 0, "value": ""}
+
 
 # --- Context Builder ---
 
 def build_context(db: Session) -> str:
-    """Build dynamic system prompt with current product database stats."""
+    """Build dynamic system prompt with current product database stats (cached 60s)."""
+    import time as _time
+    now = _time.time()
+    if now - _ctx_cache["ts"] < 60:
+        return _ctx_cache["value"]
+
     from app.models.product import Product
     from app.models.category import Category, CategorySpecDefinition
     from app.models.dictionary import Manufacturer
@@ -52,7 +60,7 @@ def build_context(db: Session) -> str:
             f"  {cat_name}: " + ", ".join(f"{k}({v})" for k, v in specs)
         )
 
-    return SYSTEM_PROMPT + f"""
+    result = SYSTEM_PROMPT + f"""
 
 当前数据库状态:
 - {prod_count} 个产品
@@ -60,6 +68,9 @@ def build_context(db: Session) -> str:
 - {mfg_count} 个厂商 (主要: {mfg_info})
 - 品类可筛选参数:
 {chr(10).join(spec_lines) if spec_lines else '  (无)'}"""
+    _ctx_cache["value"] = result
+    _ctx_cache["ts"] = now
+    return result
 
 
 # --- Conversation Management ---
@@ -166,6 +177,8 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int):
             else:
                 response = "没有找到匹配的产品。试试调整搜索条件？"
         except Exception:
+            import logging
+            logging.getLogger("uvicorn").warning("Mock agent: failed to parse tool result")
             response = "搜索完成，但结果解析出错。请重试。"
 
     elif "品类" in inp or "分类" in inp or "categories" in inp.lower():
@@ -212,14 +225,15 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int):
     yield {"event": "quick_replies", "items": ["对比产品", "全部加入方案"]}
 
 
-def run_agent(messages: list, db: Session, conv_id: int):
+async def run_agent(messages: list, db: Session, conv_id: int):
     """Run agent loop with tool calling. Yields SSE event dicts."""
     yield {"event": "connect"}
 
     # If no API key, use mock mode
     if not settings.AI_GATEWAY_KEY:
         user_msg = messages[-1]["content"] if messages else ""
-        yield from run_mock_agent(user_msg, db, conv_id)
+        for event in run_mock_agent(user_msg, db, conv_id):
+            yield event
         return
 
     products_found = False
@@ -228,11 +242,12 @@ def run_agent(messages: list, db: Session, conv_id: int):
 
     for turn in range(max_turns):
         try:
-            response = engine.chat(current_messages, tools=TOOL_DEFINITIONS, temperature=0.3)
+            response = await engine.chat(current_messages, tools=TOOL_DEFINITIONS, temperature=0.3)
         except Exception as e:
             # Fall back to mock mode on API error
             user_msg = messages[-1]["content"] if messages else ""
-            yield from run_mock_agent(user_msg, db, conv_id)
+            for event in run_mock_agent(user_msg, db, conv_id):
+                yield event
             return
 
         choice = response["choices"][0]
@@ -274,7 +289,8 @@ def run_agent(messages: list, db: Session, conv_id: int):
                         products_found = True
                         yield {"event": "component", "component": "QuoteDraftCard", "props": tr["created_quote"]}
                 except Exception:
-                    pass
+                    import logging
+                    logging.getLogger("uvicorn").warning("run_agent: failed to parse tool result JSON")
 
                 current_messages.append({
                     "role": "tool",
@@ -302,9 +318,11 @@ def run_agent(messages: list, db: Session, conv_id: int):
 
     # Max turns exceeded — ask LLM for final response without tools
     try:
-        response = engine.chat(current_messages, temperature=0.3)
+        response = await engine.chat(current_messages, temperature=0.3)
         text = response["choices"][0]["message"].get("content", "抱歉，查询超时，请重新提问。")
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger("uvicorn").warning(f"run_agent: max-turns LLM call failed: {e}")
         text = "抱歉，查询超时，请重新提问。"
     save_message(conv_id, "assistant", content=text, db=db, commit=False)
     db.commit()
@@ -353,7 +371,7 @@ async def ai_chat(request: Request, db: Session = Depends(get_db), user=Depends(
         # Use a fresh DB session for the generator
         sse_db = next(get_db())
         try:
-            for event in run_agent(messages, sse_db, cid):
+            async for event in run_agent(messages, sse_db, cid):
                 event["conversation_id"] = cid
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             # Update conversation timestamp

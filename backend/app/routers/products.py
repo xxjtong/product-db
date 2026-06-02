@@ -10,6 +10,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse, HTMLResponse, Response
 from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy import select, text
 from sqlalchemy import or_
 from app.database import get_db
 from app.models.product import Product
@@ -23,10 +24,15 @@ from app.services.spec_service import validate_specs, compare_products
 from app.services.storage import save_upload, delete_file, upload_from_url
 from app.services.spec_generator import build_spec_html
 from app.services.ai_extract import call_ai_extract, regex_extract_from_text
+from app.services.product_helpers import (
+    build_pinyin, get_name_maps, product_eager_loads, build_product_detail,
+    write_mappings, rewrite_mappings,
+)
 from app.auth import get_current_user
 from app.config import settings
 from app.models.user import User
 from app.utils.escape import escape_like
+from app.utils.security import validate_url
 from app.schemas.product import (
     ProductCreate, ProductUpdate, AIFetchRequest,
     DownloadImageRequest,
@@ -41,58 +47,6 @@ from pypinyin import lazy_pinyin
 from datetime import datetime
 
 router = APIRouter()
-
-
-def _build_pinyin(text: str) -> str:
-    if not text:
-        return ""
-    return "".join(lazy_pinyin(text)).lower()
-
-
-# --- URL validation (SSRF prevention) ---
-
-ALLOWED_URL_SCHEMES = {"http", "https"}
-BLOCKED_HOSTS = {"169.254.169.254", "localhost", "0.0.0.0", "127.0.0.1", "metadata.google.internal"}
-
-
-def validate_url(url: str) -> bool:
-    """Validate URL scheme and block private/metadata hosts (SSRF prevention)."""
-    parsed = urlparse(url)
-    if parsed.scheme not in ALLOWED_URL_SCHEMES:
-        return False
-    hostname = (parsed.hostname or "").lower()
-    for blocked in BLOCKED_HOSTS:
-        if hostname == blocked or hostname.endswith("." + blocked):
-            return False
-    return True
-
-
-# --- Helper: build product response with all mappings ---
-
-def _product_detail(p: Product, db: Session) -> dict:
-    """Build full product dict with mappings, images, spec_definitions, dependencies."""
-    result = p.to_dict()
-
-    # Spec definitions
-    spec_defs = db.query(CategorySpecDefinition).filter_by(category_id=p.category_id)\
-        .order_by(CategorySpecDefinition.sort_order).all()
-    result["spec_definitions"] = [sd.to_dict() for sd in spec_defs]
-
-    # Variants
-    if p.parent_id is None:
-        variants = db.query(Product).filter(Product.parent_id == p.id).all()
-        if variants:
-            cats = {c.id: c.name for c in db.query(Category).all()}
-            mfgs = {m.id: m.name for m in db.query(Manufacturer).all()}
-            sups = {s.id: s.name for s in db.query(Supplier).all()}
-            result["variants"] = [v.to_dict(cats, sups, mfgs) for v in variants]
-
-    # Dependencies
-    deps = db.query(ProductDependency).filter_by(product_id=p.id).all()
-    result["dependencies"] = [d.to_dict() for d in deps]
-
-    return result
-
 
 # --- Static routes (must be before {product_id}) ---
 
@@ -111,17 +65,7 @@ def list_products(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    q = db.query(Product).options(
-        selectinload(Product.category),
-        selectinload(Product.manufacturer),
-        selectinload(Product.supplier),
-        selectinload(Product.comm_methods).selectinload(ProductCommMethod.method),
-        selectinload(Product.comm_protocols).selectinload(ProductCommProtocol.protocol),
-        selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
-        selectinload(Product.hardware_interfaces),
-        selectinload(Product.sensor_capabilities),
-        selectinload(Product.images),
-    )
+    q = db.query(Product).options(*product_eager_loads())
 
     if category_id:
         # Include child categories
@@ -163,9 +107,7 @@ def list_products(
     total = q.count()
     products = q.order_by(Product.name).offset((page - 1) * per_page).limit(per_page).all()
 
-    cats = {c.id: c.name for c in db.query(Category).all()}
-    mfgs = {m.id: m.name for m in db.query(Manufacturer).all()}
-    sups = {s.id: s.name for s in db.query(Supplier).all()}
+    cats, mfgs, sups = get_name_maps(db)
 
     product_list = [p.to_dict(cats, sups, mfgs) for p in products]
     # Apply field visibility for non-admin users
@@ -186,17 +128,7 @@ def compare(product_ids: str, db: Session = Depends(get_db), user=Depends(get_cu
     ids = [int(x) for x in product_ids.split(",") if x.strip().isdigit()]
     if len(ids) < 2:
         raise HTTPException(400, "At least 2 product IDs required")
-    products = db.query(Product).options(
-        selectinload(Product.category),
-        selectinload(Product.manufacturer),
-        selectinload(Product.supplier),
-        selectinload(Product.comm_methods).selectinload(ProductCommMethod.method),
-        selectinload(Product.comm_protocols).selectinload(ProductCommProtocol.protocol),
-        selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
-        selectinload(Product.hardware_interfaces),
-        selectinload(Product.sensor_capabilities).selectinload(ProductSensorCapability.metric),
-        selectinload(Product.images),
-    ).filter(Product.id.in_(ids)).all()
+    products = db.query(Product).options(*product_eager_loads()).filter(Product.id.in_(ids)).all()
     if len(products) < 2:
         raise HTTPException(404, "Products not found")
 
@@ -329,22 +261,12 @@ def download_image(data: DownloadImageRequest, user=Depends(get_current_user)):
 
 @router.get("/products/{product_id}")
 def get_product(product_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    p = db.query(Product).options(
-        selectinload(Product.category),
-        selectinload(Product.manufacturer),
-        selectinload(Product.supplier),
-        selectinload(Product.comm_methods).selectinload(ProductCommMethod.method),
-        selectinload(Product.comm_protocols).selectinload(ProductCommProtocol.protocol),
-        selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
-        selectinload(Product.hardware_interfaces),
-        selectinload(Product.sensor_capabilities).selectinload(ProductSensorCapability.metric),
-        selectinload(Product.images),
-    ).get(product_id)
+    p = db.scalar(select(Product).options(*product_eager_loads()).where(Product.id == product_id))
     if not p:
         raise HTTPException(404, "Product not found")
     p.view_count = (p.view_count or 0) + 1
     db.commit()
-    return {"product": _product_detail(p, db)}
+    return {"product": build_product_detail(p, db)}
 
 
 @router.post("/products")
@@ -376,21 +298,25 @@ def create_product(data: ProductCreate, db: Session = Depends(get_db), user=Depe
         urls=data.urls,
         custom_fields=data.custom_fields,
     )
-    p.pinyin_search = _build_pinyin(f"{p.name} {p.model or ''}")
+    p.pinyin_search = build_pinyin(f"{p.name} {p.model or ''}")
     p.created_at = datetime.now()
     p.updated_at = datetime.now()
 
     db.add(p)
     db.flush()  # get p.id
 
+    # Write multi-category relationships
+    cat_ids = data.category_ids or [data.category_id]
+    for cid in cat_ids:
+        db.execute(text('INSERT OR IGNORE INTO product_categories (product_id, category_id) VALUES (:pid, :cid)'),
+                   {'pid': p.id, 'cid': cid})
+
     # Write mapping tables
-    _write_mappings(p.id, data.model_dump(exclude_none=True), db)
+    write_mappings(p.id, data.model_dump(exclude_none=True), db)
 
     db.commit()
     db.refresh(p)
-    cats = {c.id: c.name for c in db.query(Category).all()}
-    mfgs = {m.id: m.name for m in db.query(Manufacturer).all()}
-    sups = {s.id: s.name for s in db.query(Supplier).all()}
+    cats, mfgs, sups = get_name_maps(db)
     return {"product": p.to_dict(cats, sups, mfgs)}
 
 
@@ -415,16 +341,22 @@ def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(g
     if data.custom_fields:
         p.custom_fields = data.custom_fields
 
-    p.pinyin_search = _build_pinyin(f"{p.name} {p.model or ''}")
+    p.pinyin_search = build_pinyin(f"{p.name} {p.model or ''}")
     p.updated_at = datetime.now()
 
-    # Rewrite mapping tables (delete old, insert new)
-    _rewrite_mappings(product_id, data.model_dump(), db)
+    # Update multi-category if provided
+    if data.category_ids is not None:
+        db.execute(text('DELETE FROM product_categories WHERE product_id = :pid'), {'pid': product_id})
+        for cid in data.category_ids:
+            db.execute(text('INSERT INTO product_categories (product_id, category_id) VALUES (:pid, :cid)'),
+                       {'pid': product_id, 'cid': cid})
+
+    # Rewrite mapping tables (delete old, insert new) — only for fields in payload
+    payload = data.model_dump(exclude_none=True)
+    rewrite_mappings(product_id, payload, db)
 
     db.commit()
-    cats = {c.id: c.name for c in db.query(Category).all()}
-    mfgs = {m.id: m.name for m in db.query(Manufacturer).all()}
-    sups = {s.id: s.name for s in db.query(Supplier).all()}
+    cats, mfgs, sups = get_name_maps(db)
     return {"product": p.to_dict(cats, sups, mfgs)}
 
 
@@ -464,9 +396,20 @@ def ai_fetch_product(data: AIFetchRequest, db: Session = Depends(get_db), user=D
         raise HTTPException(400, "URL not allowed")
 
     try:
-        resp = httpx.get(url, timeout=30, follow_redirects=True, headers={
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        resp = httpx.get(url, timeout=30, follow_redirects=False, headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
         })
+        # Manually follow redirects with SSRF validation
+        for _ in range(3):
+            if resp.status_code in (301, 302, 303, 307, 308):
+                loc = resp.headers.get("Location", "")
+                if not loc or not validate_url(loc):
+                    raise HTTPException(400, f"Redirect target not allowed: {loc[:60]}")
+                resp = httpx.get(loc, timeout=30, follow_redirects=False, headers={
+                    "User-Agent": "Mozilla/5.0"
+                })
+            else:
+                break
         resp.raise_for_status()
     except httpx.HTTPError as e:
         raise HTTPException(400, f"Failed to fetch URL: {str(e)}")
@@ -491,17 +434,7 @@ def ai_fetch_product(data: AIFetchRequest, db: Session = Depends(get_db), user=D
 @router.get("/products/{product_id}/spec-sheet")
 def spec_sheet(product_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """Generate product spec sheet as PDF download or HTML view."""
-    p = db.query(Product).options(
-        selectinload(Product.category),
-        selectinload(Product.manufacturer),
-        selectinload(Product.supplier),
-        selectinload(Product.comm_methods).selectinload(ProductCommMethod.method),
-        selectinload(Product.comm_protocols).selectinload(ProductCommProtocol.protocol),
-        selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
-        selectinload(Product.hardware_interfaces),
-        selectinload(Product.sensor_capabilities).selectinload(ProductSensorCapability.metric),
-        selectinload(Product.images),
-    ).get(product_id)
+    p = db.scalar(select(Product).options(*product_eager_loads()).where(Product.id == product_id))
     if not p:
         raise HTTPException(404, "Product not found")
 
@@ -509,14 +442,15 @@ def spec_sheet(product_id: int, db: Session = Depends(get_db), user=Depends(get_
     filename = re.sub(r'[^\w\-_.]', '_', p.name or 'product')
 
     # Try CLI weasyprint for PDF (brew-installed at /opt/homebrew/bin/weasyprint)
-    html_path = f"/tmp/_spec_{product_id}.html"
-    pdf_path = f"/tmp/_spec_{product_id}.pdf"
-    try:
-        with open(html_path, "w", encoding="utf-8") as f:
-            f.write(html)
-        import shutil
-        wp = "/opt/homebrew/bin/weasyprint" if os.path.exists("/opt/homebrew/bin/weasyprint") else shutil.which("weasyprint")
-        if wp:
+    import shutil
+    wp = "/opt/homebrew/bin/weasyprint" if os.path.exists("/opt/homebrew/bin/weasyprint") else shutil.which("weasyprint")
+    if wp:
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as html_f:
+                html_f.write(html)
+                html_path = html_f.name
+            pdf_fd, pdf_path = tempfile.mkstemp(suffix=".pdf")
+            os.close(pdf_fd)
             env = os.environ.copy()
             env["DYLD_LIBRARY_PATH"] = "/opt/homebrew/lib"
             result = subprocess.run(
@@ -526,14 +460,22 @@ def spec_sheet(product_id: int, db: Session = Depends(get_db), user=Depends(get_
             if result.returncode == 0 and os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 100:
                 with open(pdf_path, "rb") as f2:
                     pdf_bytes = f2.read()
+                os.unlink(html_path)
                 os.unlink(pdf_path)
                 return StreamingResponse(
                     BytesIO(pdf_bytes),
                     media_type="application/pdf",
                     headers={"Content-Disposition": f"attachment; filename={filename}-spec-sheet.pdf"},
                 )
-    except Exception:
-        pass
+        except Exception as e:
+            import logging
+            logging.getLogger("uvicorn").warning(f"PDF generation failed for product {product_id}: {e}")
+        finally:
+            for path in [html_path, pdf_path]:
+                try:
+                    if os.path.exists(path): os.unlink(path)
+                except OSError:
+                    pass
 
     return HTMLResponse(content=html)
 
@@ -585,71 +527,3 @@ def delete_dependency(product_id: int, dep_id: int, db: Session = Depends(get_db
     return {"ok": True}
 
 
-# --- Mapping helpers ---
-
-def _write_mappings(product_id: int, data: dict, db: Session):
-    """Write mapping tables for a product (create only)."""
-    # Comm methods
-    for cm in (data.get("comm_methods") or []):
-        db.add(ProductCommMethod(
-            product_id=product_id,
-            method_id=cm.get("method_id") if isinstance(cm, dict) else cm,
-            details=cm.get("details", "") if isinstance(cm, dict) else "",
-        ))
-
-    # Comm protocols
-    for cp in (data.get("comm_protocols") or []):
-        db.add(ProductCommProtocol(
-            product_id=product_id,
-            protocol_id=cp.get("protocol_id") if isinstance(cp, dict) else cp,
-            direction=cp.get("direction", "both") if isinstance(cp, dict) else "both",
-        ))
-
-    # Power supplies
-    for ps in (data.get("power_supplies") or []):
-        db.add(ProductPowerSupply(
-            product_id=product_id,
-            power_id=ps.get("power_id") if isinstance(ps, dict) else ps,
-            voltage_range=ps.get("voltage_range", "") if isinstance(ps, dict) else "",
-            battery_life=ps.get("battery_life", "") if isinstance(ps, dict) else "",
-        ))
-
-    # Hardware interfaces
-    for hi in (data.get("hardware_interfaces") or []):
-        db.add(ProductHardwareInterface(
-            product_id=product_id,
-            interface_name=hi["interface_name"],
-            quantity=hi.get("quantity", 1),
-            description=hi.get("description", ""),
-        ))
-
-    # Sensor capabilities
-    for sc in (data.get("sensor_capabilities") or []):
-        db.add(ProductSensorCapability(
-            product_id=product_id,
-            metric_id=sc.get("metric_id") if isinstance(sc, dict) else sc,
-            measure_range=sc.get("measure_range", "") if isinstance(sc, dict) else "",
-            accuracy=sc.get("accuracy", "") if isinstance(sc, dict) else "",
-            resolution=sc.get("resolution", "") if isinstance(sc, dict) else "",
-        ))
-
-    # Images
-    for idx, img in enumerate((data.get("images") or [])):
-        db.add(ProductImage(
-            product_id=product_id,
-            url=img.get("url", "") if isinstance(img, dict) else img,
-            is_primary=img.get("is_primary", idx == 0) if isinstance(img, dict) else (idx == 0),
-            sort_order=img.get("sort_order", idx) if isinstance(img, dict) else idx,
-            alt_text=img.get("alt_text", "") if isinstance(img, dict) else "",
-        ))
-
-
-def _rewrite_mappings(product_id: int, data: dict, db: Session):
-    """Delete old mappings and write new ones."""
-    db.query(ProductCommMethod).filter_by(product_id=product_id).delete()
-    db.query(ProductCommProtocol).filter_by(product_id=product_id).delete()
-    db.query(ProductPowerSupply).filter_by(product_id=product_id).delete()
-    db.query(ProductHardwareInterface).filter_by(product_id=product_id).delete()
-    db.query(ProductSensorCapability).filter_by(product_id=product_id).delete()
-    db.query(ProductImage).filter_by(product_id=product_id).delete()
-    _write_mappings(product_id, data, db)
