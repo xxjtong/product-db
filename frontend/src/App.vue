@@ -22,12 +22,12 @@
       <!-- AI stats -->
       <div v-if="aiStats" class="sidebar-stats" :class="{ collapsed: sidebarCollapsed }">
         <div class="sidebar-stats-row">
-          <span class="sidebar-stats-num">{{ aiStats.total.toLocaleString() }}</span>
-          <span class="sidebar-stats-label">总次数</span>
+          <span class="sidebar-stats-num">{{ aiStats.user_count.toLocaleString() }}</span>
+          <span class="sidebar-stats-label">次AI</span>
         </div>
         <div class="sidebar-stats-row">
-          <span class="sidebar-stats-num">{{ aiStats.user_count.toLocaleString() }}</span>
-          <span class="sidebar-stats-label">当前次数</span>
+          <span class="sidebar-stats-num">{{ formatTokens(aiStats.user_tokens_in + aiStats.user_tokens_out) }}</span>
+          <span class="sidebar-stats-label">Token</span>
         </div>
       </div>
       <div v-show="!sidebarCollapsed" class="sidebar-version">v2.0</div>
