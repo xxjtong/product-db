@@ -372,34 +372,40 @@ async def ai_chat(request: Request, db: Session = Depends(get_db), user=Depends(
         # Use a fresh DB session for the generator
         sse_db = next(get_db())
         start_time = time.time()
+
+        # Log AI usage immediately
+        try:
+            from app.models.ai_usage_log import AIUsageLog
+            usage_log = AIUsageLog(user_id=user.id, operation="chat", duration_ms=0, success=True)
+            sse_db.add(usage_log)
+            sse_db.commit()
+        except Exception:
+            pass
+
         success = True
         try:
             async for event in run_agent(messages, sse_db, cid):
                 event["conversation_id"] = cid
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-            # Update conversation timestamp
+            # Update conversation timestamp and duration
             sse_conv = sse_db.get(AIConversation, cid)
             if sse_conv:
                 sse_conv.updated_at = datetime.now()
-                sse_db.commit()
-        except Exception as e:
-            success = False
-            yield f"data: {json.dumps({'event': 'error', 'text': str(e)}, ensure_ascii=False)}\n\n"
-        finally:
-            # Log AI usage
             try:
-                from app.models.ai_usage_log import AIUsageLog
-                duration_ms = int((time.time() - start_time) * 1000)
-                log = AIUsageLog(
-                    user_id=user.id,
-                    operation="chat",
-                    duration_ms=duration_ms,
-                    success=success,
-                )
-                sse_db.add(log)
+                usage_log.duration_ms = int((time.time() - start_time) * 1000)
                 sse_db.commit()
             except Exception:
                 pass
+        except Exception as e:
+            success = False
+            try:
+                usage_log.success = False
+                usage_log.duration_ms = int((time.time() - start_time) * 1000)
+                sse_db.commit()
+            except Exception:
+                pass
+            yield f"data: {json.dumps({'event': 'error', 'text': str(e)}, ensure_ascii=False)}\n\n"
+        finally:
             sse_db.close()
 
         yield "data: [DONE]\n\n"
