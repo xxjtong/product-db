@@ -59,7 +59,7 @@ async function submit() {
 </script>
 
 <style scoped>
-.login-page { display:flex; align-items:center; justify-content:center; min-height:100vh; background:var(--color-bg); }
+.login-page { display:flex; align-items:center; justify-content:center; min-height:100vh; margin-top:-40px; background:var(--color-bg); }
 .login-card { background:var(--color-card); padding:48px; border-radius:var(--radius-lg); box-shadow:var(--shadow-lg); width:400px; max-width:90vw; }
 .login-card h1 { text-align:center; margin-bottom:8px; font-size:24px; }
 .login-card p { text-align:center; margin-bottom:28px; }
