@@ -77,24 +77,32 @@ def _cached_dict_query(key: str, query_fn, db: Session):
 
 
 @router.get("/dicts/comm-methods")
-def list_comm_methods(db: Session = Depends(get_db), user=Depends(get_current_user)):
+def list_comm_methods(page: int = 1, per_page: int = 20, db: Session = Depends(get_db), user=Depends(get_current_user)):
     items = _cached_dict_query("comm_methods", lambda d: d.query(DictCommMethod).order_by(DictCommMethod.id).all(), db)
-    return {"comm_methods": [i.to_dict() for i in items]}
+    total = len(items)
+    start = (page-1)*per_page; items = items[start:start+per_page]
+    return {"comm_methods": [i.to_dict() for i in items], "total": total}
 
 
 @router.get("/dicts/comm-protocols")
-def list_comm_protocols(db: Session = Depends(get_db), user=Depends(get_current_user)):
+def list_comm_protocols(page: int = 1, per_page: int = 20, db: Session = Depends(get_db), user=Depends(get_current_user)):
     items = _cached_dict_query("comm_protocols", lambda d: d.query(DictCommProtocol).order_by(DictCommProtocol.id).all(), db)
-    return {"comm_protocols": [i.to_dict() for i in items]}
+    total = len(items)
+    start = (page-1)*per_page; items = items[start:start+per_page]
+    return {"comm_protocols": [i.to_dict() for i in items], "total": total}
 
 
 @router.get("/dicts/power-supplies")
-def list_power_supplies(db: Session = Depends(get_db), user=Depends(get_current_user)):
+def list_power_supplies(page: int = 1, per_page: int = 20, db: Session = Depends(get_db), user=Depends(get_current_user)):
     items = _cached_dict_query("power_supplies", lambda d: d.query(DictPowerSupply).order_by(DictPowerSupply.id).all(), db)
-    return {"power_supplies": [i.to_dict() for i in items]}
+    total = len(items)
+    start = (page-1)*per_page; items = items[start:start+per_page]
+    return {"power_supplies": [i.to_dict() for i in items], "total": total}
 
 
 @router.get("/dicts/sensor-metrics")
-def list_sensor_metrics(db: Session = Depends(get_db), user=Depends(get_current_user)):
+def list_sensor_metrics(page: int = 1, per_page: int = 20, db: Session = Depends(get_db), user=Depends(get_current_user)):
     items = _cached_dict_query("sensor_metrics", lambda d: d.query(DictSensorMetric).order_by(DictSensorMetric.id).all(), db)
-    return {"sensor_metrics": [i.to_dict() for i in items]}
+    total = len(items)
+    start = (page-1)*per_page; items = items[start:start+per_page]
+    return {"sensor_metrics": [i.to_dict() for i in items], "total": total}

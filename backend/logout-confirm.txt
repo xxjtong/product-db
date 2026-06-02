@@ -1,0 +1,218 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - complementary [ref=e4]:
+        - generic [ref=e5] [cursor=pointer]: 产品数据库
+        - navigation [ref=e6]:
+          - link "产品" [ref=e7] [cursor=pointer]:
+            - /url: /products
+            - img [ref=e8]
+            - generic [ref=e12]: 产品
+          - link "品类" [ref=e13] [cursor=pointer]:
+            - /url: /categories
+            - img [ref=e14]
+            - generic [ref=e16]: 品类
+          - link "字典" [ref=e17] [cursor=pointer]:
+            - /url: /dictionaries
+            - img [ref=e18]
+            - generic [ref=e20]: 字典
+          - link "供应商" [ref=e21] [cursor=pointer]:
+            - /url: /suppliers
+            - img [ref=e22]
+            - generic [ref=e27]: 供应商
+          - link "方案" [ref=e28] [cursor=pointer]:
+            - /url: /solutions
+            - img [ref=e29]
+            - generic [ref=e32]: 方案
+          - link "报价单" [ref=e33] [cursor=pointer]:
+            - /url: /quotations
+            - img [ref=e34]
+            - generic [ref=e37]: 报价单
+          - link "管理" [ref=e38] [cursor=pointer]:
+            - /url: /admin
+            - img [ref=e39]
+            - generic [ref=e41]: 管理
+        - button "admin" [ref=e43] [cursor=pointer]:
+          - img [ref=e44]
+          - generic [ref=e47]: admin
+      - main [ref=e48]:
+        - heading "管理面板" [level=1] [ref=e245]
+        - generic [ref=e246]:
+          - heading "字段可见性 （普通用户视图）" [level=3] [ref=e247]
+          - paragraph [ref=e248]: 控制以下字段是否对非管理员用户可见
+          - generic [ref=e249]:
+            - generic [ref=e250] [cursor=pointer]:
+              - checkbox "成本价" [checked] [ref=e251]
+              - generic [ref=e252]: 成本价
+            - generic [ref=e253] [cursor=pointer]:
+              - checkbox "厂商名称" [checked] [ref=e254]
+              - generic [ref=e255]: 厂商名称
+            - generic [ref=e256] [cursor=pointer]:
+              - checkbox "供应商名称" [checked] [ref=e257]
+              - generic [ref=e258]: 供应商名称
+            - generic [ref=e259] [cursor=pointer]:
+              - checkbox "产品URL" [checked] [ref=e260]
+              - generic [ref=e261]: 产品URL
+        - generic [ref=e262]:
+          - heading "AI 系统提示词 （默认）" [level=3] [ref=e263]
+          - textbox [ref=e264]: 你是产品数据库AI助手。帮助用户查询产品、推荐方案、录入产品信息。 数据库包含 IoT 产品和设施管理产品。 用中文简洁回答，查产品时调用 search_products 工具。
+          - generic [ref=e265]:
+            - button "保存" [ref=e266] [cursor=pointer]
+            - generic [ref=e267]: 89 字符
+        - generic [ref=e268]:
+          - heading "注册控制" [level=3] [ref=e269]
+          - generic [ref=e270] [cursor=pointer]:
+            - checkbox "关闭注册（仅管理员可创建用户）" [ref=e271]
+            - generic [ref=e272]: 关闭注册（仅管理员可创建用户）
+        - generic [ref=e273]:
+          - heading "用户管理" [level=3] [ref=e274]
+          - button "+ 新增用户" [ref=e275] [cursor=pointer]
+          - table [ref=e276]:
+            - rowgroup [ref=e277]:
+              - row "ID 用户名 角色 邮箱 状态 最后登录 操作" [ref=e278]:
+                - columnheader "ID" [ref=e279]
+                - columnheader "用户名" [ref=e280]
+                - columnheader "角色" [ref=e281]
+                - columnheader "邮箱" [ref=e282]
+                - columnheader "状态" [ref=e283]
+                - columnheader "最后登录" [ref=e284]
+                - columnheader "操作" [ref=e285]
+            - rowgroup [ref=e286]:
+              - row "1 admin admin — 启用 2026-06-02 02:41" [ref=e287]:
+                - cell "1" [ref=e288]
+                - cell "admin" [ref=e289]
+                - cell "admin" [ref=e290]
+                - cell "—" [ref=e291]
+                - cell "启用" [ref=e292]
+                - cell "2026-06-02 02:41" [ref=e293]
+                - cell [ref=e294]:
+                  - button [ref=e295] [cursor=pointer]:
+                    - img [ref=e296]
+                  - button [ref=e299] [cursor=pointer]:
+                    - img [ref=e300]
+                  - button [ref=e304] [cursor=pointer]:
+                    - img [ref=e305]
+        - generic [ref=e308]:
+          - heading "AI 用量统计" [level=3] [ref=e309]
+          - generic [ref=e310]:
+            - generic [ref=e311]:
+              - generic [ref=e312]: "0"
+              - text: 总请求
+            - generic [ref=e313]:
+              - generic [ref=e314]: "0"
+              - text: 成功
+            - generic [ref=e315]:
+              - generic [ref=e316]: 0ms
+              - text: 平均耗时
+        - generic [ref=e317]:
+          - heading "下载审计（最近50条）" [level=3] [ref=e318]
+          - paragraph [ref=e319]: 暂无下载记录
+        - generic [ref=e320]:
+          - heading "登录日志（最近50条）" [level=3] [ref=e321]
+          - table [ref=e322]:
+            - rowgroup [ref=e323]:
+              - row "用户ID IP 地区 状态 时间" [ref=e324]:
+                - columnheader "用户ID" [ref=e325]
+                - columnheader "IP" [ref=e326]
+                - columnheader "地区" [ref=e327]
+                - columnheader "状态" [ref=e328]
+                - columnheader "时间" [ref=e329]
+            - rowgroup [ref=e330]:
+              - row "1 127.0.0.1 本地 ✓ 2026-06-02 10:41" [ref=e331]:
+                - cell "1" [ref=e332]
+                - cell "127.0.0.1" [ref=e333]
+                - cell "本地" [ref=e334]
+                - cell "✓" [ref=e335]
+                - cell "2026-06-02 10:41" [ref=e336]
+              - row "1 127.0.0.1 本地 ✓ 2026-06-02 10:25" [ref=e337]:
+                - cell "1" [ref=e338]
+                - cell "127.0.0.1" [ref=e339]
+                - cell "本地" [ref=e340]
+                - cell "✓" [ref=e341]
+                - cell "2026-06-02 10:25" [ref=e342]
+              - row "1 127.0.0.1 本地 ✓ 2026-06-02 09:47" [ref=e343]:
+                - cell "1" [ref=e344]
+                - cell "127.0.0.1" [ref=e345]
+                - cell "本地" [ref=e346]
+                - cell "✓" [ref=e347]
+                - cell "2026-06-02 09:47" [ref=e348]
+              - row "1 127.0.0.1 本地 ✓ 2026-06-02 09:28" [ref=e349]:
+                - cell "1" [ref=e350]
+                - cell "127.0.0.1" [ref=e351]
+                - cell "本地" [ref=e352]
+                - cell "✓" [ref=e353]
+                - cell "2026-06-02 09:28" [ref=e354]
+              - row "1 127.0.0.1 本地 ✓ 2026-06-02 09:15" [ref=e355]:
+                - cell "1" [ref=e356]
+                - cell "127.0.0.1" [ref=e357]
+                - cell "本地" [ref=e358]
+                - cell "✓" [ref=e359]
+                - cell "2026-06-02 09:15" [ref=e360]
+              - row "1 127.0.0.1 本地 ✓ 2026-06-02 09:12" [ref=e361]:
+                - cell "1" [ref=e362]
+                - cell "127.0.0.1" [ref=e363]
+                - cell "本地" [ref=e364]
+                - cell "✓" [ref=e365]
+                - cell "2026-06-02 09:12" [ref=e366]
+              - row "1 127.0.0.1 本地 ✓ 2026-06-01 20:23" [ref=e367]:
+                - cell "1" [ref=e368]
+                - cell "127.0.0.1" [ref=e369]
+                - cell "本地" [ref=e370]
+                - cell "✓" [ref=e371]
+                - cell "2026-06-01 20:23" [ref=e372]
+              - row "1 127.0.0.1 本地 ✓ 2026-06-01 20:23" [ref=e373]:
+                - cell "1" [ref=e374]
+                - cell "127.0.0.1" [ref=e375]
+                - cell "本地" [ref=e376]
+                - cell "✓" [ref=e377]
+                - cell "2026-06-01 20:23" [ref=e378]
+              - row "0 127.0.0.1 — ✕ 2026-06-01 15:51" [ref=e379]:
+                - cell "0" [ref=e380]
+                - cell "127.0.0.1" [ref=e381]
+                - cell "—" [ref=e382]
+                - cell "✕" [ref=e383]
+                - cell "2026-06-01 15:51" [ref=e384]
+              - row "1 testclient — ✓ 2026-06-01 13:43" [ref=e385]:
+                - cell "1" [ref=e386]
+                - cell "testclient" [ref=e387]
+                - cell "—" [ref=e388]
+                - cell "✓" [ref=e389]
+                - cell "2026-06-01 13:43" [ref=e390]
+              - row "0 testclient — ✕ 2026-06-01 13:43" [ref=e391]:
+                - cell "0" [ref=e392]
+                - cell "testclient" [ref=e393]
+                - cell "—" [ref=e394]
+                - cell "✕" [ref=e395]
+                - cell "2026-06-01 13:43" [ref=e396]
+              - row "1 testclient — ✓ 2026-06-01 13:42" [ref=e397]:
+                - cell "1" [ref=e398]
+                - cell "testclient" [ref=e399]
+                - cell "—" [ref=e400]
+                - cell "✓" [ref=e401]
+                - cell "2026-06-01 13:42" [ref=e402]
+              - row "0 testclient — ✕ 2026-06-01 13:42" [ref=e403]:
+                - cell "0" [ref=e404]
+                - cell "testclient" [ref=e405]
+                - cell "—" [ref=e406]
+                - cell "✕" [ref=e407]
+                - cell "2026-06-01 13:42" [ref=e408]
+              - row "1 testclient — ✓ 2026-06-01 13:42" [ref=e409]:
+                - cell "1" [ref=e410]
+                - cell "testclient" [ref=e411]
+                - cell "—" [ref=e412]
+                - cell "✓" [ref=e413]
+                - cell "2026-06-01 13:42" [ref=e414]
+              - row "0 testclient — ✕ 2026-06-01 13:42" [ref=e415]:
+                - cell "0" [ref=e416]
+                - cell "testclient" [ref=e417]
+                - cell "—" [ref=e418]
+                - cell "✕" [ref=e419]
+                - cell "2026-06-01 13:42" [ref=e420]
+    - button [ref=e55] [cursor=pointer]:
+      - img [ref=e56]
+  - generic [ref=e457]:
+    - heading "确认退出" [level=3] [ref=e458]
+    - paragraph [ref=e459]: 确定要退出登录吗？
+    - generic [ref=e460]:
+      - button "取消" [ref=e461] [cursor=pointer]
+      - button "退出" [ref=e462] [cursor=pointer]

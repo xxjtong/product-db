@@ -1,0 +1,524 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5] [cursor=pointer]: 产品数据库
+      - navigation [ref=e6]:
+        - link "产品" [ref=e7] [cursor=pointer]:
+          - /url: /products
+          - img [ref=e8]
+          - generic [ref=e12]: 产品
+        - link "品类" [ref=e13] [cursor=pointer]:
+          - /url: /categories
+          - img [ref=e14]
+          - generic [ref=e16]: 品类
+        - link "字典" [ref=e17] [cursor=pointer]:
+          - /url: /dictionaries
+          - img [ref=e18]
+          - generic [ref=e20]: 字典
+        - link "供应商" [ref=e21] [cursor=pointer]:
+          - /url: /suppliers
+          - img [ref=e22]
+          - generic [ref=e27]: 供应商
+        - link "方案" [ref=e28] [cursor=pointer]:
+          - /url: /solutions
+          - img [ref=e29]
+          - generic [ref=e32]: 方案
+        - link "报价单" [ref=e33] [cursor=pointer]:
+          - /url: /quotations
+          - img [ref=e34]
+          - generic [ref=e37]: 报价单
+        - link "管理" [ref=e38] [cursor=pointer]:
+          - /url: /admin
+          - img [ref=e39]
+          - generic [ref=e41]: 管理
+      - button "admin" [ref=e43] [cursor=pointer]:
+        - img [ref=e44]
+        - generic [ref=e47]: admin
+    - main [ref=e48]:
+      - generic [ref=e50]:
+        - heading "产品列表" [level=1] [ref=e51]
+        - generic [ref=e52]:
+          - generic [ref=e53]:
+            - img
+            - textbox "搜索型号/名称..." [active] [ref=e54]
+          - button "对比选中 (2)" [ref=e659] [cursor=pointer]
+          - button "导出" [ref=e55] [cursor=pointer]:
+            - img [ref=e56]
+            - text: 导出
+          - button "导入" [ref=e59] [cursor=pointer]
+          - button "新增" [ref=e60] [cursor=pointer]:
+            - img [ref=e61]
+            - text: 新增
+      - generic [ref=e62]:
+        - button "收起筛选 ▲" [ref=e64] [cursor=pointer]
+        - generic [ref=e65]:
+          - generic [ref=e82]:
+            - generic [ref=e83]: 品类
+            - generic [ref=e84] [cursor=pointer]: 网关
+            - generic [ref=e85] [cursor=pointer]: LoRaWAN网关
+            - generic [ref=e86] [cursor=pointer]: 传感器
+            - generic [ref=e87] [cursor=pointer]: LoRaWAN传感器
+            - generic [ref=e88] [cursor=pointer]: NB-IoT传感器
+            - generic [ref=e89] [cursor=pointer]: LoRaWAN显示类传感器
+            - generic [ref=e90] [cursor=pointer]: 执行器/控制器
+            - generic [ref=e91] [cursor=pointer]: LoRaWAN控制器
+            - generic [ref=e92] [cursor=pointer]: 节点/终端
+            - generic [ref=e93] [cursor=pointer]: LoRaWAN节点/执行器
+            - generic [ref=e94] [cursor=pointer]: 蜂窝设备
+            - generic [ref=e95] [cursor=pointer]: 4G/5G路由器
+            - generic [ref=e96] [cursor=pointer]: 5G CPE/Dongle
+            - generic [ref=e97] [cursor=pointer]: 安防
+            - generic [ref=e98] [cursor=pointer]: 感知相机
+            - generic [ref=e99] [cursor=pointer]: 网络摄像机/NVR
+            - generic [ref=e100] [cursor=pointer]: 工具
+            - generic [ref=e101] [cursor=pointer]: Q导入
+            - generic [ref=e102] [cursor=pointer]: 访客/门禁
+            - generic [ref=e103] [cursor=pointer]: 工位
+            - generic [ref=e104] [cursor=pointer]: 信发
+            - generic [ref=e105] [cursor=pointer]: 会议
+            - generic [ref=e106] [cursor=pointer]: 星纵
+            - generic [ref=e107] [cursor=pointer]: IBMS
+            - generic [ref=e108] [cursor=pointer]: FM
+            - generic [ref=e109] [cursor=pointer]: IoT
+            - generic [ref=e110] [cursor=pointer]: 厕位
+            - generic [ref=e111] [cursor=pointer]: 门禁
+            - generic [ref=e112] [cursor=pointer]: 绿米
+            - generic [ref=e113] [cursor=pointer]: 环境
+            - generic [ref=e114] [cursor=pointer]: 照明
+            - generic [ref=e115] [cursor=pointer]: 能耗
+            - generic [ref=e116] [cursor=pointer]: 智能柜
+            - generic [ref=e117] [cursor=pointer]: IOT其他
+            - generic [ref=e118] [cursor=pointer]: MTR
+            - generic [ref=e119] [cursor=pointer]: 京东方
+          - generic [ref=e66]:
+            - generic [ref=e67]: 通讯方式
+            - generic [ref=e120] [cursor=pointer]: Ethernet
+            - generic [ref=e121] [cursor=pointer]: RS485
+            - generic [ref=e122] [cursor=pointer]: RS232
+            - generic [ref=e123] [cursor=pointer]: DryContact
+            - generic [ref=e124] [cursor=pointer]: KNX
+            - generic [ref=e125] [cursor=pointer]: M-BUS
+            - generic [ref=e126] [cursor=pointer]: USB
+            - generic [ref=e127] [cursor=pointer]: LoRaWAN
+            - generic [ref=e128] [cursor=pointer]: WiFi
+            - generic [ref=e129] [cursor=pointer]: 4G
+            - generic [ref=e130] [cursor=pointer]: 5G
+            - generic [ref=e131] [cursor=pointer]: NB-IoT
+            - generic [ref=e132] [cursor=pointer]: Zigbee
+            - generic [ref=e133] [cursor=pointer]: BLE
+            - generic [ref=e134] [cursor=pointer]: NFC
+            - generic [ref=e135] [cursor=pointer]: GNSS
+            - generic [ref=e136] [cursor=pointer]: D2D
+          - generic [ref=e68]:
+            - generic [ref=e69]: 协议
+            - generic [ref=e137] [cursor=pointer]: HTTP
+            - generic [ref=e138] [cursor=pointer]: HTTPS
+            - generic [ref=e139] [cursor=pointer]: MQTT
+            - generic [ref=e140] [cursor=pointer]: MQTTS
+            - generic [ref=e141] [cursor=pointer]: ModbusRTU
+            - generic [ref=e142] [cursor=pointer]: ModbusTCP
+            - generic [ref=e143] [cursor=pointer]: BACnet/IP
+            - generic [ref=e144] [cursor=pointer]: BACnet/MS-TP
+            - generic [ref=e145] [cursor=pointer]: TCP
+            - generic [ref=e146] [cursor=pointer]: UDP
+            - generic [ref=e147] [cursor=pointer]: SNMP
+            - generic [ref=e148] [cursor=pointer]: SSH
+            - generic [ref=e149] [cursor=pointer]: VPN
+            - generic [ref=e150] [cursor=pointer]: RTSP
+            - generic [ref=e151] [cursor=pointer]: NTP
+          - generic [ref=e70]:
+            - generic [ref=e71]: 供电
+            - generic [ref=e152] [cursor=pointer]: DC
+            - generic [ref=e153] [cursor=pointer]: PoE
+            - generic [ref=e154] [cursor=pointer]: Battery
+            - generic [ref=e155] [cursor=pointer]: USB-C
+            - generic [ref=e156] [cursor=pointer]: AC
+            - generic [ref=e157] [cursor=pointer]: Solar
+          - generic [ref=e158]:
+            - generic [ref=e159]: 厂商
+            - generic [ref=e160] [cursor=pointer]: BOE
+            - generic [ref=e161] [cursor=pointer]: ELO
+            - generic [ref=e162] [cursor=pointer]: HID
+            - generic [ref=e163] [cursor=pointer]: QBIC
+            - generic [ref=e164] [cursor=pointer]: TSC
+            - generic [ref=e165] [cursor=pointer]: Temi
+            - generic [ref=e166] [cursor=pointer]: 中弘
+            - generic [ref=e167] [cursor=pointer]: 中电
+            - generic [ref=e168] [cursor=pointer]: 京东方
+            - generic [ref=e169] [cursor=pointer]: 京仪北方
+            - generic [ref=e170] [cursor=pointer]: 亿联
+            - generic [ref=e171] [cursor=pointer]: 优良专显
+            - generic [ref=e172] [cursor=pointer]: 兄弟
+            - generic [ref=e173] [cursor=pointer]: 其他
+            - generic [ref=e174] [cursor=pointer]: 博朗克
+            - generic [ref=e175] [cursor=pointer]: 原点
+            - generic [ref=e176] [cursor=pointer]: 商米
+            - generic [ref=e177] [cursor=pointer]: 圣奥
+            - generic [ref=e178] [cursor=pointer]: 坤同
+            - generic [ref=e179] [cursor=pointer]: 大唐
+            - generic [ref=e180] [cursor=pointer]: 大洋
+            - generic [ref=e181] [cursor=pointer]: 威思客
+            - generic [ref=e182] [cursor=pointer]: 宸展
+            - generic [ref=e183] [cursor=pointer]: 微光
+            - generic [ref=e184] [cursor=pointer]: 微耕
+            - generic [ref=e185] [cursor=pointer]: 德生
+            - generic [ref=e186] [cursor=pointer]: 明纬
+            - generic [ref=e187] [cursor=pointer]: 易乐看
+            - generic [ref=e188] [cursor=pointer]: 星纵
+            - generic [ref=e189] [cursor=pointer]: 智嵌
+            - generic [ref=e190] [cursor=pointer]: 智绘源
+            - generic [ref=e191] [cursor=pointer]: 杜亚
+            - generic [ref=e192] [cursor=pointer]: 树莓
+            - generic [ref=e193] [cursor=pointer]: 欧创智能
+            - generic [ref=e194] [cursor=pointer]: 欧孚
+            - generic [ref=e195] [cursor=pointer]: 汇尚
+            - generic [ref=e196] [cursor=pointer]: 汉朔
+            - generic [ref=e197] [cursor=pointer]: 海康微影
+            - generic [ref=e198] [cursor=pointer]: 海林
+            - generic [ref=e199] [cursor=pointer]: 百度
+            - generic [ref=e200] [cursor=pointer]: 研华
+            - generic [ref=e201] [cursor=pointer]: 绿米
+            - generic [ref=e202] [cursor=pointer]: 联智触控
+            - generic [ref=e203] [cursor=pointer]: 苏州星途
+            - generic [ref=e204] [cursor=pointer]: 迪勤
+            - generic [ref=e205] [cursor=pointer]: 迭代
+            - generic [ref=e206] [cursor=pointer]: 飞利浦
+      - generic [ref=e72]:
+        - table [ref=e207]:
+          - rowgroup [ref=e208]:
+            - row "全选 名称 型号 品类 厂商 通讯 供电 操作" [ref=e209]:
+              - columnheader "全选" [ref=e210]:
+                - checkbox "全选" [ref=e211]
+              - columnheader "名称" [ref=e212]
+              - columnheader "型号" [ref=e213]
+              - columnheader "品类" [ref=e214]
+              - columnheader "厂商" [ref=e215]
+              - columnheader "通讯" [ref=e216]
+              - columnheader "供电" [ref=e217]
+              - columnheader "操作" [ref=e218]
+          - rowgroup [ref=e219]:
+            - row "10.1寸多功能屏 SMVC211R IoT 迭代 PoE" [ref=e220]:
+              - cell [ref=e221]:
+                - checkbox [checked] [ref=e222]
+              - cell "10.1寸多功能屏" [ref=e223]:
+                - link "10.1寸多功能屏" [ref=e225] [cursor=pointer]:
+                  - /url: /products/190
+              - cell "SMVC211R" [ref=e226]
+              - cell "IoT" [ref=e227]
+              - cell "迭代" [ref=e228]
+              - cell [ref=e229]
+              - cell "PoE" [ref=e230]:
+                - generic [ref=e231]: PoE
+              - cell [ref=e232]:
+                - button "编辑" [ref=e233] [cursor=pointer]
+                - button "删除" [ref=e237] [cursor=pointer]
+            - row "1085电子桌牌_简约三色_A型 T1085BASD1 工位 京东方 BLE Battery" [ref=e241]:
+              - cell [ref=e242]:
+                - checkbox [checked] [ref=e243]
+              - cell "1085电子桌牌_简约三色_A型" [ref=e244]:
+                - link "1085电子桌牌_简约三色_A型" [ref=e246] [cursor=pointer]:
+                  - /url: /products/349
+              - cell "T1085BASD1" [ref=e247]
+              - cell "工位" [ref=e248]
+              - cell "京东方" [ref=e249]
+              - cell "BLE" [ref=e250]:
+                - generic [ref=e251]: BLE
+              - cell "Battery" [ref=e252]:
+                - generic [ref=e253]: Battery
+              - cell [ref=e254]:
+                - button "编辑" [ref=e255] [cursor=pointer]
+                - button "删除" [ref=e259] [cursor=pointer]
+            - row "10G/月流量卡 10G/M IoT 苏州星途" [ref=e263]:
+              - cell [ref=e264]:
+                - checkbox [ref=e265]
+              - cell "10G/月流量卡" [ref=e266]:
+                - link "10G/月流量卡" [ref=e268] [cursor=pointer]:
+                  - /url: /products/193
+              - cell "10G/M" [ref=e269]
+              - cell "IoT" [ref=e270]
+              - cell "苏州星途" [ref=e271]
+              - cell [ref=e272]
+              - cell [ref=e273]
+              - cell [ref=e274]:
+                - button "编辑" [ref=e275] [cursor=pointer]
+                - button "删除" [ref=e279] [cursor=pointer]
+            - row "10寸桌面访客机 FT2 访客/门禁 商米 Ethernet BLE NFC DC" [ref=e283]:
+              - cell [ref=e284]:
+                - checkbox [ref=e285]
+              - cell "10寸桌面访客机" [ref=e286]:
+                - link "10寸桌面访客机" [ref=e288] [cursor=pointer]:
+                  - /url: /products/460
+              - cell "FT2" [ref=e289]
+              - cell "访客/门禁" [ref=e290]
+              - cell "商米" [ref=e291]
+              - cell "Ethernet BLE NFC" [ref=e292]:
+                - generic [ref=e293]: Ethernet
+                - generic [ref=e294]: BLE
+                - generic [ref=e295]: NFC
+              - cell "DC" [ref=e296]:
+                - generic [ref=e297]: DC
+              - cell [ref=e298]:
+                - button "编辑" [ref=e299] [cursor=pointer]
+                - button "删除" [ref=e303] [cursor=pointer]
+            - row "11寸智能商业平板 TF31A 访客/门禁 商米 WiFi 4G BLE +1 Battery USB-C" [ref=e307]:
+              - cell [ref=e308]:
+                - checkbox [ref=e309]
+              - cell "11寸智能商业平板" [ref=e310]:
+                - link "11寸智能商业平板" [ref=e312] [cursor=pointer]:
+                  - /url: /products/458
+              - cell "TF31A" [ref=e313]
+              - cell "访客/门禁" [ref=e314]
+              - cell "商米" [ref=e315]
+              - cell "WiFi 4G BLE +1" [ref=e316]:
+                - generic [ref=e317]: WiFi
+                - generic [ref=e318]: 4G
+                - generic [ref=e319]: BLE
+                - text: "+1"
+              - cell "Battery USB-C" [ref=e320]:
+                - generic [ref=e321]: Battery
+                - generic [ref=e322]: USB-C
+              - cell [ref=e323]:
+                - button "编辑" [ref=e324] [cursor=pointer]
+                - button "删除" [ref=e328] [cursor=pointer]
+            - row "1220系列_门牌工位牌_简约三色_WIFI版 T122GRSS1 工位 京东方" [ref=e332]:
+              - cell [ref=e333]:
+                - checkbox [ref=e334]
+              - cell "1220系列_门牌工位牌_简约三色_WIFI版" [ref=e335]:
+                - link "1220系列_门牌工位牌_简约三色_WIFI版" [ref=e337] [cursor=pointer]:
+                  - /url: /products/356
+              - cell "T122GRSS1" [ref=e338]
+              - cell "工位" [ref=e339]
+              - cell "京东方" [ref=e340]
+              - cell [ref=e341]
+              - cell [ref=e342]
+              - cell [ref=e343]:
+                - button "编辑" [ref=e344] [cursor=pointer]
+                - button "删除" [ref=e348] [cursor=pointer]
+            - row "1220系列_门牌工位牌_简约三色_蓝牙版 T122BRSS1 工位 京东方" [ref=e352]:
+              - cell [ref=e353]:
+                - checkbox [ref=e354]
+              - cell "1220系列_门牌工位牌_简约三色_蓝牙版" [ref=e355]:
+                - link "1220系列_门牌工位牌_简约三色_蓝牙版" [ref=e357] [cursor=pointer]:
+                  - /url: /products/357
+              - cell "T122BRSS1" [ref=e358]
+              - cell "工位" [ref=e359]
+              - cell "京东方" [ref=e360]
+              - cell [ref=e361]
+              - cell [ref=e362]
+              - cell [ref=e363]:
+                - button "编辑" [ref=e364] [cursor=pointer]
+                - button "删除" [ref=e368] [cursor=pointer]
+            - row "14寸智能商业平板 Cpad-14 访客/门禁 商米 Ethernet 4G BLE Battery" [ref=e372]:
+              - cell [ref=e373]:
+                - checkbox [ref=e374]
+              - cell "14寸智能商业平板" [ref=e375]:
+                - link "14寸智能商业平板" [ref=e377] [cursor=pointer]:
+                  - /url: /products/98
+              - cell "Cpad-14" [ref=e378]
+              - cell "访客/门禁" [ref=e379]
+              - cell "商米" [ref=e380]
+              - cell "Ethernet 4G BLE" [ref=e381]:
+                - generic [ref=e382]: Ethernet
+                - generic [ref=e383]: 4G
+                - generic [ref=e384]: BLE
+              - cell "Battery" [ref=e385]:
+                - generic [ref=e386]: Battery
+              - cell [ref=e387]:
+                - button "编辑" [ref=e388] [cursor=pointer]
+                - button "删除" [ref=e392] [cursor=pointer]
+            - row "15寸互动式数字标牌/一体机 ESY15I4 工位 ELO PoE" [ref=e396]:
+              - cell [ref=e397]:
+                - checkbox [ref=e398]
+              - cell "15寸互动式数字标牌/一体机" [ref=e399]:
+                - link "15寸互动式数字标牌/一体机" [ref=e401] [cursor=pointer]:
+                  - /url: /products/431
+              - cell "ESY15I4" [ref=e402]
+              - cell "工位" [ref=e403]
+              - cell "ELO" [ref=e404]
+              - cell [ref=e405]
+              - cell "PoE" [ref=e406]:
+                - generic [ref=e407]: PoE
+              - cell [ref=e408]:
+                - button "编辑" [ref=e409] [cursor=pointer]
+                - button "删除" [ref=e413] [cursor=pointer]
+            - row "18.5寸智能交互屏 FLEX3-F9J2A 访客/门禁 商米 Ethernet WiFi BLE +1" [ref=e417]:
+              - cell [ref=e418]:
+                - checkbox [ref=e419]
+              - cell "18.5寸智能交互屏" [ref=e420]:
+                - link "18.5寸智能交互屏" [ref=e422] [cursor=pointer]:
+                  - /url: /products/461
+              - cell "FLEX3-F9J2A" [ref=e423]
+              - cell "访客/门禁" [ref=e424]
+              - cell "商米" [ref=e425]
+              - cell "Ethernet WiFi BLE +1" [ref=e426]:
+                - generic [ref=e427]: Ethernet
+                - generic [ref=e428]: WiFi
+                - generic [ref=e429]: BLE
+                - text: "+1"
+              - cell [ref=e430]
+              - cell [ref=e431]:
+                - button "编辑" [ref=e432] [cursor=pointer]
+                - button "删除" [ref=e436] [cursor=pointer]
+            - row "18门智能小仓库 G31-18 智能柜 坤同" [ref=e440]:
+              - cell [ref=e441]:
+                - checkbox [ref=e442]
+              - cell "18门智能小仓库" [ref=e443]:
+                - link "18门智能小仓库" [ref=e445] [cursor=pointer]:
+                  - /url: /products/479
+              - cell "G31-18" [ref=e446]
+              - cell "智能柜" [ref=e447]
+              - cell "坤同" [ref=e448]
+              - cell [ref=e449]
+              - cell [ref=e450]
+              - cell [ref=e451]:
+                - button "编辑" [ref=e452] [cursor=pointer]
+                - button "删除" [ref=e456] [cursor=pointer]
+            - row "20G/月流量卡 20G/M IoT 苏州星途" [ref=e460]:
+              - cell [ref=e461]:
+                - checkbox [ref=e462]
+              - cell "20G/月流量卡" [ref=e463]:
+                - link "20G/月流量卡" [ref=e465] [cursor=pointer]:
+                  - /url: /products/194
+              - cell "20G/M" [ref=e466]
+              - cell "IoT" [ref=e467]
+              - cell "苏州星途" [ref=e468]
+              - cell [ref=e469]
+              - cell [ref=e470]
+              - cell [ref=e471]:
+                - button "编辑" [ref=e472] [cursor=pointer]
+                - button "删除" [ref=e476] [cursor=pointer]
+            - row "21.5寸智能交互屏 FLEX3-F962A 访客/门禁 商米 Ethernet WiFi BLE +1" [ref=e480]:
+              - cell [ref=e481]:
+                - checkbox [ref=e482]
+              - cell "21.5寸智能交互屏" [ref=e483]:
+                - link "21.5寸智能交互屏" [ref=e485] [cursor=pointer]:
+                  - /url: /products/462
+              - cell "FLEX3-F962A" [ref=e486]
+              - cell "访客/门禁" [ref=e487]
+              - cell "商米" [ref=e488]
+              - cell "Ethernet WiFi BLE +1" [ref=e489]:
+                - generic [ref=e490]: Ethernet
+                - generic [ref=e491]: WiFi
+                - generic [ref=e492]: BLE
+                - text: "+1"
+              - cell [ref=e493]
+              - cell [ref=e494]:
+                - button "编辑" [ref=e495] [cursor=pointer]
+                - button "删除" [ref=e499] [cursor=pointer]
+            - row "22寸互动式数字标牌/一体机 ESY22I4 工位 ELO PoE" [ref=e503]:
+              - cell [ref=e504]:
+                - checkbox [ref=e505]
+              - cell "22寸互动式数字标牌/一体机" [ref=e506]:
+                - link "22寸互动式数字标牌/一体机" [ref=e508] [cursor=pointer]:
+                  - /url: /products/432
+              - cell "ESY22I4" [ref=e509]
+              - cell "工位" [ref=e510]
+              - cell "ELO" [ref=e511]
+              - cell [ref=e512]
+              - cell "PoE" [ref=e513]:
+                - generic [ref=e514]: PoE
+              - cell [ref=e515]:
+                - button "编辑" [ref=e516] [cursor=pointer]
+                - button "删除" [ref=e520] [cursor=pointer]
+            - row "27寸智能交互屏 FLEX3-F9E2A 访客/门禁 商米 Ethernet WiFi BLE +1" [ref=e524]:
+              - cell [ref=e525]:
+                - checkbox [ref=e526]
+              - cell "27寸智能交互屏" [ref=e527]:
+                - link "27寸智能交互屏" [ref=e529] [cursor=pointer]:
+                  - /url: /products/463
+              - cell "FLEX3-F9E2A" [ref=e530]
+              - cell "访客/门禁" [ref=e531]
+              - cell "商米" [ref=e532]
+              - cell "Ethernet WiFi BLE +1" [ref=e533]:
+                - generic [ref=e534]: Ethernet
+                - generic [ref=e535]: WiFi
+                - generic [ref=e536]: BLE
+                - text: "+1"
+              - cell [ref=e537]
+              - cell [ref=e538]:
+                - button "编辑" [ref=e539] [cursor=pointer]
+                - button "删除" [ref=e543] [cursor=pointer]
+            - row "28门称重小仓库 G51-28W 智能柜 坤同" [ref=e547]:
+              - cell [ref=e548]:
+                - checkbox [ref=e549]
+              - cell "28门称重小仓库" [ref=e550]:
+                - link "28门称重小仓库" [ref=e552] [cursor=pointer]:
+                  - /url: /products/480
+              - cell "G51-28W" [ref=e553]
+              - cell "智能柜" [ref=e554]
+              - cell "坤同" [ref=e555]
+              - cell [ref=e556]
+              - cell [ref=e557]
+              - cell [ref=e558]:
+                - button "编辑" [ref=e559] [cursor=pointer]
+                - button "删除" [ref=e563] [cursor=pointer]
+            - row "290系列_标牌标签_简约三色 石墨灰 T290BRGS2 白色 T290BRWS2 工位 京东方 BLE Battery" [ref=e567]:
+              - cell [ref=e568]:
+                - checkbox [ref=e569]
+              - cell "290系列_标牌标签_简约三色" [ref=e570]:
+                - link "290系列_标牌标签_简约三色" [ref=e572] [cursor=pointer]:
+                  - /url: /products/350
+              - cell "石墨灰 T290BRGS2 白色 T290BRWS2" [ref=e573]
+              - cell "工位" [ref=e574]
+              - cell "京东方" [ref=e575]
+              - cell "BLE" [ref=e576]:
+                - generic [ref=e577]: BLE
+              - cell "Battery" [ref=e578]:
+                - generic [ref=e579]: Battery
+              - cell [ref=e580]:
+                - button "编辑" [ref=e581] [cursor=pointer]
+                - button "删除" [ref=e585] [cursor=pointer]
+            - row "2G/月流量卡 2G/M IoT 苏州星途" [ref=e589]:
+              - cell [ref=e590]:
+                - checkbox [ref=e591]
+              - cell "2G/月流量卡" [ref=e592]:
+                - link "2G/月流量卡" [ref=e594] [cursor=pointer]:
+                  - /url: /products/191
+              - cell "2G/M" [ref=e595]
+              - cell "IoT" [ref=e596]
+              - cell "苏州星途" [ref=e597]
+              - cell [ref=e598]
+              - cell [ref=e599]
+              - cell [ref=e600]:
+                - button "编辑" [ref=e601] [cursor=pointer]
+                - button "删除" [ref=e605] [cursor=pointer]
+            - row "3.7\"NFC数字胸牌 拨码款 T370NRWS2 工位 京东方 NFC" [ref=e609]:
+              - cell [ref=e610]:
+                - checkbox [ref=e611]
+              - cell "3.7\"NFC数字胸牌" [ref=e612]:
+                - link "3.7\"NFC数字胸牌" [ref=e614] [cursor=pointer]:
+                  - /url: /products/358
+              - cell "拨码款 T370NRWS2" [ref=e615]
+              - cell "工位" [ref=e616]
+              - cell "京东方" [ref=e617]
+              - cell "NFC" [ref=e618]:
+                - generic [ref=e619]: NFC
+              - cell [ref=e620]
+              - cell [ref=e621]:
+                - button "编辑" [ref=e622] [cursor=pointer]
+                - button "删除" [ref=e626] [cursor=pointer]
+            - row "3.7\"NFC数字胸牌 独立包装 T370NRWS3 工位 京东方 NFC" [ref=e630]:
+              - cell [ref=e631]:
+                - checkbox [ref=e632]
+              - cell "3.7\"NFC数字胸牌" [ref=e633]:
+                - link "3.7\"NFC数字胸牌" [ref=e635] [cursor=pointer]:
+                  - /url: /products/359
+              - cell "独立包装 T370NRWS3" [ref=e636]
+              - cell "工位" [ref=e637]
+              - cell "京东方" [ref=e638]
+              - cell "NFC" [ref=e639]:
+                - generic [ref=e640]: NFC
+              - cell [ref=e641]
+              - cell [ref=e642]:
+                - button "编辑" [ref=e643] [cursor=pointer]
+                - button "删除" [ref=e647] [cursor=pointer]
+        - generic [ref=e651]:
+          - generic [ref=e652]: 共 414 条
+          - button "上一页" [disabled] [ref=e653]
+          - generic [ref=e654]:
+            - textbox [ref=e655]: "1"
+            - generic [ref=e656]: / 21
+            - button "跳转" [ref=e657] [cursor=pointer]
+          - button "下一页" [ref=e658] [cursor=pointer]
+  - button [ref=e79] [cursor=pointer]:
+    - img [ref=e80]

@@ -1,0 +1,122 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5] [cursor=pointer]: 产品数据库
+      - navigation [ref=e6]:
+        - link "产品" [ref=e7] [cursor=pointer]:
+          - /url: /products
+          - img [ref=e8]
+          - generic [ref=e12]: 产品
+        - link "品类" [ref=e13] [cursor=pointer]:
+          - /url: /categories
+          - img [ref=e14]
+          - generic [ref=e16]: 品类
+        - link "字典" [ref=e17] [cursor=pointer]:
+          - /url: /dictionaries
+          - img [ref=e18]
+          - generic [ref=e20]: 字典
+        - link "供应商" [ref=e21] [cursor=pointer]:
+          - /url: /suppliers
+          - img [ref=e22]
+          - generic [ref=e27]: 供应商
+        - link "方案" [ref=e28] [cursor=pointer]:
+          - /url: /solutions
+          - img [ref=e29]
+          - generic [ref=e32]: 方案
+        - link "报价单" [ref=e33] [cursor=pointer]:
+          - /url: /quotations
+          - img [ref=e34]
+          - generic [ref=e37]: 报价单
+        - link "管理" [ref=e38] [cursor=pointer]:
+          - /url: /admin
+          - img [ref=e39]
+          - generic [ref=e41]: 管理
+      - button "admin" [ref=e43] [cursor=pointer]:
+        - img [ref=e44]
+        - generic [ref=e47]: admin
+    - main [ref=e48]:
+      - generic [ref=e50]:
+        - heading "方案管理" [level=1] [ref=e51]
+        - button "新增方案" [ref=e53] [cursor=pointer]:
+          - img [ref=e54]
+          - text: 新增方案
+      - generic [ref=e56]:
+        - textbox "搜索方案/客户/项目..." [ref=e57]
+        - combobox [ref=e58]:
+          - option "全部状态" [selected]
+          - option "草稿"
+          - option "进行中"
+          - option "完成"
+      - table [ref=e60]:
+        - rowgroup [ref=e61]:
+          - row "名称 客户 项目 状态 总价 更新时间 操作" [ref=e62]:
+            - columnheader "名称" [ref=e63]
+            - columnheader "客户" [ref=e64]
+            - columnheader "项目" [ref=e65]
+            - columnheader "状态" [ref=e66]
+            - columnheader "总价" [ref=e67]
+            - columnheader "更新时间" [ref=e68]
+            - columnheader "操作" [ref=e69]
+        - rowgroup [ref=e70]:
+          - row "智慧卫生间 — — draft 0 2026-06-02 00:50" [ref=e71]:
+            - cell "智慧卫生间" [ref=e72]
+            - cell "—" [ref=e73]
+            - cell "—" [ref=e74]
+            - cell "draft" [ref=e75]:
+              - generic [ref=e76]: draft
+            - cell "0" [ref=e77]
+            - cell "2026-06-02 00:50" [ref=e78]
+            - cell [ref=e79]:
+              - button "查看" [ref=e80] [cursor=pointer]:
+                - img [ref=e81]
+              - button "编辑" [ref=e84] [cursor=pointer]:
+                - img [ref=e85]
+              - button "删除" [ref=e88] [cursor=pointer]:
+                - img [ref=e89]
+          - row "二氧化碳 — — draft 0 2026-06-02 00:48" [ref=e92]:
+            - cell "二氧化碳" [ref=e93]
+            - cell "—" [ref=e94]
+            - cell "—" [ref=e95]
+            - cell "draft" [ref=e96]:
+              - generic [ref=e97]: draft
+            - cell "0" [ref=e98]
+            - cell "2026-06-02 00:48" [ref=e99]
+            - cell [ref=e100]:
+              - button "查看" [ref=e101] [cursor=pointer]:
+                - img [ref=e102]
+              - button "编辑" [ref=e105] [cursor=pointer]:
+                - img [ref=e106]
+              - button "删除" [ref=e109] [cursor=pointer]:
+                - img [ref=e110]
+          - row "空气质量 — — draft 0 2026-06-02 00:31" [ref=e113]:
+            - cell "空气质量" [ref=e114]
+            - cell "—" [ref=e115]
+            - cell "—" [ref=e116]
+            - cell "draft" [ref=e117]:
+              - generic [ref=e118]: draft
+            - cell "0" [ref=e119]
+            - cell "2026-06-02 00:31" [ref=e120]
+            - cell [ref=e121]:
+              - button "查看" [ref=e122] [cursor=pointer]:
+                - img [ref=e123]
+              - button "编辑" [ref=e126] [cursor=pointer]:
+                - img [ref=e127]
+              - button "删除" [ref=e130] [cursor=pointer]:
+                - img [ref=e131]
+          - row "tes 啊 不 draft 2317.5 2026-06-01 23:43" [ref=e134]:
+            - cell "tes" [ref=e135]
+            - cell "啊" [ref=e136]
+            - cell "不" [ref=e137]
+            - cell "draft" [ref=e138]:
+              - generic [ref=e139]: draft
+            - cell "2317.5" [ref=e140]
+            - cell "2026-06-01 23:43" [ref=e141]
+            - cell [ref=e142]:
+              - button "查看" [ref=e143] [cursor=pointer]:
+                - img [ref=e144]
+              - button "编辑" [ref=e147] [cursor=pointer]:
+                - img [ref=e148]
+              - button "删除" [ref=e151] [cursor=pointer]:
+                - img [ref=e152]
+  - button [ref=e156] [cursor=pointer]:
+    - img [ref=e157]

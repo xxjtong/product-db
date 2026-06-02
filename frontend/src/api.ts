@@ -35,10 +35,10 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 // --- Dictionaries ---
-export const fetchCommMethods = () => api<{ comm_methods: { id: number; name: string }[] }>('/dicts/comm-methods')
-export const fetchCommProtocols = () => api<{ comm_protocols: { id: number; name: string }[] }>('/dicts/comm-protocols')
-export const fetchPowerSupplies = () => api<{ power_supplies: { id: number; name: string }[] }>('/dicts/power-supplies')
-export const fetchSensorMetrics = () => api<{ sensor_metrics: { id: number; name: string }[] }>('/dicts/sensor-metrics')
+export const fetchCommMethods = (page = 1, perPage = 20) => api<{ comm_methods: { id: number; name: string }[]; total: number }>(`/dicts/comm-methods?page=${page}&per_page=${perPage}`)
+export const fetchCommProtocols = (page = 1, perPage = 20) => api<{ comm_protocols: { id: number; name: string }[]; total: number }>(`/dicts/comm-protocols?page=${page}&per_page=${perPage}`)
+export const fetchPowerSupplies = (page = 1, perPage = 20) => api<{ power_supplies: { id: number; name: string }[]; total: number }>(`/dicts/power-supplies?page=${page}&per_page=${perPage}`)
+export const fetchSensorMetrics = (page = 1, perPage = 20) => api<{ sensor_metrics: { id: number; name: string }[]; total: number }>(`/dicts/sensor-metrics?page=${page}&per_page=${perPage}`)
 export const fetchManufacturers = (page = 1, perPage = 20) => api<{ manufacturers: Manufacturer[]; total: number }>(`/dicts/manufacturers?page=${page}&per_page=${perPage}`)
 export const createManufacturer = (data: any) => api('/dicts/manufacturers', { method: 'POST', body: JSON.stringify(data) })
 export const updateManufacturer = (id: number, data: any) => api(`/dicts/manufacturers/${id}`, { method: 'PUT', body: JSON.stringify(data) })

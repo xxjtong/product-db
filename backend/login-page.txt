@@ -1,0 +1,11 @@
+- main [ref=e4]:
+  - generic [ref=e6]:
+    - heading "产品数据库" [level=1] [ref=e7]
+    - paragraph [ref=e8]: 登录以继续
+    - textbox "用户名" [ref=e10]
+    - textbox "密码" [ref=e12]
+    - button "登录" [ref=e13] [cursor=pointer]
+    - paragraph [ref=e14]:
+      - text: 没有账号？
+      - link "注册新账号" [ref=e15] [cursor=pointer]:
+        - /url: "#"

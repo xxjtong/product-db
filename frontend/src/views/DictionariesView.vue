@@ -9,55 +9,36 @@
     <h3 style="margin-bottom:12px">通讯方式</h3>
     <table class="data-table">
       <thead><tr><th>ID</th><th>类型</th><th>名称</th></tr></thead>
-      <tbody>
-        <tr v-for="m in commMethods" :key="m.id">
-          <td>{{ m.id }}</td>
-          <td>{{ m.method_type === 'wired' ? '有线' : '无线' }}</td>
-          <td>{{ m.name }}</td>
-        </tr>
-      </tbody>
+      <tbody><tr v-for="m in commMethods" :key="m.id"><td>{{ m.id }}</td><td>{{ m.method_type === 'wired' ? '有线' : '无线' }}</td><td>{{ m.name }}</td></tr></tbody>
     </table>
+    <Pagination :total="cmTotal" :page="cmPage" :per-page="dictPerPage" @change="p => { cmPage = p; loadCommMethods() }" @update:per-page="s => { dictPerPage = s; cmPage = 1; loadCommMethods() }" />
   </div>
 
   <div class="card" style="margin-bottom:16px">
     <h3 style="margin-bottom:12px">通讯协议</h3>
     <table class="data-table">
       <thead><tr><th>ID</th><th>名称</th></tr></thead>
-      <tbody>
-        <tr v-for="p in commProtocols" :key="p.id">
-          <td>{{ p.id }}</td>
-          <td>{{ p.name }}</td>
-        </tr>
-      </tbody>
+      <tbody><tr v-for="p in commProtocols" :key="p.id"><td>{{ p.id }}</td><td>{{ p.name }}</td></tr></tbody>
     </table>
+    <Pagination :total="cpTotal" :page="cpPage" :per-page="dictPerPage" @change="p => { cpPage = p; loadCommProtocols() }" @update:per-page="s => { dictPerPage = s; cpPage = 1; loadCommProtocols() }" />
   </div>
 
   <div class="card" style="margin-bottom:16px">
     <h3 style="margin-bottom:12px">供电方式</h3>
     <table class="data-table">
       <thead><tr><th>ID</th><th>类别</th><th>名称</th></tr></thead>
-      <tbody>
-        <tr v-for="p in powerSupplies" :key="p.id">
-          <td>{{ p.id }}</td>
-          <td>{{ p.supply_category }}</td>
-          <td>{{ p.name }}</td>
-        </tr>
-      </tbody>
+      <tbody><tr v-for="p in powerSupplies" :key="p.id"><td>{{ p.id }}</td><td>{{ p.supply_category }}</td><td>{{ p.name }}</td></tr></tbody>
     </table>
+    <Pagination :total="psTotal" :page="psPage" :per-page="dictPerPage" @change="p => { psPage = p; loadPowerSupplies() }" @update:per-page="s => { dictPerPage = s; psPage = 1; loadPowerSupplies() }" />
   </div>
 
   <div class="card" style="margin-bottom:16px">
     <h3 style="margin-bottom:12px">传感器指标</h3>
     <table class="data-table">
       <thead><tr><th>ID</th><th>名称</th><th>单位</th></tr></thead>
-      <tbody>
-        <tr v-for="m in sensorMetrics" :key="m.id">
-          <td>{{ m.id }}</td>
-          <td>{{ m.name }}</td>
-          <td>{{ m.unit || '—' }}</td>
-        </tr>
-      </tbody>
+      <tbody><tr v-for="m in sensorMetrics" :key="m.id"><td>{{ m.id }}</td><td>{{ m.name }}</td><td>{{ m.unit || '—' }}</td></tr></tbody>
     </table>
+    <Pagination :total="smTotal" :page="smPage" :per-page="dictPerPage" @change="p => { smPage = p; loadSensorMetrics() }" @update:per-page="s => { dictPerPage = s; smPage = 1; loadSensorMetrics() }" />
   </div>
 
   <div class="card">
@@ -117,7 +98,11 @@ const commProtocols = ref<DictItem[]>([])
 const powerSupplies = ref<DictItem[]>([])
 const sensorMetrics = ref<DictItem[]>([])
 const manufacturers = ref<Manufacturer[]>([])
-const mfgPage = ref(1); const mfgTotal = ref(0); const perPage = ref(20)
+const mfgPage = ref(1); const mfgTotal = ref(0); const perPage = ref(20); const dictPerPage = ref(20)
+const cmPage = ref(1); const cmTotal = ref(0)
+const cpPage = ref(1); const cpTotal = ref(0)
+const psPage = ref(1); const psTotal = ref(0)
+const smPage = ref(1); const smTotal = ref(0)
 
 const mfgModalVisible = ref(false)
 const editingMfg = ref<any>(null)
@@ -174,17 +159,26 @@ async function loadManufacturers() {
   loading.value = false
 }
 
+async function loadCommMethods() { const res = await fetchCommMethods(cmPage.value, dictPerPage.value); commMethods.value = res.comm_methods; cmTotal.value = res.total }
+async function loadCommProtocols() { const res = await fetchCommProtocols(cpPage.value, dictPerPage.value); commProtocols.value = res.comm_protocols; cpTotal.value = res.total }
+async function loadPowerSupplies() { const res = await fetchPowerSupplies(psPage.value, dictPerPage.value); powerSupplies.value = res.power_supplies; psTotal.value = res.total }
+async function loadSensorMetrics() { const res = await fetchSensorMetrics(smPage.value, dictPerPage.value); sensorMetrics.value = res.sensor_metrics; smTotal.value = res.total }
+
 async function loadAll() {
   loading.value = true
   loadError.value = ''
   try {
     const [cm, cp, ps, sm, mfg] = await Promise.all([
-      fetchCommMethods(), fetchCommProtocols(), fetchPowerSupplies(), fetchSensorMetrics(), fetchManufacturers(mfgPage.value, perPage.value),
+      fetchCommMethods(cmPage.value, dictPerPage.value),
+      fetchCommProtocols(cpPage.value, dictPerPage.value),
+      fetchPowerSupplies(psPage.value, dictPerPage.value),
+      fetchSensorMetrics(smPage.value, dictPerPage.value),
+      fetchManufacturers(mfgPage.value, perPage.value),
     ])
-    commMethods.value = cm.comm_methods
-    commProtocols.value = cp.comm_protocols
-    powerSupplies.value = ps.power_supplies
-    sensorMetrics.value = sm.sensor_metrics
+    commMethods.value = cm.comm_methods; cmTotal.value = cm.total
+    commProtocols.value = cp.comm_protocols; cpTotal.value = cp.total
+    powerSupplies.value = ps.power_supplies; psTotal.value = ps.total
+    sensorMetrics.value = sm.sensor_metrics; smTotal.value = sm.total
     manufacturers.value = mfg.manufacturers; mfgTotal.value = mfg.total || 0
   } catch (e: any) {
     loadError.value = e.message || '加载失败'

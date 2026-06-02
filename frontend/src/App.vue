@@ -233,7 +233,7 @@ watch(() => route.path, (to, from) => {
 .sidebar-user {
   margin-top: auto;
   border-top: 1px solid rgba(255,255,255,.1);
-  padding: 6px 10px;
+  padding: 6px 10px 6px 14px;
   position: relative;
 }
 .sidebar-user-btn {
@@ -266,7 +266,7 @@ watch(() => route.path, (to, from) => {
 .sidebar-search input::placeholder { color: rgba(255,255,255,.35); }
 .sidebar-search input:focus { outline: none; border-color: var(--color-accent); }
 .sidebar-stats {
-  padding: 4px 16px;
+  padding: 4px 16px 4px 22px;
   border-top: 1px solid rgba(255,255,255,.1);
 }
 .sidebar-stats-row {
@@ -280,8 +280,8 @@ watch(() => route.path, (to, from) => {
   color: rgba(255,255,255,.55);
 }
 .sidebar-stats-num {
-  width: 18px;
-  text-align: right;
+  width: auto;
+  text-align: left;
   font-size: 14px;
   font-weight: 600;
   color: rgba(255,255,255,.85);
@@ -295,10 +295,10 @@ watch(() => route.path, (to, from) => {
 .sidebar-stats.collapsed .sidebar-stats-row { justify-content: center; gap: 2px; }
 .sidebar-stats.collapsed .sidebar-stats-num { width: auto; text-align: center; font-size: 11px; }
 .sidebar-version {
-  padding: 4px 16px;
+  padding: 4px 16px 4px 22px;
   font-size: 10px;
   color: rgba(255,255,255,.25);
-  text-align: center;
+  text-align: left;
 }
 .sidebar-username {
   font-weight: 500;

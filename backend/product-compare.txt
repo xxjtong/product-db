@@ -1,0 +1,88 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5] [cursor=pointer]: 产品数据库
+      - navigation [ref=e6]:
+        - link "产品" [ref=e7] [cursor=pointer]:
+          - /url: /products
+          - img [ref=e8]
+          - generic [ref=e12]: 产品
+        - link "品类" [ref=e13] [cursor=pointer]:
+          - /url: /categories
+          - img [ref=e14]
+          - generic [ref=e16]: 品类
+        - link "字典" [ref=e17] [cursor=pointer]:
+          - /url: /dictionaries
+          - img [ref=e18]
+          - generic [ref=e20]: 字典
+        - link "供应商" [ref=e21] [cursor=pointer]:
+          - /url: /suppliers
+          - img [ref=e22]
+          - generic [ref=e27]: 供应商
+        - link "方案" [ref=e28] [cursor=pointer]:
+          - /url: /solutions
+          - img [ref=e29]
+          - generic [ref=e32]: 方案
+        - link "报价单" [ref=e33] [cursor=pointer]:
+          - /url: /quotations
+          - img [ref=e34]
+          - generic [ref=e37]: 报价单
+        - link "管理" [ref=e38] [cursor=pointer]:
+          - /url: /admin
+          - img [ref=e39]
+          - generic [ref=e41]: 管理
+      - button "admin" [ref=e43] [cursor=pointer]:
+        - img [ref=e44]
+        - generic [ref=e47]: admin
+    - main [ref=e48]:
+      - generic [ref=e661]:
+        - heading "产品对比" [level=1] [ref=e662]
+        - generic [ref=e663]:
+          - button "返回列表" [ref=e664] [cursor=pointer]
+          - button "清除全部" [ref=e665] [cursor=pointer]
+      - generic [ref=e667]:
+        - generic [ref=e668]: "对比产品 (2/6):"
+        - generic [ref=e669]:
+          - text: 10.1寸多功能屏
+          - button "×" [ref=e670] [cursor=pointer]
+        - generic [ref=e671]:
+          - text: 1085电子桌牌_简约三色_A型
+          - button "×" [ref=e672] [cursor=pointer]
+        - generic [ref=e673]:
+          - img
+          - textbox "添加产品..." [ref=e674]
+      - generic [ref=e675]:
+        - generic [ref=e676]: 共 5 项差异参数（仅显示值不同的参数）
+        - table [ref=e677]:
+          - rowgroup [ref=e678]:
+            - row "参数 10.1寸多功能屏 SMVC211R 1085电子桌牌_简约三色_A型 T1085BASD1" [ref=e679]:
+              - columnheader "参数" [ref=e680]
+              - columnheader "10.1寸多功能屏 SMVC211R" [ref=e681]:
+                - text: 10.1寸多功能屏
+                - text: SMVC211R
+              - columnheader "1085电子桌牌_简约三色_A型 T1085BASD1" [ref=e682]:
+                - text: 1085电子桌牌_简约三色_A型
+                - text: T1085BASD1
+          - rowgroup [ref=e683]:
+            - row "价格 3094 1430" [ref=e684]:
+              - cell "价格" [ref=e685]
+              - cell "3094" [ref=e686]
+              - cell "1430" [ref=e687]
+            - row "供电方式 PoE Battery" [ref=e688]:
+              - cell "供电方式" [ref=e689]
+              - cell "PoE" [ref=e690]
+              - cell "Battery" [ref=e691]
+            - row "厂商 迭代 京东方" [ref=e692]:
+              - cell "厂商" [ref=e693]
+              - cell "迭代" [ref=e694]
+              - cell "京东方" [ref=e695]
+            - row "品类 IoT 工位" [ref=e696]:
+              - cell "品类" [ref=e697]
+              - cell "IoT" [ref=e698]
+              - cell "工位" [ref=e699]
+            - row "通讯方式 BLE" [ref=e700]:
+              - cell "通讯方式" [ref=e701]
+              - cell [ref=e702]
+              - cell "BLE" [ref=e703]
+  - button [ref=e79] [cursor=pointer]:
+    - img [ref=e80]

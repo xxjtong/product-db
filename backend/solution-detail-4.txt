@@ -1,0 +1,130 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5] [cursor=pointer]: 产品数据库
+      - navigation [ref=e6]:
+        - link "产品" [ref=e7] [cursor=pointer]:
+          - /url: /products
+          - img [ref=e8]
+          - generic [ref=e12]: 产品
+        - link "品类" [ref=e13] [cursor=pointer]:
+          - /url: /categories
+          - img [ref=e14]
+          - generic [ref=e16]: 品类
+        - link "字典" [ref=e17] [cursor=pointer]:
+          - /url: /dictionaries
+          - img [ref=e18]
+          - generic [ref=e20]: 字典
+        - link "供应商" [ref=e21] [cursor=pointer]:
+          - /url: /suppliers
+          - img [ref=e22]
+          - generic [ref=e27]: 供应商
+        - link "方案" [ref=e28] [cursor=pointer]:
+          - /url: /solutions
+          - img [ref=e29]
+          - generic [ref=e32]: 方案
+        - link "报价单" [ref=e33] [cursor=pointer]:
+          - /url: /quotations
+          - img [ref=e34]
+          - generic [ref=e37]: 报价单
+        - link "管理" [ref=e38] [cursor=pointer]:
+          - /url: /admin
+          - img [ref=e39]
+          - generic [ref=e41]: 管理
+      - button "admin" [ref=e64] [cursor=pointer]:
+        - img [ref=e65]
+        - generic [ref=e68]: admin
+    - main [ref=e42]:
+      - generic [ref=e43]:
+        - generic [ref=e44]:
+          - link "方案管理 ›" [ref=e45] [cursor=pointer]:
+            - /url: /solutions
+          - link "tes" [ref=e69] [cursor=pointer]:
+            - /url: /solutions/4
+        - generic [ref=e47]:
+          - 'heading "方案: tes" [level=1] [ref=e70]'
+          - generic [ref=e49]:
+            - button "依赖检查" [ref=e50] [cursor=pointer]:
+              - img [ref=e51]
+              - text: 依赖检查
+            - button "生成报价单" [ref=e54] [cursor=pointer]
+            - button "编辑 BOM 表格" [ref=e55] [cursor=pointer]
+            - button "返回" [ref=e56] [cursor=pointer]
+      - generic [ref=e71]:
+        - generic [ref=e72]:
+          - heading "客户信息" [level=3] [ref=e73]
+          - generic [ref=e74]:
+            - generic [ref=e75]:
+              - generic [ref=e76]: 客户
+              - textbox [ref=e77]: 啊
+            - generic [ref=e78]:
+              - generic [ref=e79]: 项目
+              - textbox [ref=e80]: 不
+            - generic [ref=e81]:
+              - generic [ref=e82]: 状态
+              - combobox [ref=e83]:
+                - option "草稿" [selected]
+                - option "进行中"
+                - option "完成"
+            - generic [ref=e84]:
+              - generic [ref=e85]: 总价
+              - generic [ref=e86]: ¥2317.5
+            - generic [ref=e87]:
+              - generic [ref=e88]: 备注
+              - textbox [ref=e89]: 啊啊啊
+        - generic [ref=e90]:
+          - heading "AI 方案助手" [level=3] [ref=e91]
+          - generic [ref=e93]: 告诉我你的需求，帮你挑选产品加入方案。例如："10个温湿度传感器 + 1个LoRaWAN网关"
+          - generic [ref=e94]:
+            - 'textbox "如: 10个温湿度传感器 + LoRaWAN网关" [ref=e95]'
+            - button "发送" [ref=e96] [cursor=pointer]
+        - generic [ref=e97]:
+          - generic [ref=e98]:
+            - heading "产品清单 (2 项)" [level=3] [ref=e99]
+            - button "批量选品" [ref=e100] [cursor=pointer]:
+              - img [ref=e101]
+              - text: 批量选品
+          - table [ref=e102]:
+            - rowgroup [ref=e103]:
+              - row "产品 数量 单价 折扣% 小计 备注" [ref=e104]:
+                - columnheader "产品" [ref=e105]
+                - columnheader "数量" [ref=e106]
+                - columnheader "单价" [ref=e107]
+                - columnheader "折扣%" [ref=e108]
+                - columnheader "小计" [ref=e109]
+                - columnheader "备注" [ref=e110]
+                - columnheader [ref=e111]
+            - rowgroup [ref=e112]:
+              - row "室内环境传感器319甲醛 1282.5 ¥1283" [ref=e113]:
+                - cell "室内环境传感器319甲醛" [ref=e114]:
+                  - link "室内环境传感器319甲醛" [ref=e115] [cursor=pointer]:
+                    - /url: /products/207
+                - cell [ref=e116]:
+                  - spinbutton [ref=e117]: "1"
+                - cell "1282.5" [ref=e118]
+                - cell [ref=e119]:
+                  - spinbutton [ref=e120]: "100"
+                - cell "¥1283" [ref=e121]
+                - cell [ref=e122]:
+                  - textbox [ref=e123]
+                - cell [ref=e124]:
+                  - button [ref=e125] [cursor=pointer]:
+                    - img [ref=e126]
+              - row "二氧化碳传感器 1035 ¥1035" [ref=e129]:
+                - cell "二氧化碳传感器" [ref=e130]:
+                  - link "二氧化碳传感器" [ref=e131] [cursor=pointer]:
+                    - /url: /products/232
+                - cell [ref=e132]:
+                  - spinbutton [ref=e133]: "1"
+                - cell "1035" [ref=e134]
+                - cell [ref=e135]:
+                  - spinbutton [ref=e136]: "100"
+                - cell "¥1035" [ref=e137]
+                - cell [ref=e138]:
+                  - textbox [ref=e139]
+                - cell [ref=e140]:
+                  - button [ref=e141] [cursor=pointer]:
+                    - img [ref=e142]
+        - heading "依赖关系图" [level=3] [ref=e148]
+  - button [ref=e60] [cursor=pointer]:
+    - img [ref=e61]

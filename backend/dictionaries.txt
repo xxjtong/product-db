@@ -1,0 +1,84 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5] [cursor=pointer]: 产品数据库
+      - navigation [ref=e6]:
+        - link "产品" [ref=e7] [cursor=pointer]:
+          - /url: /products
+          - img [ref=e8]
+          - generic [ref=e12]: 产品
+        - link "品类" [ref=e13] [cursor=pointer]:
+          - /url: /categories
+          - img [ref=e14]
+          - generic [ref=e16]: 品类
+        - link "字典" [ref=e17] [cursor=pointer]:
+          - /url: /dictionaries
+          - img [ref=e18]
+          - generic [ref=e20]: 字典
+        - link "供应商" [ref=e21] [cursor=pointer]:
+          - /url: /suppliers
+          - img [ref=e22]
+          - generic [ref=e27]: 供应商
+        - link "方案" [ref=e28] [cursor=pointer]:
+          - /url: /solutions
+          - img [ref=e29]
+          - generic [ref=e32]: 方案
+        - link "报价单" [ref=e33] [cursor=pointer]:
+          - /url: /quotations
+          - img [ref=e34]
+          - generic [ref=e37]: 报价单
+        - link "管理" [ref=e38] [cursor=pointer]:
+          - /url: /admin
+          - img [ref=e39]
+          - generic [ref=e41]: 管理
+    - main [ref=e42]:
+      - heading "字典管理" [level=1] [ref=e45]
+      - generic [ref=e46]:
+        - heading "通讯方式" [level=3] [ref=e47]
+        - table [ref=e48]:
+          - rowgroup [ref=e49]:
+            - row "ID 类型 名称" [ref=e50]:
+              - columnheader "ID" [ref=e51]
+              - columnheader "类型" [ref=e52]
+              - columnheader "名称" [ref=e53]
+          - rowgroup
+      - generic [ref=e54]:
+        - heading "通讯协议" [level=3] [ref=e55]
+        - table [ref=e56]:
+          - rowgroup [ref=e57]:
+            - row "ID 名称" [ref=e58]:
+              - columnheader "ID" [ref=e59]
+              - columnheader "名称" [ref=e60]
+          - rowgroup
+      - generic [ref=e61]:
+        - heading "供电方式" [level=3] [ref=e62]
+        - table [ref=e63]:
+          - rowgroup [ref=e64]:
+            - row "ID 类别 名称" [ref=e65]:
+              - columnheader "ID" [ref=e66]
+              - columnheader "类别" [ref=e67]
+              - columnheader "名称" [ref=e68]
+          - rowgroup
+      - generic [ref=e69]:
+        - heading "传感器指标" [level=3] [ref=e70]
+        - table [ref=e71]:
+          - rowgroup [ref=e72]:
+            - row "ID 名称 单位" [ref=e73]:
+              - columnheader "ID" [ref=e74]
+              - columnheader "名称" [ref=e75]
+              - columnheader "单位" [ref=e76]
+          - rowgroup
+      - generic [ref=e77]:
+        - generic [ref=e78]:
+          - heading "厂商" [level=3] [ref=e79]
+          - button "+ 新增" [ref=e80] [cursor=pointer]
+        - table [ref=e81]:
+          - rowgroup [ref=e82]:
+            - row "ID 名称 网站 操作" [ref=e83]:
+              - columnheader "ID" [ref=e84]
+              - columnheader "名称" [ref=e85]
+              - columnheader "网站" [ref=e86]
+              - columnheader "操作" [ref=e87]
+          - rowgroup
+  - button [ref=e89] [cursor=pointer]:
+    - img [ref=e90]
