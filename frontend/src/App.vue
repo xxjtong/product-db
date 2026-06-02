@@ -21,14 +21,13 @@
       </nav>
       <!-- AI stats -->
       <div v-if="aiStats" class="sidebar-stats" :class="{ collapsed: sidebarCollapsed }">
-        <div class="sidebar-stats-item">
+        <div class="sidebar-stats-row">
+          <span class="sidebar-stats-label">总AI次数</span>
           <span class="sidebar-stats-num">{{ aiStats.total.toLocaleString() }}</span>
-          <span class="sidebar-stats-label">{{ sidebarCollapsed ? '总量' : '总请求' }}</span>
         </div>
-        <div class="sidebar-stats-divider"></div>
-        <div class="sidebar-stats-item">
+        <div class="sidebar-stats-row">
+          <span class="sidebar-stats-label">当前AI次数</span>
           <span class="sidebar-stats-num">{{ aiStats.user_count.toLocaleString() }}</span>
-          <span class="sidebar-stats-label">{{ sidebarCollapsed ? '我的' : '我的使用' }}</span>
         </div>
       </div>
       <div v-show="!sidebarCollapsed" class="sidebar-version">v2.0</div>
@@ -261,25 +260,31 @@ watch(() => route.path, (to, from) => {
 .sidebar-search input::placeholder { color: rgba(255,255,255,.35); }
 .sidebar-search input:focus { outline: none; border-color: var(--color-accent); }
 .sidebar-stats {
-  margin: 8px 10px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: rgba(255,255,255,.05);
+  padding: 4px 16px;
+  border-top: 1px solid rgba(255,255,255,.1);
+}
+.sidebar-stats-row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 0;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+.sidebar-stats-label {
+  font-size: 12px;
+  color: rgba(255,255,255,.55);
+}
+.sidebar-stats-num {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255,255,255,.8);
+  font-variant-numeric: tabular-nums;
 }
 .sidebar-stats.collapsed {
-  margin: 6px 6px;
-  padding: 6px 4px;
-  flex-direction: column;
-  gap: 4px;
+  padding: 2px 6px;
 }
-.sidebar-stats.collapsed .sidebar-stats-divider { display: none; }
-.sidebar-stats.collapsed .sidebar-stats-item { flex-direction: row; gap: 4px; }
-.sidebar-stats.collapsed .sidebar-stats-num { font-size: 12px; }
-.sidebar-stats.collapsed .sidebar-stats-label { font-size: 9px; margin-top: 0; }
+.sidebar-stats.collapsed .sidebar-stats-label { font-size: 0; }
+.sidebar-stats.collapsed .sidebar-stats-num { font-size: 10px; }
+.sidebar-stats.collapsed .sidebar-stats-row { justify-content: center; padding: 2px 0; }
 .sidebar-stats-item {
   display: flex;
   flex-direction: column;
