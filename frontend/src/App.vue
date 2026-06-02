@@ -17,10 +17,10 @@
         <router-link to="/admin" class="sidebar-link" :title="sidebarCollapsed ? '管理' : ''"><ShieldIcon /><span v-show="!sidebarCollapsed">管理</span></router-link>
       </nav>
       <!-- User section -->
-      <div v-if="currentUser" class="sidebar-user" v-show="!sidebarCollapsed">
+      <div v-if="currentUser" class="sidebar-user">
         <button class="sidebar-user-btn" @click="openProfile">
           <UserIcon :size="14" color="rgba(255, 255, 255, 0.85)" style="flex-shrink:0" />
-          <span class="sidebar-username">{{ currentUser.username }}</span>
+          <span v-show="!sidebarCollapsed" class="sidebar-username">{{ currentUser.username }}</span>
         </button>
         <button class="sidebar-logout" title="退出登录" @click="showLogout = true">
           ⏻
