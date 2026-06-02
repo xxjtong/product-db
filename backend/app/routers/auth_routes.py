@@ -73,6 +73,9 @@ def update_profile(data: UpdateProfileRequest, db: Session = Depends(get_db),
     if data.email is not None:
         user.email = data.email
     if data.password:
+        # Require current password for security
+        if not data.current_password or not verify_password(data.current_password, user.password_hash):
+            raise HTTPException(400, "当前密码错误")
         user.password_hash = hash_password(data.password)
     db.commit()
     return {"user": user.to_dict()}

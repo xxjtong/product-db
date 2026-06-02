@@ -34,6 +34,7 @@ class UpdateUserRequest(BaseModel):
 class UpdateProfileRequest(BaseModel):
     email: Optional[str] = None
     password: Optional[str] = None
+    current_password: Optional[str] = None
 
 
 class RegistrationRequest(BaseModel):

@@ -18,14 +18,15 @@
       </nav>
       <!-- User section -->
       <div v-if="currentUser" class="sidebar-user" v-show="!sidebarCollapsed">
-        <div class="sidebar-user-info">
+        <button class="sidebar-user-btn" @click="openProfile">
+          <UserIcon style="width:14px;height:14px;flex-shrink:0" />
           <span class="sidebar-username">{{ currentUser.username }}</span>
-          <span class="sidebar-email">{{ currentUser.email || '未设置邮箱' }}</span>
-        </div>
-        <div class="sidebar-user-actions">
-          <button class="btn-icon btn-sm" title="修改密码" @click="showPwdModal = true"><KeyIcon style="width:14px;height:14px" /></button>
-          <button class="btn-icon btn-sm" title="登出" @click="logout"><LogOutIcon style="width:14px;height:14px" /></button>
-        </div>
+          <span style="font-size:10px;opacity:.5;margin-left:auto;flex-shrink:0">{{ currentUser.role === 'admin' ? '管理员' : '' }}</span>
+        </button>
+        <button class="sidebar-user-btn" style="margin-top:1px" @click="showLogout = true">
+          <LogOutIcon style="width:14px;height:14px;opacity:.5;flex-shrink:0" />
+          <span style="opacity:.5">退出登录</span>
+        </button>
       </div>
     </aside>
     <main class="app-content">
@@ -34,25 +35,50 @@
   </div>
   <AiChat v-if="$route.path !== '/login'" />
 
-  <!-- Password change modal -->
-  <div v-if="showPwdModal" class="modal-overlay" @click.self="showPwdModal = false">
-    <div class="modal-card" style="width:360px">
-      <h3 style="margin:0 0 12px">修改密码</h3>
-      <div class="form-group"><label>新密码</label><input v-model="newPassword" type="password" /></div>
-      <div class="form-group"><label>确认密码</label><input v-model="newPassword2" type="password" /></div>
-      <p v-if="pwdError" style="color:var(--color-danger);font-size:12px">{{ pwdError }}</p>
-      <div class="flex gap-8 mt-8" style="justify-content:flex-end">
-        <button class="btn-secondary btn-sm" @click="showPwdModal = false">取消</button>
-        <button class="btn-primary btn-sm" @click="changePassword">确认</button>
+  <!-- Profile modal -->
+  <Teleport to="body">
+    <div v-if="showProfile" class="modal-overlay" @click.self="showProfile = false">
+      <div class="modal-card" style="width:400px">
+        <div class="modal-header">
+          <h3 style="margin:0">个人信息</h3>
+          <button class="btn-icon" @click="showProfile = false">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group"><label>用户名</label><input :value="currentUser?.username || ''" disabled /></div>
+          <div class="form-group"><label>角色</label><input :value="currentUser?.role === 'admin' ? '管理员' : '普通用户'" disabled /></div>
+          <div class="form-group"><label>邮箱</label><input v-model="profileEmail" placeholder="选填" /></div>
+          <hr style="margin:12px 0;border:none;border-top:1px solid var(--color-border)" />
+          <div class="form-group"><label>当前密码 <span style="color:var(--color-danger)">*</span></label><input v-model="profileCurPw" type="password" placeholder="修改邮箱或密码需验证" /></div>
+          <div class="form-group"><label>新密码 <span class="text-muted">（留空不修改）</span></label><input v-model="profileNewPw" type="password" placeholder="至少6位" /></div>
+          <p v-if="profileError" style="color:var(--color-danger);font-size:12px;margin:8px 0 0">{{ profileError }}</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" @click="showProfile = false">取消</button>
+          <button class="btn-primary" @click="saveProfile">保存</button>
+        </div>
       </div>
     </div>
-  </div>
+  </Teleport>
+
+  <!-- Logout modal -->
+  <Teleport to="body">
+    <div v-if="showLogout" class="modal-overlay" @click.self="showLogout = false">
+      <div class="modal-card" style="width:320px;text-align:center">
+        <h3 style="margin:0 0 8px">确认退出</h3>
+        <p class="text-muted text-sm" style="margin-bottom:16px">确定要退出登录吗？</p>
+        <div class="flex gap-8" style="justify-content:center">
+          <button class="btn-secondary" @click="showLogout = false">取消</button>
+          <button class="btn-primary" style="background:var(--color-danger)" @click="logout">退出</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
 import { ref, provide, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { PackageIcon, GridIcon, BookIcon, TruckIcon, ClipboardListIcon, FileTextIcon, ShieldIcon, KeyIcon, LogOutIcon } from 'lucide-vue-next'
+import { PackageIcon, GridIcon, BookIcon, TruckIcon, ClipboardListIcon, FileTextIcon, ShieldIcon, UserIcon, LogOutIcon } from 'lucide-vue-next'
 import AiChat from './components/AiChat.vue'
 
 const router = useRouter()
@@ -61,10 +87,12 @@ interface ToastMsg { message: string; type: string }
 const sidebarCollapsed = ref(false)
 const toast = ref<ToastMsg | null>(null)
 let toastTimer: ReturnType<typeof setTimeout> | null = null
-const showPwdModal = ref(false)
-const newPassword = ref('')
-const newPassword2 = ref('')
-const pwdError = ref('')
+const showProfile = ref(false)
+const showLogout = ref(false)
+const profileEmail = ref('')
+const profileCurPw = ref('')
+const profileNewPw = ref('')
+const profileError = ref('')
 
 function showToast(message: string, type = 'info') {
   toast.value = { message, type }
@@ -94,30 +122,50 @@ async function loadSession() {
   } catch { /* ignore */ }
 }
 
+function openProfile() {
+  profileEmail.value = currentUser.value?.email || ''
+  profileCurPw.value = ''
+  profileNewPw.value = ''
+  profileError.value = ''
+  showProfile.value = true
+}
+
 function logout() {
+  showLogout.value = false
   localStorage.removeItem('token')
   localStorage.removeItem('user')
   currentUser.value = null
   router.push('/login')
 }
 
-async function changePassword() {
-  pwdError.value = ''
-  if (!newPassword.value || newPassword.value.length < 6) { pwdError.value = '密码至少6位'; return }
-  if (newPassword.value !== newPassword2.value) { pwdError.value = '两次密码不一致'; return }
+async function saveProfile() {
+  profileError.value = ''
+  if (profileNewPw.value && !profileCurPw.value) {
+    profileError.value = '修改密码需要输入当前密码'
+    return
+  }
   try {
     const token = localStorage.getItem('token')
+    const body: any = {}
+    if (profileEmail.value !== (currentUser.value?.email || '')) {
+      body.email = profileEmail.value
+    }
+    if (profileNewPw.value) {
+      body.password = profileNewPw.value
+      body.current_password = profileCurPw.value
+    }
+    if (Object.keys(body).length === 0) { showProfile.value = false; return }
     const res = await fetch('/api/auth/profile', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ password: newPassword.value }),
+      body: JSON.stringify(body),
     })
-    if (!res.ok) throw new Error('修改失败')
-    showToast('密码已修改', 'success')
-    showPwdModal.value = false
-    newPassword.value = ''
-    newPassword2.value = ''
-  } catch (e: any) { pwdError.value = e.message }
+    if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '保存失败') }
+    const data = await res.json()
+    currentUser.value = data.user
+    showToast('已保存', 'success')
+    showProfile.value = false
+  } catch (e: any) { profileError.value = e.message }
 }
 
 onMounted(loadSession)
@@ -126,44 +174,35 @@ onMounted(loadSession)
 <style scoped>
 .sidebar-user {
   margin-top: auto;
-  border-top: 1px solid rgba(255,255,255,.15);
-  padding: 12px 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.sidebar-user-info {
+  border-top: 1px solid rgba(255,255,255,.1);
+  padding: 8px 10px;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  gap: 1px;
 }
-.sidebar-username {
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.sidebar-email {
-  font-size: 11px;
-  opacity: .6;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.sidebar-user-actions {
+.sidebar-user-btn {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255,255,255,.85);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
 }
-.sidebar-user-actions button {
-  color: rgba(255,255,255,.6);
-}
-.sidebar-user-actions button:hover {
-  color: #fff;
+.sidebar-user-btn:hover { background: rgba(255,255,255,.1); color: #fff; }
+.sidebar-username {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* Password modal */
+/* Modal */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -176,7 +215,19 @@ onMounted(loadSession)
 .modal-card {
   background: #fff;
   border-radius: var(--radius-lg);
-  padding: 24px;
   box-shadow: var(--shadow-lg);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 0;
+}
+.modal-body { padding: 16px 20px; }
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 20px 16px;
 }
 </style>
