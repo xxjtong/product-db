@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import re
+import time
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -370,6 +371,8 @@ async def ai_chat(request: Request, db: Session = Depends(get_db), user=Depends(
     async def generate():
         # Use a fresh DB session for the generator
         sse_db = next(get_db())
+        start_time = time.time()
+        success = True
         try:
             async for event in run_agent(messages, sse_db, cid):
                 event["conversation_id"] = cid
@@ -380,8 +383,23 @@ async def ai_chat(request: Request, db: Session = Depends(get_db), user=Depends(
                 sse_conv.updated_at = datetime.now()
                 sse_db.commit()
         except Exception as e:
+            success = False
             yield f"data: {json.dumps({'event': 'error', 'text': str(e)}, ensure_ascii=False)}\n\n"
         finally:
+            # Log AI usage
+            try:
+                from app.models.ai_usage_log import AIUsageLog
+                duration_ms = int((time.time() - start_time) * 1000)
+                log = AIUsageLog(
+                    user_id=user.id,
+                    operation="chat",
+                    duration_ms=duration_ms,
+                    success=success,
+                )
+                sse_db.add(log)
+                sse_db.commit()
+            except Exception:
+                pass
             sse_db.close()
 
         yield "data: [DONE]\n\n"
