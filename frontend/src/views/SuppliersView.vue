@@ -24,7 +24,7 @@
       </tbody>
     </table>
     <div v-else class="empty-state"><InboxIcon /><p>暂无供应商</p></div>
-    <Pagination :total="total" :page="page" :per-page="perPage" @change="p => { page = p; load() }" />
+    <Pagination :total="total" :page="page" :per-page="perPage" @change="p => { page = p; load() }" @update:per-page="s => { perPage = s; page = 1; load() }" />
   </div>
 
   <Modal :title="editing ? '编辑供应商' : '新增供应商'" :visible="modalVisible" @close="modalVisible = false">
@@ -61,7 +61,7 @@ const showToast = inject<(msg: string, type?: string) => void>('toast', () => {}
 const suppliers = ref<Supplier[]>([])
 const total = ref(0)
 const page = ref(1)
-const perPage = 25
+const perPage = ref(25)
 const search = ref('')
 const modalVisible = ref(false)
 const editing = ref<any>(null)
@@ -72,7 +72,7 @@ function buildQuery() {
   const parts: string[] = []
   if (search.value) parts.push(`search=${encodeURIComponent(search.value)}`)
   parts.push(`page=${page.value}`)
-  parts.push(`per_page=${perPage}`)
+  parts.push(`per_page=${perPage.value}`)
   return parts.join('&')
 }
 

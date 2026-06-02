@@ -103,7 +103,7 @@
       </tbody>
     </table>
     <div v-else class="empty-state"><InboxIcon /><p>暂无产品</p></div>
-    <Pagination :total="total" :page="page" :per-page="perPage" @change="p => { page = p; loadProducts() }" />
+    <Pagination :total="total" :page="page" :per-page="perPage" @change="p => { page = p; loadProducts() }" @update:per-page="s => { perPage = s; page = 1; loadProducts() }" />
   </div>
 
   <ConfirmDialog title="删除产品" :message="`确定删除「${deleteTarget?.name}」？`" :visible="!!deleteTarget" @confirm="doDelete" @cancel="deleteTarget = null" />
@@ -126,7 +126,7 @@ const route = useRoute()
 const products = ref<Product[]>([])
 const total = ref(0)
 const page = ref(1)
-const perPage = 20
+const perPage = ref(20)
 const MAX_PER_PAGE = 100
 const search = ref('')
 const deleteTarget = ref<Product | null>(null)
@@ -201,7 +201,7 @@ function buildParams(): string {
   if (filters.power_supply) parts.push(`power_supply=${filters.power_supply}`)
   if (filters.manufacturer_id) parts.push(`manufacturer_id=${filters.manufacturer_id}`)
   parts.push(`page=${page.value}`)
-  parts.push(`per_page=${Math.min(perPage, MAX_PER_PAGE)}`)
+  parts.push(`per_page=${perPage.value === 0 ? total.value : Math.min(perPage.value, MAX_PER_PAGE)}`)
   return parts.join('&')
 }
 

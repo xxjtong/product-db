@@ -39,7 +39,7 @@
       </tbody>
     </table>
     <div v-else-if="!loading" class="empty-state"><InboxIcon /><p>暂无方案</p></div>
-    <Pagination :total="total" :page="page" :per-page="perPage" @change="p => { page = p; load() }" />
+    <Pagination :total="total" :page="page" :per-page="perPage" @change="p => { page = p; load() }" @update:per-page="s => { perPage = s; page = 1; load() }" />
   </div>
 
   <Modal :title="editing ? '编辑方案' : '新增方案'" :visible="modalVisible" @close="modalVisible = false">
@@ -77,7 +77,7 @@ const solutions = ref<Solution[]>([])
 const statusFilter = ref('')
 const total = ref(0)
 const page = ref(1)
-const perPage = 20
+const perPage = ref(20)
 const modalVisible = ref(false)
 const editing = ref<any>(null)
 const form = ref<any>({ name: '', client_name: '', project_name: '', notes: '' })
@@ -96,7 +96,7 @@ async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    let params = `page=${page.value}&per_page=${perPage}`
+    let params = `page=${page.value}&per_page=${perPage.value}`
     if (search.value) params += `&search=${encodeURIComponent(search.value)}`
     if (statusFilter.value) params += `&status=${statusFilter.value}`
     const res = await fetchSolutions(params)

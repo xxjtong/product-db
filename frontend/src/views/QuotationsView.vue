@@ -39,7 +39,7 @@
       </tbody>
     </table>
     <div v-else class="empty-state"><InboxIcon /><p>暂无报价单</p></div>
-    <Pagination :total="total" :page="page" :per-page="perPage" @change="p => { page = p; load() }" />
+    <Pagination :total="total" :page="page" :per-page="perPage" @change="p => { page = p; load() }" @update:per-page="s => { perPage = s; page = 1; load() }" />
   </div>
 
   <ConfirmDialog title="删除报价单" :message="`确定删除报价单「${deleteTarget?.quote_number}」？`" :visible="!!deleteTarget" @confirm="doDelete" @cancel="deleteTarget = null" />
@@ -59,7 +59,7 @@ const showToast = inject<(msg: string, type?: string) => void>('toast', () => {}
 const quotations = ref<Quotation[]>([])
 const total = ref(0)
 const page = ref(1)
-const perPage = 20
+const perPage = ref(20)
 const deleteTarget = ref<any>(null)
 const search = ref('')
 const statusFilter = ref('')
@@ -77,7 +77,7 @@ async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    let params = `page=${page.value}&per_page=${perPage}`
+    let params = `page=${page.value}&per_page=${perPage.value}`
     if (search.value) params += `&search=${encodeURIComponent(search.value)}`
     if (statusFilter.value) params += `&status=${statusFilter.value}`
     const res = await fetchQuotations(params)
