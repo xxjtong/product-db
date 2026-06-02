@@ -5,23 +5,31 @@
   <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="load">重试</button></div>
   <template v-else>
 
-  <!-- Field Visibility -->
+  <!-- AI Usage Stats -->
   <div class="card mb-16">
-    <h3>字段可见性 <span class="text-sm text-muted">（普通用户视图）</span></h3>
-    <p class="text-sm text-muted mb-8">控制以下字段是否对非管理员用户可见</p>
-    <div class="flex flex-wrap gap-12">
-      <label class="toggle-row" v-for="fv in fieldList" :key="fv.key">
-        <input type="checkbox" :checked="fv.visible" @change="toggleField(fv.key)" />
-        <span>{{ fv.label }}</span>
-      </label>
+    <h3>AI 用量统计</h3>
+    <div class="flex gap-16 mb-8" v-if="aiUsage">
+      <div class="stat"><span class="stat-num">{{ aiUsage.summary?.total || 0 }}</span><span class="stat-label">总次数</span></div>
+      <div class="stat"><span class="stat-num">{{ formatNum(aiUsage.summary?.total_tokens_in || 0) }}</span><span class="stat-label">总输入Token</span></div>
+      <div class="stat"><span class="stat-num">{{ formatNum(aiUsage.summary?.total_tokens_out || 0) }}</span><span class="stat-label">总输出Token</span></div>
+      <div class="stat"><span class="stat-num" style="color:var(--color-success)">{{ aiUsage.summary?.success || 0 }}</span><span class="stat-label">成功</span></div>
+    </div>
+    <div class="text-sm text-muted mb-4">最近使用记录</div>
+    <div v-if="aiUsage?.recent?.length" style="max-height:200px;overflow-y:auto">
+      <table class="data-table">
+        <thead><tr><th>用户</th><th>输入Token</th><th>输出Token</th><th>耗时</th><th>时间</th></tr></thead>
+        <tbody>
+          <tr v-for="r in aiUsage.recent" :key="r.id">
+            <td>{{ r.user_id }}</td><td>{{ r.tokens_in }}</td><td>{{ r.tokens_out }}</td><td>{{ r.duration_ms }}ms</td><td>{{ r.created_at }}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </div>
 
   <!-- AI Settings: Prompts + Models -->
   <div class="card mb-16">
     <h3>AI 设置</h3>
-
-    <!-- Model selection -->
     <div class="mb-8">
       <h4 style="margin:8px 0 4px">模型选择</h4>
       <div class="form-grid" style="gap:8px">
@@ -34,15 +42,25 @@
         </div>
       </div>
     </div>
-
-    <!-- Prompts -->
     <div>
       <h4 style="margin:8px 0 4px">提示词</h4>
       <div v-for="(defPrompt, key) in aiSettings?.prompt_defaults || {}" :key="key" class="mb-8">
         <label style="font-size:12px;font-weight:600">{{ promptLabels[key] || key }}</label>
-        <textarea v-model="aiPrompts[key]" rows="3" style="width:100%;font-family:monospace;font-size:11px;margin-top:2px"></textarea>
+        <textarea v-model="aiPrompts[key]" rows="3" style="width:100%;font-family:monospace;font-size:13px;margin-top:2px"></textarea>
       </div>
       <button class="btn-primary btn-sm" @click="saveAiSettings" :disabled="aiSaving">{{ aiSaving ? '保存中...' : '保存 AI 设置' }}</button>
+    </div>
+  </div>
+
+  <!-- Field Visibility -->
+  <div class="card mb-16">
+    <h3>字段可见性 <span class="text-sm text-muted">（普通用户视图）</span></h3>
+    <p class="text-sm text-muted mb-8">控制以下字段是否对非管理员用户可见</p>
+    <div class="flex flex-wrap gap-12">
+      <label class="toggle-row" v-for="fv in fieldList" :key="fv.key">
+        <input type="checkbox" :checked="fv.visible" @change="toggleField(fv.key)" />
+        <span>{{ fv.label }}</span>
+      </label>
     </div>
   </div>
 
@@ -77,27 +95,6 @@
     </table>
   </div>
 
-  <!-- AI Usage Stats -->
-  <div class="card mb-16">
-    <h3>AI 用量统计</h3>
-    <div class="flex gap-16 mb-8" v-if="aiUsage">
-      <div class="stat"><span class="stat-num">{{ aiUsage.summary?.total || 0 }}</span><span class="stat-label">总次数</span></div>
-      <div class="stat"><span class="stat-num">{{ formatNum(aiUsage.summary?.total_tokens_in || 0) }}</span><span class="stat-label">总输入Token</span></div>
-      <div class="stat"><span class="stat-num">{{ formatNum(aiUsage.summary?.total_tokens_out || 0) }}</span><span class="stat-label">总输出Token</span></div>
-      <div class="stat"><span class="stat-num" style="color:var(--color-success)">{{ aiUsage.summary?.success || 0 }}</span><span class="stat-label">成功</span></div>
-    </div>
-    <div v-if="aiUsage?.recent?.length" style="max-height:200px;overflow-y:auto">
-      <table class="data-table">
-        <thead><tr><th>用户</th><th>操作</th><th>模型</th><th>耗时</th><th>状态</th><th>时间</th></tr></thead>
-        <tbody>
-          <tr v-for="r in aiUsage.recent" :key="r.id">
-            <td>{{ r.user_id }}</td><td>{{ r.operation }}</td><td>{{ r.model }}</td><td>{{ r.duration_ms }}ms</td><td>{{ r.success ? '✓' : '✕' }}</td><td>{{ r.created_at }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
   <!-- Download Logs -->
   <div class="card mb-16">
     <h3>下载审计（最近50条）</h3>
@@ -110,6 +107,7 @@
       </tbody>
     </table>
     <p v-else class="text-sm text-muted">暂无下载记录</p>
+    <Pagination v-if="dlogsTotal > 20" :total="dlogsTotal" :page="dlogsPage" :per-page="20" @change="p => { dlogsPage = p; load() }" />
   </div>
 
   <!-- Login Logs -->
@@ -124,6 +122,7 @@
         </tr>
       </tbody>
     </table>
+    <Pagination v-if="loginLogsTotal > 20" :total="loginLogsTotal" :page="loginLogsPage" :per-page="20" @change="p => { loginLogsPage = p; load() }" />
   </div>
 
   <!-- User modal -->
@@ -157,6 +156,7 @@ import { PencilIcon, Trash2Icon, KeyIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import Modal from '../components/Modal.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import Pagination from '../components/Pagination.vue'
 
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 const token = () => localStorage.getItem('token') || ''
@@ -169,6 +169,8 @@ interface DownloadLog { id: number; user_id: number; file_type: string; entity_i
 const users = ref<AdminUser[]>([])
 const logs = ref<LogEntry[]>([])
 const dlogs = ref<DownloadLog[]>([])
+const loginLogsPage = ref(1); const loginLogsTotal = ref(0)
+const dlogsPage = ref(1); const dlogsTotal = ref(0)
 const modalVisible = ref(false)
 const editing = ref<AdminUser | null>(null)
 const form = ref({ username: '', password: '', role: 'user', email: '', is_active: true })
@@ -222,16 +224,16 @@ async function load() {
   try {
     const [uRes, lRes, fRes, pRes, aRes, dRes, rRes] = await Promise.all([
       adminApi('/api/admin/users'),
-      adminApi('/api/admin/login-logs'),
+      adminApi(`/api/admin/login-logs?page=${loginLogsPage.value}&per_page=20`),
       adminApi('/api/admin/fields'),
       adminApi('/api/admin/ai-settings'),
       adminApi('/api/admin/ai-usage'),
-      adminApi('/api/admin/download-logs'),
+      adminApi(`/api/admin/download-logs?page=${dlogsPage.value}&per_page=20`),
       fetch('/api/auth/registration-status').then(r => r.json()),
     ])
     users.value = uRes.users || []
-    logs.value = lRes.logs || []
-    dlogs.value = dRes.logs || []
+    logs.value = lRes.logs || []; loginLogsTotal.value = lRes.total || 0
+    dlogs.value = dRes.logs || []; dlogsTotal.value = dRes.total || 0
     const fields = fRes.fields || {}
     for (const fv of fieldList.value) { if (fv.key in fields) fv.visible = fields[fv.key] }
     aiSettings.value = pRes

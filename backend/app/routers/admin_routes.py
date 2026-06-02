@@ -97,14 +97,15 @@ def delete_user(uid: int, db: Session = Depends(get_db), user=Depends(get_curren
 
 
 @router.get("/admin/login-logs")
-def list_login_logs(user_id: int = None, limit: int = 50, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def list_login_logs(user_id: int = None, page: int = 1, per_page: int = 20, db: Session = Depends(get_db), user=Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(403, "Admin only")
     q = db.query(LoginLog).order_by(LoginLog.created_at.desc())
     if user_id:
         q = q.filter_by(user_id=user_id)
-    logs = q.limit(min(limit, 200)).all()
-    return {"logs": [l.to_dict() for l in logs]}
+    total = q.count()
+    logs = q.offset((page-1)*per_page).limit(per_page).all()
+    return {"logs": [l.to_dict() for l in logs], "total": total, "page": page, "per_page": per_page}
 
 
 # --- Field visibility ---
@@ -193,7 +194,7 @@ def get_ai_usage(db: Session = Depends(get_db), user=Depends(get_current_user)):
     avg_time = db.query(func.avg(AIUsageLog.duration_ms)).scalar() or 0
     total_tokens_in = db.query(func.sum(AIUsageLog.tokens_in)).scalar() or 0
     total_tokens_out = db.query(func.sum(AIUsageLog.tokens_out)).scalar() or 0
-    recent = db.query(AIUsageLog).order_by(AIUsageLog.created_at.desc()).limit(50).all()
+    recent = db.query(AIUsageLog).order_by(AIUsageLog.created_at.desc()).limit(10).all()
     by_op = db.query(AIUsageLog.operation, func.count(AIUsageLog.id)).group_by(AIUsageLog.operation).all()
     return {
         "summary": {
@@ -208,9 +209,12 @@ def get_ai_usage(db: Session = Depends(get_db), user=Depends(get_current_user)):
 # --- Download Security ---
 
 @router.get("/admin/download-logs")
-def get_download_logs(db: Session = Depends(get_db), user=Depends(get_current_user)):
+def get_download_logs(page: int = 1, per_page: int = 20, db: Session = Depends(get_db), user=Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(403, "Admin only")
     from app.models.download_log import DownloadLog
-    logs = db.query(DownloadLog).order_by(DownloadLog.created_at.desc()).limit(50).all()
+    q = db.query(DownloadLog).order_by(DownloadLog.created_at.desc())
+    total = q.count()
+    logs = q.offset((page-1)*per_page).limit(per_page).all()
+    return {"logs": [l.to_dict() for l in logs], "total": total, "page": page, "per_page": per_page}
     return {"logs": [l.to_dict() for l in logs]}
