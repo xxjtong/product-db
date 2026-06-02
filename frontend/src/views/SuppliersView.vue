@@ -61,7 +61,7 @@ const showToast = inject<(msg: string, type?: string) => void>('toast', () => {}
 const suppliers = ref<Supplier[]>([])
 const total = ref(0)
 const page = ref(1)
-const perPage = ref(25)
+const perPage = ref(20)
 const search = ref('')
 const modalVisible = ref(false)
 const editing = ref<any>(null)

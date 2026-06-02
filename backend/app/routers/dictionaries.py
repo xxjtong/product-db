@@ -13,9 +13,11 @@ router = APIRouter()
 # --- Manufacturers ---
 
 @router.get("/dicts/manufacturers")
-def list_manufacturers(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    items = db.query(Manufacturer).order_by(Manufacturer.name).all()
-    return {"manufacturers": [m.to_dict() for m in items]}
+def list_manufacturers(page: int = 1, per_page: int = 20, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    q = db.query(Manufacturer)
+    total = q.count()
+    items = q.order_by(Manufacturer.name).offset((page-1)*per_page).limit(per_page).all()
+    return {"manufacturers": [m.to_dict() for m in items], "total": total, "page": page, "per_page": per_page}
 
 
 @router.get("/dicts/manufacturers/{mfg_id}")

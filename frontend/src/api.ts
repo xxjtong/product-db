@@ -39,7 +39,7 @@ export const fetchCommMethods = () => api<{ comm_methods: { id: number; name: st
 export const fetchCommProtocols = () => api<{ comm_protocols: { id: number; name: string }[] }>('/dicts/comm-protocols')
 export const fetchPowerSupplies = () => api<{ power_supplies: { id: number; name: string }[] }>('/dicts/power-supplies')
 export const fetchSensorMetrics = () => api<{ sensor_metrics: { id: number; name: string }[] }>('/dicts/sensor-metrics')
-export const fetchManufacturers = () => api<{ manufacturers: Manufacturer[] }>('/dicts/manufacturers')
+export const fetchManufacturers = (page = 1, perPage = 20) => api<{ manufacturers: Manufacturer[]; total: number }>(`/dicts/manufacturers?page=${page}&per_page=${perPage}`)
 export const createManufacturer = (data: any) => api('/dicts/manufacturers', { method: 'POST', body: JSON.stringify(data) })
 export const updateManufacturer = (id: number, data: any) => api(`/dicts/manufacturers/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 

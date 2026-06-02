@@ -79,6 +79,7 @@
         </tr>
       </tbody>
     </table>
+    <Pagination v-if="mfgTotal > perPage" :total="mfgTotal" :page="mfgPage" :per-page="perPage" @change="p => { mfgPage = p; loadManufacturers() }" @update:per-page="s => { perPage = s; mfgPage = 1; loadManufacturers() }" />
 
     <Modal :title="editingMfg ? '编辑厂商' : '新增厂商'" :visible="mfgModalVisible" @close="mfgModalVisible = false">
       <div class="form-grid">
@@ -101,6 +102,7 @@ import { PencilIcon, Trash2Icon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import Modal from '../components/Modal.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import Pagination from '../components/Pagination.vue'
 import { fetchCommMethods, fetchCommProtocols, fetchPowerSupplies, fetchSensorMetrics, fetchManufacturers, createManufacturer, updateManufacturer } from '../api'
 import type { Manufacturer } from '../types'
 
@@ -115,6 +117,7 @@ const commProtocols = ref<DictItem[]>([])
 const powerSupplies = ref<DictItem[]>([])
 const sensorMetrics = ref<DictItem[]>([])
 const manufacturers = ref<Manufacturer[]>([])
+const mfgPage = ref(1); const mfgTotal = ref(0); const perPage = ref(20)
 
 const mfgModalVisible = ref(false)
 const editingMfg = ref<any>(null)
@@ -162,8 +165,9 @@ async function loadManufacturers() {
   loading.value = true
   loadError.value = ''
   try {
-    const res = await fetchManufacturers()
+    const res = await fetchManufacturers(mfgPage.value, perPage.value)
     manufacturers.value = res.manufacturers
+    mfgTotal.value = res.total || 0
   } catch (e: any) {
     loadError.value = e.message || '加载失败'
   }
@@ -175,13 +179,13 @@ async function loadAll() {
   loadError.value = ''
   try {
     const [cm, cp, ps, sm, mfg] = await Promise.all([
-      fetchCommMethods(), fetchCommProtocols(), fetchPowerSupplies(), fetchSensorMetrics(), fetchManufacturers(),
+      fetchCommMethods(), fetchCommProtocols(), fetchPowerSupplies(), fetchSensorMetrics(), fetchManufacturers(mfgPage.value, perPage.value),
     ])
     commMethods.value = cm.comm_methods
     commProtocols.value = cp.comm_protocols
     powerSupplies.value = ps.power_supplies
     sensorMetrics.value = sm.sensor_metrics
-    manufacturers.value = mfg.manufacturers
+    manufacturers.value = mfg.manufacturers; mfgTotal.value = mfg.total || 0
   } catch (e: any) {
     loadError.value = e.message || '加载失败'
   }

@@ -3,14 +3,17 @@
     <span>共 {{ total }} 条</span>
     <button :disabled="page <= 1" @click="$emit('change', page - 1)">上一页</button>
     <span class="page-nav">
-      <span class="page-info">{{ page }} / {{ totalPages }}</span>
-      <input v-model="jumpPage" type="text" inputmode="numeric" @keyup.enter="doJump" class="page-input" placeholder="页码" />
-      <button @click="doJump">跳转</button>
+      <input v-model="jumpPage" type="text" inputmode="numeric" @keyup.enter="doJump" class="page-input" />
+      <span class="page-info">/ {{ totalPages }}</span>
     </span>
     <button :disabled="page >= totalPages" @click="$emit('change', page + 1)">下一页</button>
-    <select v-model="localPerPage" @change="onPerPageChange" class="page-size-select">
-      <option v-for="n in pageSizes" :key="n" :value="n">{{ n === 0 ? '全部' : n }}</option>
-    </select>
+    <span class="page-size-wrap">
+      每页
+      <select v-model="localPerPage" @change="onPerPageChange" class="page-size-select">
+        <option v-for="n in pageSizes" :key="n" :value="n">{{ n === 0 ? '全部' : n }}</option>
+      </select>
+      条
+    </span>
   </div>
 </template>
 
@@ -46,7 +49,7 @@ function doJump() {
 .page-nav {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 .page-info {
   font-size: 13px;
@@ -59,8 +62,15 @@ function doJump() {
   border: 1px solid var(--color-border);
   border-radius: 4px;
   font-size: 13px;
-  padding: 0 6px;
+  padding: 0 4px;
   line-height: 28px;
+}
+.page-size-wrap {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .page-size-select {
   height: 28px;
