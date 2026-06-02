@@ -22,12 +22,12 @@
       <!-- AI stats -->
       <div v-if="aiStats" class="sidebar-stats" :class="{ collapsed: sidebarCollapsed }">
         <div class="sidebar-stats-row">
-          <span class="sidebar-stats-label">总AI次数</span>
           <span class="sidebar-stats-num">{{ aiStats.total.toLocaleString() }}</span>
+          <span class="sidebar-stats-label">总AI次数</span>
         </div>
         <div class="sidebar-stats-row">
-          <span class="sidebar-stats-label">当前AI次数</span>
           <span class="sidebar-stats-num">{{ aiStats.user_count.toLocaleString() }}</span>
+          <span class="sidebar-stats-label">当前AI次数</span>
         </div>
       </div>
       <div v-show="!sidebarCollapsed" class="sidebar-version">v2.0</div>
@@ -266,7 +266,7 @@ watch(() => route.path, (to, from) => {
 .sidebar-stats-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
   padding: 4px 0;
 }
 .sidebar-stats-label {
