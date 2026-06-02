@@ -3,7 +3,26 @@ from __future__ import annotations
 import json
 import re
 import time
+import sqlite3
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
+
+_usage_pool = ThreadPoolExecutor(max_workers=1)
+
+def _save_usage(user_id: int, tokens_in: int, tokens_out: int, duration_ms: int, success: bool):
+    conn = sqlite3.connect('/Users/tong/product-db/backend/product_db.db', timeout=30)
+    try:
+        conn.execute(
+            "INSERT INTO ai_usage_logs (user_id, operation, tokens_in, tokens_out, duration_ms, success) "
+            "VALUES (?, 'chat', ?, ?, ?, ?)",
+            (user_id, tokens_in, tokens_out, duration_ms, 1 if success else 0)
+        )
+        conn.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger("uvicorn").warning(f"AI usage log failed: {e}")
+    finally:
+        conn.close()
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -372,12 +391,8 @@ async def ai_chat(request: Request, db: Session = Depends(get_db), user=Depends(
     cid = conv.id
     save_message(cid, "user", content=user_input, db=db)
 
-    # Log AI usage via raw sqlite3 (bypasses ORM session issues in async context)
-    import sqlite3
-    conn = sqlite3.connect('/Users/tong/product-db/backend/product_db.db')
-    conn.execute("INSERT INTO ai_usage_logs (user_id, operation, tokens_in, tokens_out, duration_ms, success) VALUES (?, 'chat', 0, 0, 0, 1)", (user.id,))
-    conn.commit()
-    conn.close()
+    # Log AI usage via thread pool (WAL-safe)
+    _usage_pool.submit(_save_usage, user.id, 0, 0, 0, True)
 
     async def generate():
         # Use a fresh DB session for the generator
@@ -400,6 +415,9 @@ async def ai_chat(request: Request, db: Session = Depends(get_db), user=Depends(
             success = False
             yield f"data: {json.dumps({'event': 'error', 'text': str(e)}, ensure_ascii=False)}\n\n"
         finally:
+            # Update token counts via thread pool (WAL-safe)
+            duration = int((time.time() - start_time) * 1000)
+            _usage_pool.submit(_save_usage, user.id, tokens["in"], tokens["out"], duration, success)
             sse_db.close()
 
         yield "data: [DONE]\n\n"
