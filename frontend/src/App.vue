@@ -61,10 +61,10 @@
   <!-- Logout modal -->
   <Teleport to="body">
     <div v-if="showLogout" class="modal-overlay" @click.self="showLogout = false">
-      <div class="modal-card" style="width:320px;text-align:center">
+      <div class="modal-card" style="width:320px;text-align:center;padding:32px 24px 24px">
         <h3 style="margin:0 0 8px">确认退出</h3>
-        <p class="text-muted text-sm" style="margin-bottom:16px">确定要退出登录吗？</p>
-        <div class="flex gap-8" style="justify-content:center">
+        <p class="text-muted text-sm" style="margin-bottom:32px">确定要退出登录吗？</p>
+        <div class="flex gap-8" style="justify-content:center;padding-bottom:0">
           <button class="btn-secondary" @click="showLogout = false">取消</button>
           <button class="btn-primary" style="background:var(--color-danger)" @click="logout">退出</button>
         </div>
