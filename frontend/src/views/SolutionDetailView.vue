@@ -35,12 +35,12 @@
           <span>{{ c.title || '新对话' }}</span><span class="text-muted text-sm">{{ c.updated_at }}</span>
         </div>
       </div>
-      <div style="max-height:400px;min-height:100px;overflow-y:auto;margin-bottom:8px;padding:8px 8px 60px 8px" ref="chatLog">
+      <div style="max-height:600px;min-height:100px;overflow-y:auto;margin-bottom:8px;padding:8px" ref="chatLog">
         <div v-if="!chatText && !chatComponents.length" class="text-sm text-muted">
           告诉我你的需求，帮你挑选产品加入方案。例如："10个温湿度传感器 + 1个LoRaWAN网关"
         </div>
         <div style="font-size:13px;white-space:pre-wrap" v-html="sanitize(chatText)" />
-        <!-- GenUI components from SSE -->
+        <!-- GenUI components from SSE — always at bottom -->
         <component
           v-for="(comp, i) in chatComponents"
           :key="i"
@@ -269,7 +269,7 @@ function escapeHtml(str: string): string {
 }
 
 function scrollChat() {
-  nextTick(() => { if (chatLog.value) chatLog.value.scrollTop = chatLog.value.scrollHeight - 40 })
+  nextTick(() => { if (chatLog.value) chatLog.value.scrollTop = chatLog.value.scrollHeight })
 }
 
 async function loadConvs() {
