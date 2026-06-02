@@ -19,11 +19,11 @@
       <!-- User section -->
       <div v-if="currentUser" class="sidebar-user" v-show="!sidebarCollapsed">
         <button class="sidebar-user-btn" @click="openProfile">
-          <UserIcon style="width:14px;height:14px;flex-shrink:0" />
+          <UserIcon :size="14" color="rgba(255, 255, 255, 0.85)" style="flex-shrink:0" />
           <span class="sidebar-username">{{ currentUser.username }}</span>
         </button>
         <button class="sidebar-logout" title="退出登录" @click="showLogout = true">
-          <LogOutIcon style="width:14px;height:14px;color:rgba(255,255,255,.7)" />
+          <LogOutIcon :size="14" color="rgba(255, 255, 255, 0.85)" />
         </button>
       </div>
     </aside>
@@ -207,13 +207,9 @@ onMounted(loadSession)
   width: 28px; height: 28px;
   border: none; border-radius: 6px;
   background: transparent;
-  color: rgba(255,255,255,.7);
   cursor: pointer;
   flex-shrink: 0;
 }
-.sidebar-logout:hover { background: rgba(255,255,255,.15); }
-.sidebar-logout :deep(svg) { stroke: rgba(255,255,255,.7); }
-.sidebar-logout:hover :deep(svg) { stroke: #fff; }
 
 /* Modal */
 .modal-overlay {
