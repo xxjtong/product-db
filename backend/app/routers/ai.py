@@ -31,12 +31,24 @@ from app.auth import get_current_user
 from app.config import settings
 from app.models.user import User
 from app.models.ai_models import AIConversation, AIMessage
+from app.models.system_setting import SystemSetting
 from app.services.ai_engine import engine, DEFAULT_MODEL
 from app.services.ai_tools import TOOL_DEFINITIONS, SYSTEM_PROMPT, execute_tool
 
 router = APIRouter()
 
 MAX_CONTEXT = 20  # max messages to include in context
+
+
+def _get_ai_setting(key: str, default: str) -> str:
+    """Read AI setting from DB, fall back to default."""
+    try:
+        db = next(get_db())
+        s = db.query(SystemSetting).filter_by(key=key).first()
+        db.close()
+        return s.value if s else default
+    except Exception:
+        return default
 
 # Context cache (TTL 60s)
 _ctx_cache: dict = {"ts": 0, "value": ""}
@@ -263,11 +275,13 @@ async def run_agent(messages: list, db: Session, conv_id: int):
     # Round 0: keyword extraction via cheap model
     user_query = messages[-1]["content"] if messages else ""
     try:
+        kw_prompt = _get_ai_setting("ai_keyword_prompt", "从用户查询提取搜索参数，返回JSON: {\"keyword\":\"关键词\",\"category\":\"品类\",\"comm_method\":\"通讯方式\"}。品类从:网关/传感器/节点终端/安防/工具/执行器/蜂窝设备 中选择。只返回JSON。")
+        kw_model = _get_ai_setting("ai_keyword_model", "deepseek-chat")
         extract_prompt = [
-            {"role": "system", "content": "从用户查询提取搜索参数，返回JSON: {\"keyword\":\"关键词\",\"category\":\"品类\",\"comm_method\":\"通讯方式\"}。品类从:网关/传感器/节点终端/安防/工具/执行器/蜂窝设备 中选择。只返回JSON。"},
+            {"role": "system", "content": kw_prompt},
             {"role": "user", "content": user_query},
         ]
-        extract_resp = await engine.chat(extract_prompt, model="deepseek-chat", temperature=0, max_tokens=100)
+        extract_resp = await engine.chat(extract_prompt, model=kw_model, temperature=0, max_tokens=100)
         usage_ext = extract_resp.get("usage", {})
         total_tokens["in"] += usage_ext.get("prompt_tokens", 0)
         total_tokens["out"] += usage_ext.get("completion_tokens", 0)
@@ -301,9 +315,10 @@ async def run_agent(messages: list, db: Session, conv_id: int):
     except Exception:
         pass  # Fall through to normal agent
 
+    chat_model = _get_ai_setting("ai_chat_model", "deepseek-chat")
     for turn in range(max_turns):
         try:
-            response = await engine.chat(current_messages, tools=TOOL_DEFINITIONS if turn == 0 and not products_found else None, temperature=0.3)
+            response = await engine.chat(current_messages, model=chat_model, tools=TOOL_DEFINITIONS if turn == 0 and not products_found else None, temperature=0.3)
             # Accumulate token usage
             usage = response.get("usage", {})
             total_tokens["in"] += usage.get("prompt_tokens", 0)
