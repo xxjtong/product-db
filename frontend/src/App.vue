@@ -274,10 +274,13 @@ watch(() => route.path, (to, from) => {
   color: rgba(255,255,255,.55);
 }
 .sidebar-stats-num {
+  width: 28px;
+  text-align: right;
   font-size: 14px;
   font-weight: 600;
   color: rgba(255,255,255,.8);
   font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
 }
 .sidebar-stats.collapsed {
   padding: 2px 6px;
