@@ -260,9 +260,50 @@ async def run_agent(messages: list, db: Session, conv_id: int):
     max_turns = 2
     total_tokens = {"in": 0, "out": 0}
 
+    # Round 0: keyword extraction via cheap model
+    user_query = messages[-1]["content"] if messages else ""
+    try:
+        extract_prompt = [
+            {"role": "system", "content": "从用户查询提取搜索参数，返回JSON: {\"keyword\":\"关键词\",\"category\":\"品类\",\"comm_method\":\"通讯方式\"}。品类从:网关/传感器/节点终端/安防/工具/执行器/蜂窝设备 中选择。只返回JSON。"},
+            {"role": "user", "content": user_query},
+        ]
+        extract_resp = await engine.chat(extract_prompt, model="deepseek-chat", temperature=0, max_tokens=100)
+        usage_ext = extract_resp.get("usage", {})
+        total_tokens["in"] += usage_ext.get("prompt_tokens", 0)
+        total_tokens["out"] += usage_ext.get("completion_tokens", 0)
+        content = extract_resp["choices"][0]["message"].get("content", "")
+        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if json_match:
+            extracted = json.loads(json_match.group())
+            keyword = (extracted.get("keyword") or "").strip()
+            if keyword:
+                yield {"event": "tool", "text": f"搜索 {keyword}..."}
+                args = {"keyword": keyword, "limit": 10}
+                if extracted.get("category"): args["category"] = extracted["category"]
+                if extracted.get("comm_method"): args["comm_method"] = extracted["comm_method"]
+                result_str = execute_tool("search_products", args, db)
+                save_message(conv_id, "tool", content=result_str, db=db, commit=False)
+                # Feed tool result into agent context
+                current_messages.append({"role": "assistant", "content": None, "tool_calls": [{
+                    "id": "extract_0", "type": "function",
+                    "function": {"name": "search_products", "arguments": json.dumps(args)}
+                }]})
+                current_messages.append({"role": "tool", "tool_call_id": "extract_0", "content": result_str})
+                try:
+                    tr = json.loads(result_str)
+                    if tr.get("products"):
+                        products_found = True
+                        yield {"event": "products", "data": tr["products"]}
+                        yield {"event": "component", "component": "SolutionProductCard", "props": {"products": tr["products"]}}
+                except Exception:
+                    pass
+                max_turns = 1  # Only need 1 more turn for text response
+    except Exception:
+        pass  # Fall through to normal agent
+
     for turn in range(max_turns):
         try:
-            response = await engine.chat(current_messages, tools=TOOL_DEFINITIONS, temperature=0.3)
+            response = await engine.chat(current_messages, tools=TOOL_DEFINITIONS if turn == 0 and not products_found else None, temperature=0.3)
             # Accumulate token usage
             usage = response.get("usage", {})
             total_tokens["in"] += usage.get("prompt_tokens", 0)
