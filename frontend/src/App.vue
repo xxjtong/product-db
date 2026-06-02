@@ -283,35 +283,11 @@ watch(() => route.path, (to, from) => {
   flex-shrink: 0;
 }
 .sidebar-stats.collapsed {
-  padding: 2px 6px;
+  padding: 4px 6px;
 }
-.sidebar-stats.collapsed .sidebar-stats-label { font-size: 0; }
-.sidebar-stats.collapsed .sidebar-stats-num { font-size: 10px; }
-.sidebar-stats.collapsed .sidebar-stats-row { justify-content: center; padding: 2px 0; }
-.sidebar-stats-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 56px;
-}
-.sidebar-stats-num {
-  font-size: 15px;
-  font-weight: 700;
-  color: rgba(255,255,255,.85);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.2;
-}
-.sidebar-stats-label {
-  font-size: 10px;
-  color: rgba(255,255,255,.35);
-  margin-top: 1px;
-}
-.sidebar-stats-divider {
-  width: 1px;
-  height: 28px;
-  background: rgba(255,255,255,.1);
-  margin: 0 14px;
-}
+.sidebar-stats.collapsed .sidebar-stats-label { display: none; }
+.sidebar-stats.collapsed .sidebar-stats-row { justify-content: center; }
+.sidebar-stats.collapsed .sidebar-stats-num { width: auto; text-align: center; }
 .sidebar-version {
   padding: 4px 16px;
   font-size: 10px;
