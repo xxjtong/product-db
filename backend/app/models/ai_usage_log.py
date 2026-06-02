@@ -1,5 +1,6 @@
 from app.database import Base
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text, Boolean
+from sqlalchemy.orm import relationship
 from datetime import datetime
 
 
@@ -8,7 +9,7 @@ class AIUsageLog(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    operation = Column(String(50), nullable=False)  # chat, ai-fetch, tool-call
+    operation = Column(String(50), nullable=False)
     model = Column(String(50), nullable=True)
     tokens_in = Column(Integer, default=0)
     tokens_out = Column(Integer, default=0)
@@ -17,10 +18,13 @@ class AIUsageLog(Base):
     error = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
 
+    user = relationship("User", foreign_keys=[user_id])
+
     def to_dict(self):
         return {
             "id": self.id,
             "user_id": self.user_id,
+            "username": self.user.username if self.user else str(self.user_id),
             "operation": self.operation,
             "model": self.model or "",
             "tokens_in": self.tokens_in or 0,

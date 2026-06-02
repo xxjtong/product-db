@@ -20,7 +20,7 @@
         <thead><tr><th>用户</th><th>输入Token</th><th>输出Token</th><th>耗时</th><th>时间</th></tr></thead>
         <tbody>
           <tr v-for="r in aiUsage.recent" :key="r.id">
-            <td>{{ r.user_id }}</td><td>{{ r.tokens_in }}</td><td>{{ r.tokens_out }}</td><td>{{ r.duration_ms }}ms</td><td>{{ r.created_at }}</td>
+            <td>{{ r.username || r.user_id }}</td><td>{{ r.tokens_in }}</td><td>{{ r.tokens_out }}</td><td>{{ r.duration_ms }}ms</td><td>{{ r.created_at }}</td>
           </tr>
         </tbody>
       </table>
