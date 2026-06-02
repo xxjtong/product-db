@@ -142,7 +142,7 @@ button {
   padding: 16px 4px;
   font-size: 14px;
 }
-.app-sidebar.collapsed .sidebar-user-btn { padding: 6px; }
+.app-sidebar.collapsed .sidebar-user-btn { padding: 6px; justify-content: center; }
 .app-content {
   flex: 1;
   overflow-y: auto;

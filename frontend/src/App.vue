@@ -227,15 +227,15 @@ watch(() => route.path, (to, from) => {
 .sidebar-user {
   margin-top: auto;
   border-top: 1px solid rgba(255,255,255,.1);
-  padding: 8px 10px;
+  padding: 6px 10px;
   position: relative;
 }
 .sidebar-user-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
-  padding: 6px 8px;
+  padding: 6px 6px;
   border: none;
   border-radius: 6px;
   background: transparent;
