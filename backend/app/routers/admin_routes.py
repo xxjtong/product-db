@@ -154,10 +154,14 @@ def get_ai_settings(db: Session = Depends(get_db), user=Depends(get_current_user
     if user.role != "admin":
         raise HTTPException(403, "Admin only")
     from app.models.system_setting import SystemSetting
-    result = {"prompts": {}, "models": {}}
+    result = {"prompts": dict(_PROMPT_DEFAULTS), "models": dict(_MODEL_DEFAULTS)}
+    result["prompt_defaults"] = dict(_PROMPT_DEFAULTS)
+    result["model_defaults"] = dict(_MODEL_DEFAULTS)
     for s in db.query(SystemSetting).all():
-        if s.key in _PROMPT_DEFAULTS: result["prompts"][s.key] = s.value
-        elif s.key in _MODEL_DEFAULTS: result["models"][s.key] = s.value
+        if s.key in _PROMPT_DEFAULTS:
+            result["prompts"][s.key] = s.value
+        elif s.key in _MODEL_DEFAULTS:
+            result["models"][s.key] = s.value
     return result
 
 @router.put("/admin/ai-settings")
