@@ -42,11 +42,13 @@
     <h3>用户管理</h3>
     <button class="btn-primary btn-sm" @click="openAdd" style="margin-bottom:12px">+ 新增用户</button>
     <table class="data-table" v-if="users.length">
-      <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>邮箱</th><th>状态</th><th>最后登录</th><th>操作</th></tr></thead>
+      <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>邮箱</th><th>AI次数</th><th>AI Token</th><th>状态</th><th>操作</th></tr></thead>
       <tbody>
         <tr v-for="u in users" :key="u.id">
           <td>{{ u.id }}</td><td>{{ u.username }}</td><td>{{ u.role }}</td><td>{{ u.email || '—' }}</td>
-          <td>{{ u.is_active ? '启用' : '停用' }}</td><td>{{ u.last_login || '—' }}</td>
+          <td class="font-mono">{{ u.ai_count || 0 }}</td>
+          <td class="font-mono">{{ formatNum(u.ai_tokens || 0) }}</td>
+          <td>{{ u.is_active ? '启用' : '停用' }}</td>
           <td>
             <button class="btn-icon btn-sm" @click="openEdit(u)"><PencilIcon style="width:14px;height:14px" /></button>
             <button class="btn-icon btn-sm" @click="resetPwd(u)"><KeyIcon style="width:14px;height:14px" /></button>
@@ -61,9 +63,10 @@
   <div class="card mb-16">
     <h3>AI 用量统计</h3>
     <div class="flex gap-16 mb-8" v-if="aiUsage">
-      <div class="stat"><span class="stat-num">{{ aiUsage.summary?.total || 0 }}</span><span class="stat-label">总请求</span></div>
+      <div class="stat"><span class="stat-num">{{ aiUsage.summary?.total || 0 }}</span><span class="stat-label">总次数</span></div>
+      <div class="stat"><span class="stat-num">{{ formatNum(aiUsage.summary?.total_tokens_in || 0) }}</span><span class="stat-label">总输入Token</span></div>
+      <div class="stat"><span class="stat-num">{{ formatNum(aiUsage.summary?.total_tokens_out || 0) }}</span><span class="stat-label">总输出Token</span></div>
       <div class="stat"><span class="stat-num" style="color:var(--color-success)">{{ aiUsage.summary?.success || 0 }}</span><span class="stat-label">成功</span></div>
-      <div class="stat"><span class="stat-num">{{ aiUsage.summary?.avg_duration_ms || 0 }}ms</span><span class="stat-label">平均耗时</span></div>
     </div>
     <div v-if="aiUsage?.recent?.length" style="max-height:200px;overflow-y:auto">
       <table class="data-table">
@@ -156,6 +159,12 @@ const pwdTarget = ref<AdminUser | null>(null)
 const newPwd = ref('')
 const regOpen = ref(false)
 const confirmState = ref({ visible: false, title: '', message: '', action: () => {} })
+
+function formatNum(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K'
+  return String(n)
+}
 
 function showConfirm(title: string, message: string, action: () => void) {
   confirmState.value = { visible: true, title, message, action }
