@@ -23,7 +23,7 @@
           <span class="sidebar-username">{{ currentUser.username }}</span>
         </button>
         <button class="sidebar-logout" title="退出登录" @click="showLogout = true">
-          <LogOutIcon style="width:14px;height:14px;color:rgba(255,255,255,.6);stroke:rgba(255,255,255,.6)" />
+          <LogOutIcon style="width:14px;height:14px" />
         </button>
       </div>
     </aside>
@@ -207,12 +207,11 @@ onMounted(loadSession)
   width: 28px; height: 28px;
   border: none; border-radius: 6px;
   background: transparent;
-  color: rgba(255,255,255,.6);
+  color: rgba(255,255,255,.7);
   cursor: pointer;
   flex-shrink: 0;
 }
 .sidebar-logout:hover { background: rgba(255,255,255,.15); color: #fff; }
-.sidebar-user-btn svg, .sidebar-logout svg { stroke: currentColor; }
 
 /* Modal */
 .modal-overlay {
