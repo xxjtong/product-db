@@ -3,13 +3,14 @@
     <div class="login-card">
       <h1>产品数据库</h1>
       <p class="text-muted">{{ isRegister ? '注册新账号' : '登录以继续' }}</p>
-      <div v-if="isRegister" class="form-group"><label>邮箱（选填）</label><input v-model="email" /></div>
-      <div class="form-group"><label>用户名</label><input v-model="username" @keyup.enter="submit" /></div>
-      <div class="form-group"><label>密码</label><input v-model="password" type="password" @keyup.enter="submit" /></div>
+      <div v-if="isRegister" class="form-group"><input v-model="email" placeholder="邮箱（选填）" /></div>
+      <div class="form-group"><input v-model="username" placeholder="用户名" @keyup.enter="submit" /></div>
+      <div class="form-group"><input v-model="password" type="password" placeholder="密码" @keyup.enter="submit" /></div>
       <p v-if="error" class="text-sm" style="color:var(--color-danger)">{{ error }}</p>
       <button class="btn-primary" style="width:100%;margin-top:16px" @click="submit" :disabled="loading">{{ loading ? '提交中...' : isRegister ? '注册' : '登录' }}</button>
-      <p v-if="regOpen" class="text-sm text-muted" style="text-align:center;margin-top:12px;cursor:pointer" @click="isRegister = !isRegister; error = ''">
-        {{ isRegister ? '已有账号？去登录' : '没有账号？注册' }}
+      <p v-if="regOpen" class="text-sm" style="text-align:center;margin-top:16px;color:var(--color-text-secondary)">
+        {{ isRegister ? '已有账号？' : '没有账号？' }}
+        <a href="#" @click.prevent="isRegister = !isRegister; error = ''">{{ isRegister ? '去登录' : '注册新账号' }}</a>
       </p>
     </div>
   </div>
