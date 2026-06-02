@@ -240,10 +240,15 @@ async def run_agent(messages: list, db: Session, conv_id: int):
     products_found = False
     current_messages = messages[:]
     max_turns = 2
+    total_tokens = {"in": 0, "out": 0}
 
     for turn in range(max_turns):
         try:
             response = await engine.chat(current_messages, tools=TOOL_DEFINITIONS, temperature=0.3)
+            # Accumulate token usage
+            usage = response.get("usage", {})
+            total_tokens["in"] += usage.get("prompt_tokens", 0)
+            total_tokens["out"] += usage.get("completion_tokens", 0)
         except Exception as e:
             # Fall back to mock mode on API error
             user_msg = messages[-1]["content"] if messages else ""
@@ -312,7 +317,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
         for char in content:
             yield {"event": "text", "text": char}
 
-        yield {"event": "done"}
+        yield {"event": "done", "tokens": total_tokens}
         if products_found:
             yield {"event": "quick_replies", "items": ["对比产品", "全部加入方案"]}
         return
@@ -329,7 +334,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
     db.commit()
     for char in text:
         yield {"event": "text", "text": char}
-    yield {"event": "done"}
+    yield {"event": "done", "tokens": total_tokens}
     if products_found:
         yield {"event": "quick_replies", "items": ["对比产品", "全部加入方案"]}
 
@@ -382,17 +387,22 @@ async def ai_chat(request: Request, db: Session = Depends(get_db), user=Depends(
         except Exception:
             pass
 
+        tokens = {"in": 0, "out": 0}
         success = True
         try:
             async for event in run_agent(messages, sse_db, cid):
                 event["conversation_id"] = cid
+                if event.get("event") == "done" and event.get("tokens"):
+                    tokens = event["tokens"]
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-            # Update conversation timestamp and duration
+            # Update conversation timestamp, duration, tokens
             sse_conv = sse_db.get(AIConversation, cid)
             if sse_conv:
                 sse_conv.updated_at = datetime.now()
             try:
                 usage_log.duration_ms = int((time.time() - start_time) * 1000)
+                usage_log.tokens_in = tokens["in"]
+                usage_log.tokens_out = tokens["out"]
                 sse_db.commit()
             except Exception:
                 pass
@@ -401,6 +411,8 @@ async def ai_chat(request: Request, db: Session = Depends(get_db), user=Depends(
             try:
                 usage_log.success = False
                 usage_log.duration_ms = int((time.time() - start_time) * 1000)
+                usage_log.tokens_in = tokens["in"]
+                usage_log.tokens_out = tokens["out"]
                 sse_db.commit()
             except Exception:
                 pass
@@ -446,8 +458,17 @@ def delete_conversation(conv_id: int, db: Session = Depends(get_db), user=Depend
 
 @router.get("/ai/stats")
 def get_ai_stats(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    """Return total and current-user AI usage counts."""
+    """Return total and current-user AI usage counts with token stats."""
     from app.models.ai_usage_log import AIUsageLog
+    from sqlalchemy import func
     total = db.query(AIUsageLog).count()
     user_count = db.query(AIUsageLog).filter_by(user_id=user.id).count()
-    return {"total": total, "user_count": user_count}
+    total_tokens_in = db.query(func.sum(AIUsageLog.tokens_in)).scalar() or 0
+    total_tokens_out = db.query(func.sum(AIUsageLog.tokens_out)).scalar() or 0
+    user_tokens_in = db.query(func.sum(AIUsageLog.tokens_in)).filter_by(user_id=user.id).scalar() or 0
+    user_tokens_out = db.query(func.sum(AIUsageLog.tokens_out)).filter_by(user_id=user.id).scalar() or 0
+    return {
+        "total": total, "user_count": user_count,
+        "total_tokens_in": total_tokens_in, "total_tokens_out": total_tokens_out,
+        "user_tokens_in": user_tokens_in, "user_tokens_out": user_tokens_out,
+    }

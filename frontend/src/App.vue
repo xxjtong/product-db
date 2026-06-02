@@ -23,11 +23,15 @@
       <div v-if="aiStats" class="sidebar-stats" :class="{ collapsed: sidebarCollapsed }">
         <div class="sidebar-stats-row">
           <span class="sidebar-stats-num">{{ aiStats.total.toLocaleString() }}</span>
-          <span class="sidebar-stats-label">总AI次数</span>
+          <span class="sidebar-stats-label">总次数</span>
+          <span class="sidebar-stats-num" style="margin-left:auto">{{ formatTokens(aiStats.total_tokens_in) }}</span>
+          <span class="sidebar-stats-label">总Token</span>
         </div>
         <div class="sidebar-stats-row">
           <span class="sidebar-stats-num">{{ aiStats.user_count.toLocaleString() }}</span>
-          <span class="sidebar-stats-label">当前AI次数</span>
+          <span class="sidebar-stats-label">我的次数</span>
+          <span class="sidebar-stats-num" style="margin-left:auto">{{ formatTokens(aiStats.user_tokens_in) }}</span>
+          <span class="sidebar-stats-label">我的Token</span>
         </div>
       </div>
       <div v-show="!sidebarCollapsed" class="sidebar-version">v2.0</div>
@@ -108,6 +112,12 @@ const showProfile = ref(false)
 const showLogout = ref(false)
 
 const globalSearch = ref('')
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K'
+  return String(n)
+}
+
 function doGlobalSearch() {
   if (globalSearch.value.trim()) {
     router.push(`/products?search=${encodeURIComponent(globalSearch.value.trim())}`)
@@ -138,7 +148,7 @@ provide('toast', showToast)
 // Load session data on mount
 const currentUser = ref<any>(null)
 const fieldVisibility = ref<Record<string, boolean>>({})
-const aiStats = ref<{ total: number; user_count: number } | null>(null)
+const aiStats = ref<{ total: number; user_count: number; total_tokens_in: number; user_tokens_in: number } | null>(null)
 provide('currentUser', currentUser)
 provide('fieldVisibility', fieldVisibility)
 
@@ -286,8 +296,8 @@ watch(() => route.path, (to, from) => {
   padding: 4px 6px;
 }
 .sidebar-stats.collapsed .sidebar-stats-label { display: none; }
-.sidebar-stats.collapsed .sidebar-stats-row { justify-content: center; }
-.sidebar-stats.collapsed .sidebar-stats-num { width: auto; text-align: center; }
+.sidebar-stats.collapsed .sidebar-stats-row { justify-content: center; gap: 2px; }
+.sidebar-stats.collapsed .sidebar-stats-num { width: auto; text-align: center; font-size: 11px; }
 .sidebar-version {
   padding: 4px 16px;
   font-size: 10px;
