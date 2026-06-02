@@ -103,15 +103,20 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
         q = db.query(Product).filter(Product.status == "active")
 
         if keyword:
-            # Try exact keyword match first; fall back to bigram only if zero results
             kw_filters = [Product.name.ilike(f"%{escape_like(keyword)}%"), Product.model.ilike(f"%{escape_like(keyword)}%")]
             hit_count = db.query(Product).filter(Product.status == "active").filter(or_(*kw_filters)).count()
             if hit_count > 0:
                 q = q.filter(or_(*kw_filters))
-            elif len(keyword) >= 3:
-                parts = [keyword[i:i+2] for i in range(0, len(keyword)-1)]
-                bigram_filters = [Product.name.ilike(f"%{escape_like(part)}%") for part in parts[:5]]
-                q = q.filter(or_(*bigram_filters))
+            elif len(keyword) >= 2:
+                import unicodedata
+                has_cjk = any('CJK' in unicodedata.name(c, '') for c in keyword[:3])
+                if has_cjk:
+                    # For CJK: require first N chars to all match (AND, not OR)
+                    for ch in list(keyword)[:3]:
+                        q = q.filter(Product.name.ilike(f"%{escape_like(ch)}%"))
+                else:
+                    parts = [keyword[i:i+2] for i in range(0, len(keyword)-1)]
+                    q = q.filter(or_(*[Product.name.ilike(f"%{escape_like(p)}%") for p in parts[:5]]))
             else:
                 q = q.filter(or_(*kw_filters))
 
