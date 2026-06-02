@@ -142,15 +142,7 @@ button {
   padding: 16px 4px;
   font-size: 14px;
 }
-.app-sidebar.collapsed .sidebar-user {
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 4px;
-}
-.app-sidebar.collapsed .sidebar-user-btn {
-  padding: 6px;
-}
+.app-sidebar.collapsed .sidebar-user-btn { padding: 6px; }
 .app-content {
   flex: 1;
   overflow-y: auto;

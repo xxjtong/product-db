@@ -22,7 +22,7 @@
           <UserIcon :size="14" color="rgba(255, 255, 255, 0.85)" style="flex-shrink:0" />
           <span v-show="!sidebarCollapsed" class="sidebar-username">{{ currentUser.username }}</span>
         </button>
-        <button class="sidebar-logout" title="退出登录" @click="showLogout = true">
+        <button v-show="!sidebarCollapsed" class="sidebar-logout" title="退出登录" @click="showLogout = true">
           ⏻
         </button>
       </div>
