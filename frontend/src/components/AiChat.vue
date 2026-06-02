@@ -49,6 +49,8 @@
               :key="ci"
               :is="genuiRegistry[comp.component]"
               v-bind="comp.props"
+              @addToBom="onAddToBom"
+              @compare="onCompare"
             />
           </div>
           <div v-if="m.quickReplies?.length" class="ai-quick-replies">
@@ -193,6 +195,13 @@ async function deleteConv(id: number) {
     convs.value = convs.value.filter(c => c.id !== id)
     if (convId.value === id) { convId.value = null; messages.value = [] }
   } catch { console.warn('AiChat: failed to load conversations') }
+}
+
+function onAddToBom(items: { id: number; qty: number }[]) {
+  router.push('/solutions')
+}
+function onCompare(ids: number[]) {
+  if (ids.length >= 2) router.push(`/products/compare?ids=${ids.join(',')}`)
 }
 
 function extractProducts(text: string, role: string): any[] {
@@ -426,7 +435,7 @@ function quickReply(reply: string, msg: any) {
   display: flex; justify-content: space-between; align-items: center;
   cursor: move; user-select: none;
 }
-.ai-messages { flex: 1; overflow-y: auto; padding: 10px 10px 60px 10px; display: flex; flex-direction: column; gap: 6px; min-height: 300px; max-height: 60vh; }
+.ai-messages { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
 .ai-hint { text-align: center; color: var(--color-text-secondary); padding: 16px; }
 .ai-hint button { margin: 4px; }
 .ai-convs { padding: 8px; max-height: 160px; overflow-y: auto; }
