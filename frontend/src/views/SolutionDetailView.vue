@@ -25,7 +25,16 @@
 
     <!-- 2. AI assistant row (full width below client info) -->
     <div class="card mb-16">
-      <h3>AI 方案助手</h3>
+      <div class="flex items-center gap-8" style="margin-bottom:8px">
+        <h3 style="margin:0">AI 方案助手</h3>
+        <button v-if="!chatCid && !showConvs" class="btn-secondary btn-sm" @click="loadConvs">历史</button>
+        <button v-if="chatCid || showConvs" class="btn-secondary btn-sm" @click="newChat">+ 新对话</button>
+      </div>
+      <div v-if="showConvs && convs.length" style="max-height:160px;overflow-y:auto;margin-bottom:8px">
+        <div v-for="c in convs" :key="c.id" class="ai-conv-item" @click="loadConv(c.id)" style="padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--color-border);font-size:12px;display:flex;justify-content:space-between">
+          <span>{{ c.title || '新对话' }}</span><span class="text-muted text-sm">{{ c.updated_at }}</span>
+        </div>
+      </div>
       <div style="max-height:400px;min-height:100px;overflow-y:auto;margin-bottom:8px;padding:8px 8px 60px 8px" ref="chatLog">
         <div v-if="!chatText && !chatComponents.length" class="text-sm text-muted">
           告诉我你的需求，帮你挑选产品加入方案。例如："10个温湿度传感器 + 1个LoRaWAN网关"
@@ -127,7 +136,7 @@ import DependencyGraph from '../components/DependencyGraph.vue'
 import Modal from '../components/Modal.vue'
 import SolutionProductCard from '../components/GenUI/SolutionProductCard.vue'
 import QuoteDraftCard from '../components/GenUI/QuoteDraftCard.vue'
-import { fetchSolution, fetchProducts, addSolutionItem, updateSolutionItem, deleteSolutionItem, checkSolution, createQuotation, updateSolution, streamAiChat } from '../api'
+import { fetchSolution, fetchProducts, addSolutionItem, updateSolutionItem, deleteSolutionItem, checkSolution, createQuotation, updateSolution, streamAiChat, fetchConversations, fetchConversation } from '../api'
 import type { Solution, Product } from '../types'
 import DOMPurify from 'dompurify'
 
@@ -151,6 +160,8 @@ const chatInput = ref('')
 const chatText = ref('')
 const chatLoading = ref(false)
 const chatCid = ref<number | null>(null)
+const showConvs = ref(false)
+const convs = ref<any[]>([])
 const chatLog = ref<HTMLElement | null>(null)
 const chatComponents = ref<any[]>([])
 
@@ -260,6 +271,29 @@ function escapeHtml(str: string): string {
 function scrollChat() {
   nextTick(() => { if (chatLog.value) chatLog.value.scrollTop = chatLog.value.scrollHeight - 40 })
 }
+
+async function loadConvs() {
+  try {
+    const res = await fetchConversations()
+    convs.value = res.conversations || []
+    showConvs.value = true
+  } catch { /* ignore */ }
+}
+async function loadConv(id: number) {
+  try {
+    const res = await fetchConversation(id)
+    chatCid.value = id; showConvs.value = false
+    const msgs = res.messages || []
+    chatText.value = msgs.map((m: any) => {
+      if (m.role === 'user') return `<b>你:</b> ${escapeHtml(m.content)}`
+      if (m.role === 'assistant') return `<b>AI:</b> ${escapeHtml(m.content)}`
+      return ''
+    }).join('<br><br>')
+    chatText.value += '<br>'
+    nextTick(scrollChat)
+  } catch { /* ignore */ }
+}
+function newChat() { chatCid.value = null; chatText.value = ''; chatComponents.value = []; showConvs.value = false }
 
 async function sendChat() {
   if (!chatInput.value.trim() || chatLoading.value) return
