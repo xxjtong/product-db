@@ -39,9 +39,17 @@
         <div v-if="!chatText && !chatComponents.length" class="text-sm text-muted">
           告诉我你的需求，帮你挑选产品加入方案。例如："10个温湿度传感器 + 1个LoRaWAN网关"
         </div>
-        <div style="font-size:13px;white-space:pre-wrap" v-html="sanitize(chatText)" />
+        <div style="font-size:13px;white-space:pre-wrap" v-html="sanitize(stripToolCalls(chatText))" />
       </div>
       <!-- AI product cards — separate area below chat -->
+      <div v-if="chatProducts.length" style="max-height:200px;overflow-y:auto;margin-bottom:8px">
+        <div class="text-sm mb-4" style="font-weight:600">找到 {{ chatProducts.length }} 个产品：</div>
+        <div v-for="p in chatProducts" :key="p.id" class="flex items-center gap-8" style="padding:4px 0;border-bottom:1px solid var(--color-border);font-size:13px">
+          <span style="flex:1;cursor:pointer" @click="router.push('/products/'+p.id)">{{ p.name }} <span class="text-muted">{{ p.model }}</span></span>
+          <span v-if="p.price" style="font-weight:600">¥{{ p.price }}</span>
+          <button class="btn-primary btn-sm" style="padding:2px 8px;font-size:11px" @click="onAddToBom([{id:p.id, qty:1}])">加入方案</button>
+        </div>
+      </div>
       <div v-if="chatComponents.length" style="max-height:260px;overflow-y:auto;margin-bottom:8px">
         <component
           v-for="(comp, i) in chatComponents"
@@ -143,6 +151,7 @@ import type { Solution, Product } from '../types'
 import DOMPurify from 'dompurify'
 
 function sanitize(html: string): string { return DOMPurify.sanitize(html) as string }
+function stripToolCalls(text: string): string { return text.replace(/<｜｜DSML｜｜tool_calls>[\s\S]*?<\/｜｜DSML｜｜tool_calls>/g, '') }
 
 const componentRegistry: Record<string, any> = { SolutionProductCard, QuoteDraftCard }
 
@@ -166,6 +175,7 @@ const showConvs = ref(false)
 const convs = ref<any[]>([])
 const chatLog = ref<HTMLElement | null>(null)
 const chatComponents = ref<any[]>([])
+const chatProducts = ref<any[]>([])
 
 // Product picker
 const pickerOpen = ref(false)
@@ -295,7 +305,7 @@ async function loadConv(id: number) {
     nextTick(scrollChat)
   } catch { /* ignore */ }
 }
-function newChat() { chatCid.value = null; chatText.value = ''; chatComponents.value = []; showConvs.value = false }
+function newChat() { chatCid.value = null; chatText.value = ''; chatComponents.value = []; chatProducts.value = []; showConvs.value = false }
 
 async function sendChat() {
   if (!chatInput.value.trim() || chatLoading.value) return
@@ -312,6 +322,13 @@ async function sendChat() {
         continue
       }
       // Check if it's a component event (passed as special marker)
+      if (typeof text === 'string' && text.startsWith('[TOOL:')) {
+        continue  // suppress tool call text, shown as summary tag
+      }
+      if (typeof text === 'string' && text.startsWith('[PRODUCTS:')) {
+        try { chatProducts.value = JSON.parse(text.slice(10)) } catch { /* skip */ }
+        continue
+      }
       if (typeof text === 'string' && text.startsWith('[COMPONENT:')) {
         try {
           const json = text.slice(11, -1)  // strip [COMPONENT: and trailing ]

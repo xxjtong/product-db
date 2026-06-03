@@ -31,7 +31,7 @@
           <button v-for="q in sampleQuestions" :key="q" class="btn-secondary btn-sm" @click="send(q)">{{ q }}</button>
         </div>
         <div v-for="(m, i) in messages" :key="i" :class="['ai-msg', m.role]">
-          <div class="ai-msg-text" v-html="sanitize(m.content)" v-if="!m.products?.length" />
+          <div class="ai-msg-text" v-html="sanitize(stripCalls(m.content))" v-if="m.content" />
           <div v-if="m.products?.length" class="ai-products">
             <div class="ai-products-header">找到 {{ m.products.length }} 个产品：</div>
             <div v-for="p in m.products" :key="p.id" class="ai-product-card" @click="router.push('/products/' + p.id)">
@@ -84,6 +84,7 @@ import DOMPurify from 'dompurify'
 import { formatAiContent, escapeHtml } from '../utils/markdown'
 
 function sanitize(html: string): string { return DOMPurify.sanitize(html) as string }
+function stripCalls(text: string): string { return text.replace(/调用.*?\.\.\./g, '').replace(/<｜｜DSML｜｜tool_calls>[\s\S]*?<\/｜｜DSML｜｜tool_calls>/g, '').trim() }
 
 const genuiRegistry: Record<string, any> = { SolutionProductCard, QuoteDraftCard }
 

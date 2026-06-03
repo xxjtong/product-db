@@ -272,13 +272,42 @@ async def run_agent(messages: list, db: Session, conv_id: int):
     max_turns = 2
     total_tokens = {"in": 0, "out": 0}
 
-    # Round 0: keyword extraction via cheap model
+    # Round 0: keyword extraction with full DB context
     user_query = messages[-1]["content"] if messages else ""
     try:
-        kw_prompt = _get_ai_setting("ai_keyword_prompt", "从用户查询提取搜索参数，返回JSON: {\"keyword\":\"关键词\",\"category\":\"品类\",\"comm_method\":\"通讯方式\"}。品类从:网关/传感器/节点终端/安防/工具/执行器/蜂窝设备 中选择。只返回JSON。")
+        # Build/cache DB context for LLM matching (30s TTL)
+        _db_ctx_cache = getattr(run_agent, '_db_ctx_cache', {'ts': 0, 'value': ''})
+        now = time.time()
+        if now - _db_ctx_cache['ts'] > 30:
+            from app.models.category import Category
+            from app.models.dictionary import Manufacturer, DictCommMethod, DictCommProtocol, DictPowerSupply, DictSensorMetric
+            cats = db.query(Category).filter(Category.is_active == True).order_by(Category.name).all()
+            mfgs = db.query(Manufacturer).order_by(Manufacturer.name).all()
+            methods = db.query(DictCommMethod).order_by(DictCommMethod.name).all()
+            protocols = db.query(DictCommProtocol).order_by(DictCommProtocol.name).all()
+            powers = db.query(DictPowerSupply).order_by(DictPowerSupply.name).all()
+            metrics = db.query(DictSensorMetric).order_by(DictSensorMetric.name).all()
+            _db_ctx_cache['value'] = f"""数据库现有数据：
+品类({len(cats)}): {', '.join(c.name for c in cats)}
+厂商({len(mfgs)}): {', '.join(m.name for m in mfgs)}
+通讯方式({len(methods)}): {', '.join(m.name for m in methods)}
+协议({len(protocols)}): {', '.join(p.name for p in protocols)}
+供电({len(powers)}): {', '.join(p.name for p in powers)}
+传感器指标({len(metrics)}): {', '.join(m.name for m in metrics)}"""
+            _db_ctx_cache['ts'] = now
+        db_ctx = _db_ctx_cache['value']
+
         kw_model = _get_ai_setting("ai_keyword_model", "deepseek-v4-flash")
+        kw_system = f"""你是一个搜索关键词优化器。根据用户查询和数据库实际情况，找到最匹配的搜索关键词。
+{db_ctx}
+规则（按优先级）：
+1. keyword**必须来自数据库已有词汇**。不存在的词必须替换为最接近的已有词
+2. 映射表: 漏水→水浸, 漏水检测→水浸, 液位检测→水浸, 烟雾→烟感, 感应器→传感器, 探测器→传感器, 空开→智能空开
+3. 如果用户查询含多个产品，优先取数据库里能匹配到的词
+4. 品类选最相关的一个，通讯方式有则填
+返回JSON: {{"keyword":"关键词","category":"品类","comm_method":"通讯方式"}}，只返回JSON。"""
         extract_prompt = [
-            {"role": "system", "content": kw_prompt},
+            {"role": "system", "content": kw_system},
             {"role": "user", "content": user_query},
         ]
         extract_resp = await engine.chat(extract_prompt, model=kw_model, temperature=0, max_tokens=100)
@@ -312,8 +341,9 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                 except Exception:
                     pass
                 max_turns = 1  # Only need 1 more turn for text response
-    except Exception:
-        pass  # Fall through to normal agent
+    except Exception as e:
+        import logging
+        logging.getLogger("uvicorn").warning(f"Keyword extraction failed: {e}")
 
     chat_model = _get_ai_setting("ai_chat_model", "deepseek-v4-flash")
     for turn in range(max_turns):
@@ -443,12 +473,11 @@ async def ai_chat(request: Request, db: Session = Depends(get_db), user=Depends(
         {"role": "user", "content": user_input},
     ]
 
-    # Save user message and capture ID before session closes
+    # Save user message and capture values before session closes
     cid = conv.id
+    uid = user.id  # capture before async context
     save_message(cid, "user", content=user_input, db=db)
 
-    # Log AI usage via thread pool (WAL-safe)
-    _usage_pool.submit(_save_usage, user.id, 0, 0, 0, True)
 
     async def generate():
         # Use a fresh DB session for the generator
@@ -473,7 +502,7 @@ async def ai_chat(request: Request, db: Session = Depends(get_db), user=Depends(
         finally:
             # Update token counts via thread pool (WAL-safe)
             duration = int((time.time() - start_time) * 1000)
-            _usage_pool.submit(_save_usage, user.id, tokens["in"], tokens["out"], duration, success)
+            _usage_pool.submit(_save_usage, uid, tokens["in"], tokens["out"], duration, success)
             sse_db.close()
 
         yield "data: [DONE]\n\n"

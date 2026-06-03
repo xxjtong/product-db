@@ -107,16 +107,6 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
             hit_count = db.query(Product).filter(Product.status == "active").filter(or_(*kw_filters)).count()
             if hit_count > 0:
                 q = q.filter(or_(*kw_filters))
-            elif len(keyword) >= 2:
-                import unicodedata
-                has_cjk = any('CJK' in unicodedata.name(c, '') for c in keyword[:3])
-                if has_cjk:
-                    # For CJK: require first N chars to all match (AND, not OR)
-                    for ch in list(keyword)[:3]:
-                        q = q.filter(Product.name.ilike(f"%{escape_like(ch)}%"))
-                else:
-                    parts = [keyword[i:i+2] for i in range(0, len(keyword)-1)]
-                    q = q.filter(or_(*[Product.name.ilike(f"%{escape_like(p)}%") for p in parts[:5]]))
             else:
                 q = q.filter(or_(*kw_filters))
 
@@ -153,9 +143,13 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
         ).limit(limit).all()
 
         if not products and keyword:
-            # Try synonym replacement for common mismatches
-            synonyms = {"漏水": "水浸", "水浸": "漏水", "开关": "智能开关", "灯光": "照明", "照明": "灯光"}
-            for old, new in synonyms.items():
+            # Exact match failed, try synonym replacement
+            synonym_map = {
+                "漏水": "水浸", "漏水检测": "水浸", "液位检测": "水浸", "液位": "水浸",
+                "感应器": "传感器", "探测器": "传感器",
+                "空开": "智能空开", "烟雾": "烟感", "烟感": "烟雾",
+            }
+            for old, new in synonym_map.items():
                 if old in keyword:
                     alt_kw = keyword.replace(old, new)
                     q2 = db.query(Product).filter(Product.status == "active")
@@ -167,13 +161,14 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
         if not products:
             return json.dumps({"found": 0, "message": "未找到匹配产品"}, ensure_ascii=False)
 
-        result = []
+        # Group by category, take top 3 per category
+        by_cat: dict[str, list] = {}
         for p in products:
             cat_name = p.category.name if p.category else ""
             mfg_name = p.manufacturer.name if p.manufacturer else ""
             comms = [cm.method.name for cm in p.comm_methods if cm.method]
             powers = [ps.power.name for ps in p.power_supplies if ps.power]
-            result.append({
+            item = {
                 "id": p.id,
                 "name": p.name,
                 "model": p.model or "",
@@ -183,7 +178,12 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
                 "comm_methods": comms,
                 "power_supplies": powers,
                 "description": (p.description or "")[:200],
-            })
+            }
+            by_cat.setdefault(cat_name or "其他", []).append(item)
+
+        result = []
+        for items in by_cat.values():
+            result.extend(items[:3])
 
         return json.dumps({"found": len(result), "products": result}, ensure_ascii=False)
 

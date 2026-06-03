@@ -165,6 +165,10 @@ export async function* streamAiChat(input: string, conversationId?: number | nul
             yield `[CONVERSATION:${parsed.conversation_id}]` as any
           } else if (parsed.event === 'component') {
             yield `[COMPONENT:${JSON.stringify(parsed)}]` as any
+          } else if (parsed.event === 'products' && parsed.data) {
+            yield `[PRODUCTS:${JSON.stringify(parsed.data)}]` as any
+          } else if (parsed.event === 'tool') {
+            yield `[TOOL:${parsed.text || ''}]` as any
           } else if (parsed.text || parsed.event === 'text') {
             yield (parsed.text || '') as any
           }
