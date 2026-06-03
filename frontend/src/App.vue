@@ -241,14 +241,15 @@ watch(() => route.path, (to, from) => {
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 6px 6px;
+  padding: 8px 10px;
   border: none;
   border-radius: 6px;
   background: transparent;
   color: rgba(255,255,255,.85);
-  font-size: 12px;
+  font-size: 13.5px;
   cursor: pointer;
   text-align: left;
+  line-height: 1.3;
 }
 .sidebar-user-btn:hover { background: rgba(255,255,255,.1); color: #fff; }
 .sidebar-search {
@@ -283,8 +284,8 @@ watch(() => route.path, (to, from) => {
   width: auto;
   text-align: left;
   font-size: 14px;
-  font-weight: 600;
-  color: rgba(255,255,255,.85);
+  font-weight: 700;
+  color: rgba(255,255,255,.9);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }

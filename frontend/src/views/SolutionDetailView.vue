@@ -35,33 +35,28 @@
           <span>{{ c.title || '新对话' }}</span><span class="text-muted text-sm">{{ c.updated_at }}</span>
         </div>
       </div>
-      <div style="max-height:600px;min-height:100px;overflow-y:auto;margin-bottom:4px;padding:8px" ref="chatLog">
-        <div v-if="!chatText && !chatComponents.length" class="text-sm text-muted">
+      <!-- Chat messages — bubble style -->
+      <div class="sol-chat-log" ref="chatLog">
+        <div v-if="chatMessages.length === 0" class="text-sm text-muted" style="text-align:center;padding:24px 0">
           告诉我你的需求，帮你挑选产品加入方案。例如："10个温湿度传感器 + 1个LoRaWAN网关"
         </div>
-        <div style="font-size:13px;white-space:pre-wrap" v-html="sanitize(stripToolCalls(chatText))" />
-      </div>
-      <!-- AI product cards — separate area below chat -->
-      <div v-if="chatProducts.length" style="max-height:200px;overflow-y:auto;margin-bottom:8px">
-        <div class="text-sm mb-4" style="font-weight:600">找到 {{ chatProducts.length }} 个产品：</div>
-        <div v-for="p in chatProducts" :key="p.id" class="flex items-center gap-8" style="padding:4px 0;border-bottom:1px solid var(--color-border);font-size:13px">
-          <span style="flex:1;cursor:pointer" @click="router.push('/products/'+p.id)">{{ p.name }} <span class="text-muted">{{ p.model }}</span></span>
-          <span v-if="p.price" style="font-weight:600">¥{{ p.price }}</span>
-          <button class="btn-primary btn-sm" style="padding:2px 8px;font-size:11px" @click="onAddToBom([{id:p.id, qty:1}])">加入方案</button>
+        <div v-for="(m, i) in chatMessages" :key="i" :class="['sol-chat-msg', m.role]">
+          <div class="sol-chat-bubble" v-if="m.content" v-html="sanitize(m.content)" />
+          <div v-if="m.products?.length" class="sol-chat-products">
+            <div v-for="p in m.products" :key="p.id" class="sol-chat-prod" @click="router.push('/products/'+p.id)">
+              <span class="sol-chat-prod-name">{{ p.name }}</span>
+              <span class="font-mono" style="font-size:11px;color:var(--color-text-secondary);margin:0 8px">{{ p.model }}</span>
+              <span style="font-weight:600;font-size:13px" v-if="p.price">¥{{ p.price }}</span>
+              <button class="btn-primary btn-sm" style="margin-left:auto;padding:2px 8px;font-size:11px" @click.stop="onAddToBom([{id:p.id, qty:1}])">加入方案</button>
+            </div>
+          </div>
+          <div v-if="m.components?.length">
+            <component v-for="(comp, ci) in m.components" :key="ci" :is="componentRegistry[comp.component]" v-bind="comp.props" @addToBom="onAddToBom" @compare="onCompare" @viewQuote="(id: number) => router.push(`/quotations/${id}`)" />
+          </div>
         </div>
+        <div v-if="chatLoading" class="sol-chat-msg assistant"><div class="sol-chat-bubble"><span class="ai-cursor">▊</span></div></div>
       </div>
-      <div v-if="chatComponents.length" style="max-height:260px;overflow-y:auto;margin-bottom:8px">
-        <component
-          v-for="(comp, i) in chatComponents"
-          :key="i"
-          :is="componentRegistry[comp.component]"
-          v-bind="comp.props"
-          @addToBom="onAddToBom"
-          @compare="onCompare"
-          @viewQuote="(id: number) => router.push(`/quotations/${id}`)"
-        />
-      </div>
-      <div class="flex gap-8">
+      <div class="flex gap-8" style="border-top:1px solid var(--color-border);padding-top:8px">
         <input v-model="chatInput" style="flex:1" placeholder="如: 10个温湿度传感器 + LoRaWAN网关" @keyup.enter="sendChat" />
         <button class="btn-primary btn-sm" @click="sendChat" :disabled="chatLoading">{{ chatLoading ? '...' : '发送' }}</button>
       </div>
@@ -107,9 +102,9 @@
 
     <!-- BOM Spreadsheet -->
     <div v-if="showBom" class="card mb-16">
-      <h3 style="margin-bottom:8px">BOM 表格编辑器</h3>
       <BOMSpreadsheet :solutionId="Number(route.params.id)" />
     </div>
+
   </div>
   <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="load">重试</button></div>
   <div v-else class="empty-state"><p>加载中...</p></div>
@@ -167,15 +162,19 @@ interface CheckResult { ok: boolean; warnings: CheckWarning[] }
 const checkResult = ref<CheckResult | null>(null)
 
 // AI chat
+interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+  products: any[]
+  components: any[]
+}
 const chatInput = ref('')
-const chatText = ref('')
+const chatMessages = ref<ChatMessage[]>([])
 const chatLoading = ref(false)
 const chatCid = ref<number | null>(null)
 const showConvs = ref(false)
 const convs = ref<any[]>([])
 const chatLog = ref<HTMLElement | null>(null)
-const chatComponents = ref<any[]>([])
-const chatProducts = ref<any[]>([])
 
 // Product picker
 const pickerOpen = ref(false)
@@ -296,54 +295,109 @@ async function loadConv(id: number) {
     const res = await fetchConversation(id)
     chatCid.value = id; showConvs.value = false
     const msgs = res.messages || []
-    chatText.value = msgs.map((m: any) => {
-      if (m.role === 'user') return `<b>你:</b> ${escapeHtml(m.content)}`
-      if (m.role === 'assistant') return `<b>AI:</b> ${escapeHtml(m.content)}`
-      return ''
-    }).join('<br><br>')
-    chatText.value += '<br>'
+    chatMessages.value = []
+    for (const m of msgs) {
+      if (m.role === 'user' || m.role === 'assistant') {
+        const products = extractProducts(m.content, m.role)
+        chatMessages.value.push({
+          role: m.role,
+          content: m.role === 'user' ? escapeHtml(m.content || '') : formatContent(m.content || '', m.role),
+          products,
+          components: [],
+        })
+      }
+    }
     nextTick(scrollChat)
   } catch { /* ignore */ }
 }
-function newChat() { chatCid.value = null; chatText.value = ''; chatComponents.value = []; chatProducts.value = []; showConvs.value = false }
+function newChat() { chatCid.value = null; chatMessages.value = []; showConvs.value = false }
 
 async function sendChat() {
   if (!chatInput.value.trim() || chatLoading.value) return
   const question = chatInput.value; chatInput.value = ''
   chatLoading.value = true
-  chatText.value += `<b>你:</b> ${escapeHtml(question)}<br><br><b>AI:</b> `
+
+  // Add user message bubble
+  chatMessages.value.push({ role: 'user', content: escapeHtml(question), products: [], components: [] })
   scrollChat()
+
+  let curContent = ''
+  let curProducts: any[] = []
+  let curComponents: any[] = []
   try {
-    let buffer = ''
     for await (const text of streamAiChat(question, chatCid.value)) {
       if (typeof text === 'string' && text.startsWith('[CONVERSATION:')) {
         const match = text.match(/\[CONVERSATION:(\d+)\]/)
         if (match) chatCid.value = parseInt(match[1])
         continue
       }
-      // Check if it's a component event (passed as special marker)
       if (typeof text === 'string' && text.startsWith('[TOOL:')) {
-        continue  // suppress tool call text, shown as summary tag
+        continue
       }
       if (typeof text === 'string' && text.startsWith('[PRODUCTS:')) {
-        try { chatProducts.value = JSON.parse(text.slice(10)) } catch { /* skip */ }
+        try { curProducts = JSON.parse(text.slice(10)) } catch { /* skip */ }
         continue
       }
       if (typeof text === 'string' && text.startsWith('[COMPONENT:')) {
         try {
-          const json = text.slice(11, -1)  // strip [COMPONENT: and trailing ]
-          const comp = JSON.parse(json)
-          chatComponents.value.push(comp)
+          const json = text.slice(11, -1)
+          curComponents.push(JSON.parse(json))
         } catch { /* skip */ }
         continue
       }
-      buffer += text; chatText.value += escapeHtml(text); scrollChat()
+      curContent += text
+      // Update or create assistant bubble as text streams in
+      const last = chatMessages.value[chatMessages.value.length - 1]
+      if (last && last.role === 'assistant') {
+        last.content = formatContent(curContent, 'assistant')
+        last.products = curProducts
+        last.components = curComponents
+      } else {
+        chatMessages.value.push({ role: 'assistant', content: formatContent(curContent, 'assistant'), products: curProducts, components: curComponents })
+      }
+      scrollChat()
     }
-    chatText.value += '<br><br>'; scrollChat()
+    // Finalize assistant message
+    const last = chatMessages.value[chatMessages.value.length - 1]
+    if (last && last.role === 'assistant') {
+      last.content = formatContent(curContent, 'assistant')
+      last.products = curProducts
+      last.components = curComponents
+    } else if (curContent || curProducts.length || curComponents.length) {
+      chatMessages.value.push({ role: 'assistant', content: formatContent(curContent || '查询完成', 'assistant'), products: curProducts, components: curComponents })
+    }
   } catch (e: any) {
-    chatText.value += `[错误: ${escapeHtml(e.message)}]<br><br>`; scrollChat()
+    chatMessages.value.push({ role: 'assistant', content: `错误: ${escapeHtml(e.message)}`, products: [], components: [] })
   }
   chatLoading.value = false
+  scrollChat()
+}
+
+function formatContent(text: string, role: string): string {
+  if (!text) return ''
+  if (role === 'tool') {
+    try {
+      const d = JSON.parse(text)
+      if (d.products) return d.products.map((p: any) =>
+        `<b>${escapeHtml(p.name || '')}</b> <span class="font-mono">${escapeHtml(p.model || '')}</span> — ¥${p.price || 0}<br><span class="text-muted" style="font-size:11px">${[p.category, p.manufacturer].filter(Boolean).map(escapeHtml).join(' | ')}</span>`
+      ).join('<br>')
+      if (d.found !== undefined) return `<b>找到 ${d.found} 个产品</b>`
+      if (d.categories) return d.categories.map((c: any) => escapeHtml(c.name)).join('、')
+    } catch { /* ignore */ }
+  }
+  // Simple markdown-to-HTML for assistant messages
+  return escapeHtml(text)
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(/\n/g, '<br>')
+}
+
+function extractProducts(text: string, role: string): any[] {
+  if (role !== 'tool' || !text) return []
+  try {
+    const d = JSON.parse(text)
+    if (d.products) return d.products
+  } catch { /* ignore */ }
+  return []
 }
 
 onMounted(load)
@@ -355,4 +409,38 @@ onMounted(load)
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
 .picker-row:hover { background: var(--color-hover); }
+
+/* --- Chat bubbles --- */
+.sol-chat-log {
+  max-height: 500px; min-height: 100px; overflow-y: auto;
+  padding: 12px; display: flex; flex-direction: column; gap: 8px;
+}
+.sol-chat-msg { max-width: 88%; font-size: 13px; }
+.sol-chat-msg.user { align-self: flex-end; }
+.sol-chat-msg.user .sol-chat-bubble {
+  background: var(--color-accent); color: #fff;
+  border-radius: 12px 12px 0 12px;
+}
+.sol-chat-msg.assistant { align-self: flex-start; }
+.sol-chat-msg.assistant .sol-chat-bubble {
+  background: var(--color-hover);
+  border-radius: 12px 12px 12px 0;
+}
+.sol-chat-bubble {
+  padding: 8px 10px; line-height: 1.5; word-break: break-word;
+}
+.sol-chat-products {
+  margin-top: 6px; display: flex; flex-direction: column; gap: 4px;
+}
+.sol-chat-prod {
+  background: #fff; border: 1px solid var(--color-border); border-radius: 6px;
+  padding: 5px 8px; cursor: pointer; transition: all .15s;
+  display: flex; align-items: center; font-size: 13px;
+}
+.sol-chat-prod:hover { border-color: var(--color-accent); box-shadow: var(--shadow-sm); }
+.sol-chat-prod-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-cursor { animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.sol-chat-bubble b { font-weight: 600; }
+.sol-chat-bubble code { background: rgba(0,0,0,.06); padding: 1px 4px; border-radius: 3px; font-size: 12px; }
 </style>

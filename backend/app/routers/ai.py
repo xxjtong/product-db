@@ -33,7 +33,7 @@ from app.models.user import User
 from app.models.ai_models import AIConversation, AIMessage
 from app.models.system_setting import SystemSetting
 from app.services.ai_engine import engine, DEFAULT_MODEL
-from app.services.ai_tools import TOOL_DEFINITIONS, SYSTEM_PROMPT, execute_tool
+from app.services.ai_tools import TOOL_DEFINITIONS, execute_tool
 
 router = APIRouter()
 
@@ -50,17 +50,17 @@ def _get_ai_setting(key: str, default: str) -> str:
     except Exception:
         return default
 
-# Context cache (TTL 60s)
+# Context cache (TTL 300s)
 _ctx_cache: dict = {"ts": 0, "value": ""}
 
 
 # --- Context Builder ---
 
 def build_context(db: Session) -> str:
-    """Build dynamic system prompt with current product database stats (cached 60s)."""
+    """Build dynamic system prompt with current product database stats (cached 300s)."""
     import time as _time
     now = _time.time()
-    if now - _ctx_cache["ts"] < 60:
+    if now - _ctx_cache["ts"] < 300:
         return _ctx_cache["value"]
 
     from app.models.product import Product
@@ -92,7 +92,8 @@ def build_context(db: Session) -> str:
             f"  {cat_name}: " + ", ".join(f"{k}({v})" for k, v in specs)
         )
 
-    result = SYSTEM_PROMPT + f"""
+    sys_prompt = _get_ai_setting("ai_system_prompt", "你是产品数据库AI助手，帮助用户查询产品、推荐方案。用中文简洁回答。")
+    result = sys_prompt + f"""
 
 当前数据库状态:
 - {prod_count} 个产品
@@ -176,12 +177,7 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int):
     if has_search_intent or has_product_keyword:
         # Try to search products
         keyword = user_input  # use full query as keyword for relevance
-        args = {"keyword": keyword, "limit": 10}
-        if "网关" in inp: args["category"] = "网关"
-        elif "传感器" in inp: args["category"] = "传感器"
-        elif "路由器" in inp: args["category"] = "路由器"
-        if "lora" in inp.lower(): args["comm_method"] = "LoRaWAN"
-        if "wifi" in inp.lower(): args["comm_method"] = "WiFi"
+        args = {"keyword": keyword, "limit": 5}
 
         yield {"event": "tool", "text": "搜索产品..."}
         result_str = execute_tool("search_products", args, db)
@@ -275,11 +271,12 @@ async def run_agent(messages: list, db: Session, conv_id: int):
     # Round 0: keyword extraction with full DB context
     user_query = messages[-1]["content"] if messages else ""
     try:
-        # Build/cache DB context for LLM matching (30s TTL)
+        # Build/cache DB context for LLM matching (300s TTL)
         _db_ctx_cache = getattr(run_agent, '_db_ctx_cache', {'ts': 0, 'value': ''})
         now = time.time()
-        if now - _db_ctx_cache['ts'] > 30:
+        if now - _db_ctx_cache['ts'] > 300:
             from app.models.category import Category
+            from app.models.product import Product
             from app.models.dictionary import Manufacturer, DictCommMethod, DictCommProtocol, DictPowerSupply, DictSensorMetric
             cats = db.query(Category).filter(Category.is_active == True).order_by(Category.name).all()
             mfgs = db.query(Manufacturer).order_by(Manufacturer.name).all()
@@ -287,30 +284,54 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             protocols = db.query(DictCommProtocol).order_by(DictCommProtocol.name).all()
             powers = db.query(DictPowerSupply).order_by(DictPowerSupply.name).all()
             metrics = db.query(DictSensorMetric).order_by(DictSensorMetric.name).all()
+            products = db.query(Product.name, Product.model, Product.description, Product.specs)\
+                .filter(Product.status == 'active').order_by(Product.name).all()
+
+            import re as _re
+            prod_parts = []
+            for p in products:
+                part = p.name
+                if p.model: part += f"({p.model})"
+                if p.description:
+                    desc = _re.sub(r'https?://\S+', '', p.description).strip()
+                    if desc:
+                        part += f": {desc[:120]}"  # first 120 chars of description
+                if p.specs and isinstance(p.specs, dict):
+                    spec_kv = [f"{k}={v}" for k, v in p.specs.items() if v]
+                    if spec_kv:
+                        part += f" [{', '.join(spec_kv[:8])}]"  # top 8 spec key-values
+                prod_parts.append(part)
+            products_text = '\n'.join(prod_parts)
+
             _db_ctx_cache['value'] = f"""数据库现有数据：
 品类({len(cats)}): {', '.join(c.name for c in cats)}
 厂商({len(mfgs)}): {', '.join(m.name for m in mfgs)}
 通讯方式({len(methods)}): {', '.join(m.name for m in methods)}
 协议({len(protocols)}): {', '.join(p.name for p in protocols)}
 供电({len(powers)}): {', '.join(p.name for p in powers)}
-传感器指标({len(metrics)}): {', '.join(m.name for m in metrics)}"""
+传感器指标({len(metrics)}): {', '.join(m.name for m in metrics)}
+产品列表(名称/型号/描述/specs):
+{products_text}"""
             _db_ctx_cache['ts'] = now
         db_ctx = _db_ctx_cache['value']
 
         kw_model = _get_ai_setting("ai_keyword_model", "deepseek-v4-flash")
-        kw_system = f"""你是一个搜索关键词优化器。根据用户查询和数据库实际情况，找到最匹配的搜索关键词。
-{db_ctx}
-规则（按优先级）：
-1. keyword**必须来自数据库已有词汇**。不存在的词必须替换为最接近的已有词
-2. 映射表: 漏水→水浸, 漏水检测→水浸, 液位检测→水浸, 烟雾→烟感, 感应器→传感器, 探测器→传感器, 空开→智能空开
-3. 如果用户查询含多个产品，优先取数据库里能匹配到的词
-4. 品类选最相关的一个，通讯方式有则填
-返回JSON: {{"keyword":"关键词","category":"品类","comm_method":"通讯方式"}}，只返回JSON。"""
+        kw_prompt = _get_ai_setting("ai_keyword_prompt",
+            "你是一个搜索关键词优化器。根据用户查询和数据库实际情况，找到最匹配的搜索关键词。\n"
+            "规则（按优先级）：\n"
+            "1. keyword必须来自数据库已有词汇。不存在的词必须替换为最接近的已有词\n"
+            "2. 映射表: 漏水→水浸, 漏水检测→水浸, 液位检测→水浸, 烟雾→烟感, 感应器→传感器, 探测器→传感器, 空开→智能空开, 无线→WiFi\n"
+            "3. 如果用户查询含多个产品（如用+连接），keyword中用+连接各产品关键词，不要用空格替代+\n"
+            "4. 品类选最相关的一个，通讯方式/协议/供电/厂商/价格有则填\n"
+            "返回JSON: {\"keyword\":\"关键词\",\"category\":\"品类\",\"comm_method\":\"通讯方式\","
+            "\"protocol\":\"协议\",\"power\":\"供电方式\",\"manufacturer\":\"厂商\","
+            "\"min_price\":null,\"max_price\":null,\"sort_by\":null}，只返回JSON。")
+        kw_system = f"{kw_prompt}\n\n{db_ctx}"
         extract_prompt = [
             {"role": "system", "content": kw_system},
             {"role": "user", "content": user_query},
         ]
-        extract_resp = await engine.chat(extract_prompt, model=kw_model, temperature=0, max_tokens=100)
+        extract_resp = await engine.chat(extract_prompt, model=kw_model, temperature=0, max_tokens=1000)
         usage_ext = extract_resp.get("usage", {})
         total_tokens["in"] += usage_ext.get("prompt_tokens", 0)
         total_tokens["out"] += usage_ext.get("completion_tokens", 0)
@@ -318,12 +339,25 @@ async def run_agent(messages: list, db: Session, conv_id: int):
         json_match = re.search(r'\{.*\}', content, re.DOTALL)
         if json_match:
             extracted = json.loads(json_match.group())
-            keyword = (extracted.get("keyword") or "").strip()
-            if keyword:
-                yield {"event": "tool", "text": f"搜索 {keyword}..."}
-                args = {"keyword": keyword, "limit": 10}
-                if extracted.get("category"): args["category"] = extracted["category"]
-                if extracted.get("comm_method"): args["comm_method"] = extracted["comm_method"]
+            # Support both "keywords" (array, new) and "keyword" (string, legacy)
+            kw_raw = extracted.get("keywords") or extracted.get("keyword")
+            if isinstance(kw_raw, list):
+                keywords = [k for k in kw_raw if k and str(k).strip()]
+            elif kw_raw and str(kw_raw).strip():
+                keywords = [str(kw_raw).strip()]
+            else:
+                keywords = []
+            if keywords:
+                yield {"event": "tool", "text": f"搜索 {' + '.join(keywords)}..."}
+                args = {"keywords": keywords, "limit": 5}
+                for f in ("category", "comm_method", "protocol", "power"):
+                    if extracted.get(f): args[f] = extracted[f]
+                # Support both "brand" and "manufacturer"
+                brand = extracted.get("brand") or extracted.get("manufacturer")
+                if brand: args["manufacturer"] = brand
+                if extracted.get("min_price") is not None: args["min_price"] = extracted["min_price"]
+                if extracted.get("max_price") is not None: args["max_price"] = extracted["max_price"]
+                if extracted.get("sort_by"): args["sort_by"] = extracted["sort_by"]
                 result_str = execute_tool("search_products", args, db)
                 save_message(conv_id, "tool", content=result_str, db=db, commit=False)
                 # Feed tool result into agent context
@@ -354,6 +388,18 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             total_tokens["in"] += usage.get("prompt_tokens", 0)
             total_tokens["out"] += usage.get("completion_tokens", 0)
         except Exception as e:
+            import logging
+            logging.getLogger("uvicorn").warning(f"Chat LLM failed: {e}")
+            # If keyword extraction already found products, don't mock-re-search
+            if products_found:
+                text = "查询完成。如需进一步筛选或对比，请告诉我。"
+                save_message(conv_id, "assistant", content=text, db=db, commit=False)
+                db.commit()
+                for char in text:
+                    yield {"event": "text", "text": char}
+                yield {"event": "done", "tokens": total_tokens}
+                yield {"event": "quick_replies", "items": ["对比产品", "全部加入方案"]}
+                return
             # Fall back to mock mode on API error
             user_msg = messages[-1]["content"] if messages else ""
             for event in run_mock_agent(user_msg, db, conv_id):
@@ -433,6 +479,12 @@ async def run_agent(messages: list, db: Session, conv_id: int):
     except Exception as e:
         import logging
         logging.getLogger("uvicorn").warning(f"run_agent: max-turns LLM call failed: {e}")
+        if products_found:
+            for char in "查询完成，如需进一步了解请告诉我。":
+                yield {"event": "text", "text": char}
+            yield {"event": "done", "tokens": total_tokens}
+            yield {"event": "quick_replies", "items": ["对比产品", "全部加入方案"]}
+            return
         text = "抱歉，查询超时，请重新提问。"
     save_message(conv_id, "assistant", content=text, db=db, commit=False)
     db.commit()

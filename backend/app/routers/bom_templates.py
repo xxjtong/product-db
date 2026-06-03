@@ -1,6 +1,7 @@
 """BOM Template CRUD + Solution BOM Snapshot management + xlsx export."""
 from __future__ import annotations
 import json
+import re
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -172,7 +173,6 @@ def export_bom_xlsx(solution_id: int, db: Session = Depends(get_db), user=Depend
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
-    import re
 
     sol = db.get(Solution, solution_id)
     if not sol:

@@ -9,9 +9,14 @@ export function escapeHtml(str: string): string {
     .replace(/'/g, '&#039;')
 }
 
+/** Strip tool call XML blocks from AI response. */
+function stripToolCalls(text: string): string {
+  return text.replace(/<｜｜DSML｜｜tool_calls>[\s\S]*?<\/｜｜DSML｜｜tool_calls>/g, '')
+}
+
 /** Convert basic markdown to safe HTML (input already escaped). */
 export function mdToHtml(text: string): string {
-  let html = escapeHtml(text)
+  let html = escapeHtml(stripToolCalls(text))
     .replace(/^#### (.+)$/gm, '<h5>$1</h5>')
     .replace(/^### (.+)$/gm, '<h4>$1</h4>')
     .replace(/^## (.+)$/gm, '<h3>$1</h3>')

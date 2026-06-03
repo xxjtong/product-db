@@ -7,313 +7,119 @@
       <button class="btn-secondary btn-sm" @click="saveAsTemplate"><CopyIcon style="width:14px;height:14px" />另存为模板</button>
       <span v-if="dirty" class="text-sm" style="color:var(--color-danger)">未保存</span>
     </div>
-    <div ref="container" class="univer-container"></div>
+
+    <div v-if="loading" class="text-sm text-muted" style="padding:16px">加载中...</div>
+
+    <div v-else class="bom-table-wrap">
+      <table class="bom-table">
+        <thead>
+          <tr>
+            <th style="width:40px">#</th>
+            <th style="width:200px">产品名称</th>
+            <th style="width:120px">型号/SKU</th>
+            <th style="width:60px">数量</th>
+            <th style="width:80px">单价</th>
+            <th style="width:60px">折扣%</th>
+            <th style="width:80px">小计</th>
+            <th style="width:80px">备注</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(row, i) in rows" :key="i">
+            <td class="text-center text-muted">{{ i + 1 }}</td>
+            <td><input v-model="row.name" style="width:100%" @input="dirty = true" /></td>
+            <td><input v-model="row.sku" style="width:100%" @input="dirty = true" /></td>
+            <td><input v-model.number="row.qty" type="number" min="0" style="width:100%" @input="dirty = true" /></td>
+            <td><input v-model.number="row.price" type="number" min="0" style="width:100%" @input="dirty = true" /></td>
+            <td><input v-model.number="row.discount" type="number" min="0" max="100" style="width:100%" @input="dirty = true" /></td>
+            <td class="font-mono text-right">{{ subtotal(row) }}</td>
+            <td><input v-model="row.remark" style="width:100%" @input="dirty = true" /></td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="6" class="text-right" style="font-weight:600">合计</td>
+            <td class="font-mono text-right" style="font-weight:700">{{ totalPrice }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, inject } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { RefreshCwIcon, SaveIcon, DownloadIcon, CopyIcon } from 'lucide-vue-next'
 import { fetchBomSnapshot, saveBomSnapshot, bomExportUrl, saveBomAsTemplate } from '../api'
 
 const props = defineProps<{ solutionId: number }>()
-const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
-const container = ref<HTMLElement | null>(null)
+interface BomRow { name: string; sku: string; qty: number; price: number; discount: number; remark: string }
+const rows = ref<BomRow[]>([])
+const loading = ref(true)
 const dirty = ref(false)
-// Use `any` for Univer instances to avoid tight type coupling across versions
-let univer: any = null
-let workbookId: string | null = null
-let currentSnapshot: any = null
+
+function subtotal(r: BomRow): string {
+  return (r.qty * r.price * (r.discount / 100)).toFixed(0)
+}
+
+const totalPrice = computed(() => {
+  return rows.value.reduce((sum, r) => sum + r.qty * r.price * (r.discount / 100), 0).toFixed(0)
+})
 
 async function loadSnapshot() {
+  loading.value = true
   try {
     const res = await fetchBomSnapshot(props.solutionId)
-    currentSnapshot = res.bom_snapshot.snapshot
-    renderSheet(currentSnapshot)
+    const cells = res.bom_snapshot?.snapshot?.cells || {}
+    // Parse cells into rows
+    const rowMap: Record<number, BomRow> = {}
+    for (const [ref, cell] of Object.entries(cells)) {
+      const c = cell as any
+      const m = ref.match(/^([A-Z])(\d+)$/)
+      if (!m) continue
+      const col = m[1]
+      const rowNum = parseInt(m[2])
+      if (!rowMap[rowNum]) rowMap[rowNum] = { name: '', sku: '', qty: 1, price: 0, discount: 100, remark: '' }
+      const v = c.v ?? ''
+      if (col === 'A') rowMap[rowNum].name = String(v)
+      else if (col === 'B') rowMap[rowNum].name = String(v) // merge B into name if A is sequence number
+      else if (col === 'C') rowMap[rowNum].sku = String(v)
+      else if (col === 'D') rowMap[rowNum].qty = Number(v) || 1
+      else if (col === 'E') rowMap[rowNum].price = Number(v) || 0
+      else if (col === 'F') {/* subtotal, computed */}
+      else if (col === 'G') rowMap[rowNum].discount = Number(v) || 100
+      else if (col === 'H') rowMap[rowNum].remark = String(v)
+    }
+    rows.value = Object.keys(rowMap).sort((a,b) => Number(a)-Number(b)).map(k => rowMap[Number(k)])
     dirty.value = false
   } catch (e: any) {
-    showToast('加载BOM失败: ' + (e.detail || e.message), 'error')
+    console.warn('BOM load failed:', e)
   }
-}
-
-async function renderSheet(snapshot: any) {
-  if (!container.value) return
-
-  // Cleanup existing instance
-  if (univer) {
-    univer.dispose()
-    univer = null
-    workbookId = null
-  }
-
-  const { Univer, UniverInstanceType, LocaleType } = await import('@univerjs/core')
-  const themesModule = await import('@univerjs/themes')
-  const defaultTheme = (themesModule as any).default || (themesModule as any).defaultTheme
-  const { UniverSheetsPlugin } = await import('@univerjs/sheets')
-  const { UniverSheetsFormulaPlugin } = await import('@univerjs/sheets-formula')
-  const { UniverUIPlugin } = await import('@univerjs/ui')
-  const { UniverRenderEnginePlugin } = await import('@univerjs/engine-render')
-
-  // Load locale data for all plugins
-  const sheetsZh = (await import('@univerjs/sheets/locale/zh-CN')).default
-  const sheetsUiZh = (await import('@univerjs/sheets-ui/locale/zh-CN')).default
-  const uiZh = (await import('@univerjs/ui/locale/zh-CN')).default
-  const designZh = (await import('@univerjs/design/locale/zh-CN')).default
-
-  univer = new Univer({
-    theme: defaultTheme,
-    locale: LocaleType.ZH_CN,
-    locales: {
-      [LocaleType.ZH_CN]: {
-        ...designZh,
-        ...uiZh,
-        ...sheetsZh,
-        ...sheetsUiZh,
-      },
-    },
-  })
-
-  univer.registerPlugin(UniverRenderEnginePlugin)
-  univer.registerPlugin(UniverUIPlugin, { container: container.value })
-  univer.registerPlugin(UniverSheetsPlugin)
-  univer.registerPlugin(UniverSheetsFormulaPlugin)
-
-  const sheetData = snapshotToUniverData(snapshot)
-
-  const unit = univer.createUnit(UniverInstanceType.UNIVER_SHEET, {
-    name: 'BOM',
-    sheetOrder: ['sheet1'],
-    sheets: { sheet1: sheetData },
-  })
-  workbookId = unit.getUnitId()
-}
-
-function _univerStyleToInline(s: any): Record<string, any> | null {
-  if (!s) return null
-  const style: Record<string, any> = {}
-  if (s.bg) style.bg = typeof s.bg === 'string' ? s.bg : (s.bg?.rgb || '')
-  if (s.cl) style.cl = typeof s.cl === 'string' ? s.cl : (s.cl?.rgb || '')
-  if (s.ff) style.ff = s.ff
-  if (s.fs) style.fs = s.fs
-  if (s.bl) style.bl = s.bl
-  if (s.it) style.it = s.it
-  if (s.ul) style.ul = s.ul
-  if (s.ht) style.ht = s.ht
-  if (s.vt) style.vt = s.vt
-  if (s.tb) style.tb = s.tb
-  if (s.bd) style.bd = s.bd
-  return Object.keys(style).length > 0 ? style : null
-}
-
-function _inlineStyleToUniver(style: Record<string, any> | null): any {
-  if (!style) return undefined
-  const s: Record<string, any> = {}
-  if (style.bg) s.bg = { rgb: style.bg }
-  if (style.cl) s.cl = { rgb: style.cl }
-  if (style.ff) s.ff = style.ff
-  if (style.fs) s.fs = style.fs
-  if (style.bl) s.bl = style.bl
-  if (style.it) s.it = style.it
-  if (style.ul) s.ul = style.ul
-  if (style.ht) s.ht = style.ht
-  if (style.vt) s.vt = style.vt
-  if (style.tb) s.tb = style.tb
-  if (style.bd) s.bd = style.bd
-  return s
-}
-
-function snapshotToUniverData(snapshot: any): any {
-  const cellData: Record<number, Record<number, any>> = {}
-
-  const snapshotCells = snapshot?.cells || {}
-  for (const [ref, cell] of Object.entries(snapshotCells)) {
-    const c = cell as any
-    const { row, col } = cellRefToRowCol(ref)
-    if (!cellData[row]) cellData[row] = {}
-    const cellObj: any = {
-      v: c.v ?? '',
-      m: c.v != null ? String(c.v) : '',
-    }
-    if (c.f) cellObj.f = c.f
-    if (c.s) cellObj.s = _inlineStyleToUniver(c.s)
-    cellData[row][col] = cellObj
-  }
-
-  // Build mergeData from snapshot merges (cell-ref strings → IRange[])
-  const mergeRanges: any[] = []
-  const merges = snapshot?.merges || []
-  for (const ref of merges) {
-    const parts = ref.split(':')
-    const start = cellRefToRowCol(parts[0])
-    const end = parts[1] ? cellRefToRowCol(parts[1]) : start
-    mergeRanges.push({
-      startRow: start.row, startColumn: start.col,
-      endRow: end.row, endColumn: end.col,
-    })
-  }
-
-  // Build rowData from snapshot rowHeights
-  const rowData: Record<number, any> = {}
-  const rowHeights = snapshot?.rowHeights || {}
-  for (const [rowKey, height] of Object.entries(rowHeights)) {
-    const row = parseInt(rowKey) - 1
-    if (row >= 0) rowData[row] = { h: height as number }
-  }
-
-  // Build columnData from snapshot colWidths
-  const columnData: Record<number, any> = {}
-  const colWidths = snapshot?.colWidths || {}
-  for (const [colKey, width] of Object.entries(colWidths)) {
-    const col = letterToCol(colKey)
-    if (col >= 0) columnData[col] = { w: width as number }
-  }
-
-  let maxRow = 0, maxCol = 0
-  for (const ref of Object.keys(snapshotCells)) {
-    const { row, col } = cellRefToRowCol(ref)
-    if (row > maxRow) maxRow = row
-    if (col > maxCol) maxCol = col
-  }
-
-  return {
-    name: snapshot?.sheet_name || 'BOM',
-    cellData,
-    mergeData: mergeRanges,
-    rowData,
-    columnData,
-    rowCount: Math.max(maxRow + 20, 200),
-    columnCount: Math.max(maxCol + 5, 26),
-    defaultColumnWidth: 93,
-    defaultRowHeight: 27,
-  }
-}
-
-function cellRefToRowCol(ref: string): { row: number; col: number } {
-  const match = ref.match(/^([A-Z]+)(\d+)$/)
-  if (!match) return { row: 0, col: 0 }
-  const colStr = match[1]
-  const row = parseInt(match[2], 10) - 1
-  let col = 0
-  for (let i = 0; i < colStr.length; i++) {
-    col = col * 26 + (colStr.charCodeAt(i) - 64)
-  }
-  return { row, col: col - 1 }
-}
-
-function rowColToCellRef(row: number, col: number): string {
-  return colToLetter(col) + (row + 1)
-}
-
-function colToLetter(col: number): string {
-  let result = ''
-  let n = col
-  while (n >= 0) {
-    result = String.fromCharCode(65 + (n % 26)) + result
-    n = Math.floor(n / 26) - 1
-  }
-  return result
-}
-
-function letterToCol(letter: string): number {
-  let col = 0
-  for (let i = 0; i < letter.length; i++) {
-    col = col * 26 + (letter.charCodeAt(i) - 64)
-  }
-  return col - 1
-}
-
-function getWorkbook(): any {
-  if (!univer || !workbookId) return null
-  return univer.getUnit(workbookId)
+  loading.value = false
 }
 
 async function save() {
   try {
-    const wb = getWorkbook()
-    if (!wb) return
-    const snapshot = univerToSnapshot(wb)
-    await saveBomSnapshot(props.solutionId, { snapshot })
-    currentSnapshot = snapshot
-    dirty.value = false
-    showToast('BOM 已保存', 'success')
-  } catch (e: any) {
-    showToast('保存失败: ' + (e.detail || e.message), 'error')
-  }
-}
-
-function univerToSnapshot(wb: any): any {
-  const sheet = wb.getSheetByIndex(0)
-  if (!sheet) return currentSnapshot || {}
-
-  const cells: Record<string, any> = {}
-  const rowCount = sheet.getRowCount()
-  const columnCount = sheet.getColumnCount()
-
-  // Access style sheet for cell style lookup
-  let styles: any = null
-  try { styles = wb.getStyles() } catch { console.warn('BOMSpreadsheet: parse failed') }
-
-  for (let r = 0; r < rowCount; r++) {
-    for (let c = 0; c < columnCount; c++) {
-      const cell = sheet.getCell(r, c)
-      if (!cell || (cell.v === undefined && !cell.f)) continue
-      const ref = rowColToCellRef(r, c)
-      const cellData: any = { v: cell.v ?? '' }
-      if (cell.f) cellData.f = cell.f
-
-      // Extract style
-      if (cell.s && styles) {
-        try {
-          const style = typeof cell.s === 'string' ? styles.get(cell.s) : cell.s
-          const inline = _univerStyleToInline(style)
-          if (inline) cellData.s = inline
-        } catch { console.warn('BOMSpreadsheet: parse failed') }
-      }
-
-      cells[ref] = cellData
-    }
-  }
-
-  // Extract column widths
-  const colWidths: Record<string, number> = {}
-  for (let c = 0; c < columnCount; c++) {
-    try {
-      const w = sheet.getColumnWidth(c)
-      if (w !== undefined && w !== null) {
-        colWidths[colToLetter(c)] = w
-      }
-    } catch { console.warn('BOMSpreadsheet: parse failed') }
-  }
-
-  // Extract row heights
-  const rowHeights: Record<string, number> = {}
-  for (let r = 0; r < rowCount; r++) {
-    try {
-      const h = sheet.getRowHeight(r)
-      if (h !== undefined && h !== null) {
-        rowHeights[String(r + 1)] = h
-      }
-    } catch { console.warn('BOMSpreadsheet: parse failed') }
-  }
-
-  // Extract merged cells
-  let merges: string[] = []
-  try {
-    const mergedRanges = sheet.getMergeData?.() || []
-    merges = mergedRanges.map((range: any) => {
-      const startRef = rowColToCellRef(range.startRow, range.startColumn)
-      const endRef = rowColToCellRef(range.endRow, range.endColumn)
-      return startRef === endRef ? startRef : `${startRef}:${endRef}`
+    // Convert rows back to snapshot format
+    const cells: Record<string, any> = {}
+    rows.value.forEach((r, i) => {
+      const row = i + 1
+      cells[`A${row}`] = { v: i + 1 }
+      cells[`B${row}`] = { v: r.name }
+      cells[`C${row}`] = { v: r.sku }
+      cells[`D${row}`] = { v: r.qty }
+      cells[`E${row}`] = { v: r.price }
+      cells[`F${row}`] = { v: Number(subtotal(r)) }
+      cells[`G${row}`] = { v: r.discount }
+      cells[`H${row}`] = { v: r.remark }
     })
-  } catch { console.warn('BOMSpreadsheet: parse failed') }
-
-  return {
-    cells,
-    colWidths,
-    rowHeights,
-    merges,
-    sheet_name: sheet.getName?.(),
+    await saveBomSnapshot(props.solutionId, { snapshot: { cells, sheet_name: 'BOM' } })
+    dirty.value = false
+    alert('BOM 已保存')
+  } catch (e: any) {
+    alert('保存失败: ' + (e.detail || e.message))
   }
 }
 
@@ -325,34 +131,36 @@ async function saveAsTemplate() {
   const name = prompt('模板名称:')
   if (!name) return
   try {
-    const wb = getWorkbook()
-    const snapshot = wb ? univerToSnapshot(wb) : currentSnapshot || {}
-    await saveBomAsTemplate(props.solutionId, { name, snapshot })
-    showToast('模板已保存', 'success')
+    const cells: Record<string, any> = {}
+    rows.value.forEach((r, i) => {
+      const row = i + 1
+      cells[`A${row}`] = { v: i + 1 }
+      cells[`B${row}`] = { v: r.name }
+      cells[`C${row}`] = { v: r.sku }
+      cells[`D${row}`] = { v: r.qty }
+      cells[`E${row}`] = { v: r.price }
+      cells[`G${row}`] = { v: r.discount }
+      cells[`H${row}`] = { v: r.remark }
+    })
+    await saveBomAsTemplate(props.solutionId, { name, snapshot: { cells, sheet_name: 'BOM' } })
+    alert('模板已保存')
   } catch (e: any) {
-    showToast('保存模板失败', 'error')
+    alert('保存模板失败')
   }
 }
 
 onMounted(loadSnapshot)
-
-onBeforeUnmount(() => {
-  if (univer) {
-    univer.dispose()
-    univer = null
-  }
-})
 </script>
 
 <style scoped>
-.bom-spreadsheet {
-  margin-top: 16px;
+.bom-table-wrap {
+  max-height: 500px; overflow: auto; border: 1px solid var(--color-border);
+  border-radius: 6px;
 }
-.univer-container {
-  width: 100%;
-  height: 500px;
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: var(--radius-sm, 6px);
-  overflow: hidden;
-}
+.bom-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.bom-table th { background: var(--color-hover); padding: 6px 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; position: sticky; top: 0; z-index: 1; }
+.bom-table td { padding: 4px 6px; border-top: 1px solid var(--color-border); }
+.bom-table input { border: 1px solid transparent; padding: 4px 6px; border-radius: 4px; font-size: 13px; background: transparent; }
+.bom-table input:focus { border-color: var(--color-accent); background: #fff; outline: none; }
+.bom-table tfoot td { border-top: 2px solid var(--color-border); }
 </style>

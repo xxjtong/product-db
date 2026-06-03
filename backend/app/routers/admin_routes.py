@@ -14,11 +14,6 @@ from app.utils.helpers import apply_partial_update
 
 router = APIRouter()
 
-DEFAULT_AI_PROMPT = """你是产品数据库AI助手。帮助用户查询产品、推荐方案、录入产品信息。
-数据库包含 IoT 产品和设施管理产品。
-用中文简洁回答，查产品时调用 search_products 工具。"""
-
-
 # --- Admin user management ---
 
 @router.get("/admin/users")
@@ -145,7 +140,7 @@ def update_fields(data: FieldVisibilityUpdate, db: Session = Depends(get_db), us
 
 _PROMPT_DEFAULTS = {
     "ai_system_prompt": "你是产品数据库AI助手。帮助用户查询产品、推荐方案、录入产品信息。\n数据库包含 IoT 产品和设施管理产品。\n用中文简洁回答。使用工具查询时，回复中不要提及工具名称或调用过程，直接呈现查询结果。",
-    "ai_keyword_prompt": "你是一个搜索关键词优化器。根据用户查询和数据库实际情况，找到最匹配的搜索关键词。\n关键规则:\n- **必须**使用数据库中存在的词汇。如用户说\"漏水\"，数据库传感器指标中有\"水浸\"，则keyword=\"水浸\"\n- 不要把数据库中没有的词作为keyword。先看数据库有什么，再匹配\n- 用户说\"感应器\"→数据库有\"传感器\"，用\"传感器\"\n- 用户说\"空开\"→数据库有\"智能空开\"，用\"空开\"\n- 品类选最相关的一个，通讯方式有则填\n返回JSON: {\"keyword\":\"关键词\",\"category\":\"品类\",\"comm_method\":\"通讯方式\"}，只返回JSON。",
+    "ai_keyword_prompt": "你是一个搜索关键词优化器。根据用户查询和数据库实际情况，找到最匹配的搜索关键词。\n规则（按优先级）：\n1. keyword必须来自数据库已有词汇。不存在的词必须替换为最接近的已有词\n2. 映射表: 漏水→水浸, 漏水检测→水浸, 液位检测→水浸, 烟雾→烟感, 感应器→传感器, 探测器→传感器, 空开→智能空开, 无线→WiFi\n3. 如果用户查询含多个产品（如用+连接），keyword中用+连接各产品关键词，不要用空格替代+\n4. 品类选最相关的一个，通讯方式/协议/供电/厂商/价格有则填\n返回JSON: {\"keyword\":\"关键词\",\"category\":\"品类\",\"comm_method\":\"通讯方式\",\"protocol\":\"协议\",\"power\":\"供电方式\",\"manufacturer\":\"厂商\",\"min_price\":null,\"max_price\":null,\"sort_by\":null}，只返回JSON。\n字段说明:\n- keyword/category/comm_method: 基础搜索，有则填\n- protocol: 通讯协议，如MQTT/HTTP/ModbusRTU\n- power: 供电方式，如DC/PoE/Battery\n- manufacturer: 厂商名称，必须来自数据库已有厂商\n- min_price/max_price: 价格区间，数字类型，用户未提则null\n- sort_by: price_asc(价格升序)/price_desc(价格降序)，用户未提则null",
     "ai_extract_prompt": "你是一个物联网产品信息提取助手。根据网页内容提取产品结构化信息，输出必须是有效 JSON。",
 }
 _MODEL_DEFAULTS = {"ai_chat_model": "deepseek-v4-flash", "ai_keyword_model": "deepseek-v4-flash", "ai_extract_model": "deepseek-v4-flash"}

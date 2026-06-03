@@ -27,7 +27,13 @@
           <td>{{ s.name }}</td>
           <td>{{ s.client_name || '—' }}</td>
           <td>{{ s.project_name || '—' }}</td>
-          <td><span :class="['tag', `tag-${s.status}`]">{{ s.status }}</span></td>
+          <td>
+            <select :value="s.status" @change="changeStatus(s, ($event.target as HTMLSelectElement).value)" style="font-size:12px;padding:2px 6px;width:90px">
+              <option value="draft">草稿</option>
+              <option value="active">进行中</option>
+              <option value="done">完成</option>
+            </select>
+          </td>
           <td class="font-mono">{{ s.total_price }}</td>
           <td class="text-sm">{{ s.updated_at }}</td>
           <td>
@@ -134,6 +140,14 @@ async function save() {
     }
     modalVisible.value = false
     await load()
+  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+}
+
+async function changeStatus(s: any, status: string) {
+  try {
+    await updateSolution(s.id, { status })
+    s.status = status
+    showToast('状态已更新', 'success')
   } catch (e: any) { showToast(e.detail || e.message, 'error') }
 }
 

@@ -82,7 +82,6 @@ def write_mappings(product_id: int, data: dict, db: Session):
         db.add(ProductCommMethod(
             product_id=product_id,
             method_id=cm.get("method_id") if isinstance(cm, dict) else cm,
-            method_type=cm.get("method_type", "wireless") if isinstance(cm, dict) else "wireless",
             details=cm.get("details", "") if isinstance(cm, dict) else "",
         ))
     # Comm protocols

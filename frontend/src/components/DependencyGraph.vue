@@ -1,9 +1,9 @@
 <template>
-  <div class="dep-graph">
+  <div class="dep-graph" ref="container">
     <div class="flex gap-8 items-center mb-8">
       <h3 style="margin:0">依赖关系图</h3>
     </div>
-    <canvas ref="canvas" :width="canvasW" :height="canvasH" class="dep-canvas"></canvas>
+    <canvas ref="canvas" class="dep-canvas"></canvas>
     <div v-if="hovered" class="dep-tooltip" :style="{ left: tipX + 'px', top: tipY + 'px' }">
       <strong>{{ hovered.name }}</strong>
       <div class="text-sm text-muted">{{ hovered.category }}</div>
@@ -12,38 +12,28 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { fetchSolution, fetchDependencies, fetchCategories, fetchProduct } from '../api'
 
 const props = defineProps<{ solutionId: number }>()
 
+const container = ref<HTMLElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
-const canvasW = 800
-const canvasH = 400
+const canvasW = ref(800)
+const canvasH = ref(400)
 const hovered = ref<any>(null)
 const tipX = ref(0)
 const tipY = ref(0)
 
 interface GraphNode {
-  id: number
-  name: string
-  category: string
-  x: number
-  y: number
-  isRoot?: boolean
+  id: number; name: string; category: string; x: number; y: number; angle: number; isRoot?: boolean
 }
+interface GraphEdge { from: number; to: number; type: string; label: string }
 
-interface GraphEdge {
-  from: number
-  to: number
-  type: string
-  label: string
-}
-
+let resizeObserver: ResizeObserver | null = null
 let nodes: GraphNode[] = []
 let edges: GraphEdge[] = []
 let nodeMap: Record<number, GraphNode> = {}
-let animFrame = 0
 
 async function loadGraph() {
   const res = await fetchSolution(props.solutionId)
@@ -90,10 +80,6 @@ async function loadGraph() {
     }
   }
 
-  // Layout: simple layered layout
-  // Products in solution at center, dependencies fan out
-  const centerX = canvasW / 2
-  const centerY = canvasH / 2
   const solutionNodes: GraphNode[] = []
   const depNodes: GraphNode[] = []
 
@@ -103,7 +89,7 @@ async function loadGraph() {
       id: pid,
       name: prodMap[pid] || `#${pid}`,
       category: '',
-      x: 0, y: 0,
+      x: 0, y: 0, angle: 0,
       isRoot: isInSolution,
     }
     if (isInSolution) {
@@ -114,20 +100,12 @@ async function loadGraph() {
     nodeMap[pid] = node
   }
 
-  // Position solution nodes in a circle at center
-  const radius = 120
+  // Assign angles based on position in the ring
   solutionNodes.forEach((n, i) => {
-    const angle = (2 * Math.PI * i) / solutionNodes.length - Math.PI / 2
-    n.x = centerX + radius * Math.cos(angle)
-    n.y = centerY + radius * Math.sin(angle)
+    n.angle = solutionNodes.length > 1 ? (2 * Math.PI * i) / solutionNodes.length - Math.PI / 2 : 0
   })
-
-  // Position dep nodes in an outer ring
-  const outerRadius = 180
   depNodes.forEach((n, i) => {
-    const angle = (2 * Math.PI * i) / Math.max(depNodes.length, 1) - Math.PI / 2
-    n.x = centerX + outerRadius * Math.cos(angle)
-    n.y = centerY + outerRadius * Math.sin(angle)
+    n.angle = depNodes.length > 1 ? (2 * Math.PI * i) / depNodes.length - Math.PI / 2 : 0
   })
 
   nodes = [...solutionNodes, ...depNodes]
@@ -140,23 +118,36 @@ async function loadGraph() {
     label: d.description || '',
   }))
 
+  relayout()
   draw()
+}
+
+function relayout() {
+  const cw = canvasW.value
+  const ch = canvasH.value
+  const centerX = cw / 2
+  const centerY = ch / 2
+  const radius = Math.min(cw, ch) * 0.28
+  const outerRadius = Math.min(cw, ch) * 0.42
+
+  for (const n of nodes) {
+    const r = n.isRoot ? radius : outerRadius
+    n.x = centerX + r * Math.cos(n.angle)
+    n.y = centerY + r * Math.sin(n.angle)
+  }
 }
 
 function draw() {
   const ctx = canvas.value?.getContext('2d')
   if (!ctx) return
 
-  ctx.clearRect(0, 0, canvasW, canvasH)
+  ctx.clearRect(0, 0, canvasW.value, canvasH.value)
 
   // Draw edges
   for (const e of edges) {
     const from = nodeMap[e.from]
     const to = nodeMap[e.to]
-    if (!from && e.from) {
-      // Category dependency — draw to a label instead
-      continue
-    }
+    if (!from && e.from) continue
     if (!from || !to) continue
 
     ctx.beginPath()
@@ -175,21 +166,30 @@ function draw() {
     if (len > 0) {
       const ux = dx / len
       const uy = dy / len
-      const ax = to.x - ux * 22
-      const ay = to.y - uy * 22
       ctx.beginPath()
       ctx.moveTo(to.x - ux * 22, to.y - uy * 22)
-      ctx.lineTo(ax - uy * 6, ay + ux * 6)
-      ctx.lineTo(ax + uy * 6, ay - ux * 6)
+      ctx.lineTo(to.x - ux * 22 - uy * 6, to.y - uy * 22 + ux * 6)
+      ctx.lineTo(to.x - ux * 22 + uy * 6, to.y - uy * 22 - ux * 6)
       ctx.closePath()
       ctx.fillStyle = e.type === 'required' ? '#e94560' : e.type === 'recommended' ? '#0f3460' : '#94a3b8'
       ctx.fill()
+
+      // Edge label
+      if (e.label) {
+        const mx = (from.x + to.x) / 2
+        const my = (from.y + to.y) / 2 - 6
+        ctx.font = '10px Inter, sans-serif'
+        ctx.fillStyle = '#64748b'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'bottom'
+        ctx.fillText(e.label, mx, my)
+      }
     }
   }
 
   // Draw nodes
   for (const n of nodes) {
-    const r = n.isRoot ? 18 : 14
+    const r = n.isRoot ? 16 : 12
     ctx.beginPath()
     ctx.arc(n.x, n.y, r, 0, 2 * Math.PI)
     ctx.fillStyle = n.isRoot ? '#0f3460' : '#f1f5f9'
@@ -198,18 +198,59 @@ function draw() {
     ctx.lineWidth = 2
     ctx.stroke()
 
-    // Label
-    ctx.font = '11px Inter, sans-serif'
-    ctx.fillStyle = n.isRoot ? '#fff' : '#1e293b'
+    // Count badge inside circle for solution nodes
+    if (n.isRoot) {
+      ctx.font = 'bold 10px Inter, sans-serif'
+      ctx.fillStyle = '#fff'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('●', n.x, n.y)
+    }
+
+    // Label below node
+    ctx.font = '11px Inter, Noto Sans SC, sans-serif'
+    ctx.fillStyle = n.isRoot ? '#1e293b' : '#475569'
     ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    const label = n.name.length > 8 ? n.name.slice(0, 7) + '…' : n.name
-    ctx.fillText(label, n.x, n.y)
+    ctx.textBaseline = 'top'
+    const labelY = n.y + r + 4
+    // Word-wrap long names
+    const maxLabelW = 100
+    const words = n.name
+    ctx.fillText(words, n.x, labelY)
   }
 }
 
-onMounted(loadGraph)
-watch(() => props.solutionId, loadGraph)
+function updateSize() {
+  if (!container.value) return
+  const rect = container.value.getBoundingClientRect()
+  const w = Math.max(400, rect.width - 24)
+  canvasW.value = w
+  canvasH.value = Math.max(250, Math.round(w * 0.52))
+  if (canvas.value) {
+    canvas.value.width = canvasW.value
+    canvas.value.height = canvasH.value
+  }
+  if (nodes.length > 0) relayout()
+  draw()
+}
+
+onMounted(async () => {
+  await loadGraph()
+  await nextTick()
+  updateSize()
+  resizeObserver = new ResizeObserver(() => updateSize())
+  if (container.value) resizeObserver.observe(container.value)
+})
+
+onUnmounted(() => {
+  if (resizeObserver) resizeObserver.disconnect()
+})
+
+watch(() => props.solutionId, async () => {
+  await loadGraph()
+  await nextTick()
+  updateSize()
+})
 </script>
 
 <style scoped>

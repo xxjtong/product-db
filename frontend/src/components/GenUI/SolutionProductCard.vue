@@ -3,7 +3,7 @@
     <div class="genui-header">🤖 AI 推荐产品</div>
     <div v-for="p in products" :key="p.id" class="genui-row">
       <input type="checkbox" :checked="isChecked(p)" @change="toggle(p)" />
-      <span class="genui-name">{{ p.name }}<span v-if="p.model" class="text-muted text-sm"> {{ p.model }}</span></span>
+      <span class="genui-name">{{ p.name }} <span v-if="p.model" class="text-muted text-sm">{{ p.model }}</span></span>
       <span class="genui-price" v-if="p.price">¥{{ p.price }}</span>
       <input v-model.number="qtys[p.id]" type="number" min="1" max="999" style="width:56px;text-align:center" @click.stop />
     </div>

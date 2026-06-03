@@ -350,6 +350,7 @@ def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(g
         for cid in data.category_ids:
             db.execute(text('INSERT INTO product_categories (product_id, category_id) VALUES (:pid, :cid)'),
                        {'pid': product_id, 'cid': cid})
+        p.category_id = data.category_ids[0] if data.category_ids else None
 
     # Rewrite mapping tables (delete old, insert new) — only for fields in payload
     payload = data.model_dump(exclude_none=True)

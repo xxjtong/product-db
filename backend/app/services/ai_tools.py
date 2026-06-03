@@ -9,16 +9,19 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "search_products",
-            "description": "搜索产品数据库中的产品，支持关键词、品类、通讯方式、供电方式等条件",
+            "description": "搜索产品数据库中的产品，支持多关键词、品类、通讯方式、供电方式等条件",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "keyword": {"type": "string", "description": "搜索关键词，匹配产品名称和型号"},
-                    "category": {"type": "string", "description": "品类名称，如'LoRaWAN网关'、'LoRaWAN传感器'"},
+                    "keywords": {"type": "array", "items": {"type": "string"}, "description": "搜索关键词列表，多个词OR搜索，匹配产品名称和型号"},
+                    "category": {"type": "string", "description": "品类名称，如'网关'、'传感器'"},
                     "comm_method": {"type": "string", "description": "通讯方式，如'LoRaWAN'、'Ethernet'、'WiFi'"},
                     "protocol": {"type": "string", "description": "通讯协议，如'MQTT'、'HTTP'、'ModbusRTU'"},
                     "power": {"type": "string", "description": "供电方式，如'DC'、'PoE'、'Battery'"},
-                    "manufacturer": {"type": "string", "description": "厂商名称"},
+                    "brand": {"type": "string", "description": "厂商/品牌名称"},
+                    "min_price": {"type": "number", "description": "最低价格"},
+                    "max_price": {"type": "number", "description": "最高价格"},
+                    "sort_by": {"type": "string", "description": "排序: price_asc, price_desc"},
                     "limit": {"type": "integer", "description": "返回数量限制，默认10，最大50"},
                 },
             },
@@ -70,20 +73,6 @@ TOOL_DEFINITIONS = [
 ]
 
 
-SYSTEM_PROMPT = """你是产品数据库AI助手。帮助用户查询产品、推荐方案、录入产品信息。
-
-数据库包含 IoT 产品（网关、传感器、控制器、路由器等）和设施管理产品。
-
-回答规则:
-- 用中文简洁回答，尽量简短
-- 查产品时调用 search_products 工具，最多调用1-2次
-- **不要在回答中展开产品详细规格表格**，系统会自动在下方显示产品卡片
-- 列出产品时仅需简要说明名称和价格，1-2句话即可
-- 如果没有找到匹配产品，直接告知"未找到"并建议调整，不要重复调用工具
-- 工具调用后如果有结果就停止调用，直接给用户看结果
-- 回答控制在3-5句话以内，不要生成冗长的markdown表格"""
-
-
 def execute_tool(tool_name: str, arguments: dict, db) -> str:
     """Execute a tool function and return the result as JSON string."""
     from app.models.product import Product
@@ -92,76 +81,134 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
     from app.models.mapping import ProductCommMethod, ProductCommProtocol, ProductPowerSupply
 
     if tool_name == "search_products":
-        keyword = (arguments.get("keyword") or "").strip()
+        # Support both "keywords" (array) and "keyword" (string)
+        kw_raw = arguments.get("keywords") or arguments.get("keyword")
+        if isinstance(kw_raw, list):
+            keywords = [k.strip() for k in kw_raw if k and str(k).strip()]
+        elif kw_raw and str(kw_raw).strip():
+            keywords = [str(kw_raw).strip()]
+        else:
+            keywords = []
         category = (arguments.get("category") or "").strip()
         comm_method = (arguments.get("comm_method") or "").strip()
         protocol = (arguments.get("protocol") or "").strip()
         power = (arguments.get("power") or "").strip()
-        manufacturer = (arguments.get("manufacturer") or "").strip()
+        # Support both "brand" and "manufacturer"
+        manufacturer = (arguments.get("brand") or arguments.get("manufacturer") or "").strip()
+        min_price = arguments.get("min_price")
+        max_price = arguments.get("max_price")
+        sort_by = (arguments.get("sort_by") or "").strip()
         limit = min(int(arguments.get("limit", 10) or 10), 50)
 
-        q = db.query(Product).filter(Product.status == "active")
+        # Build base query with non-keyword filters
+        def _apply_filters(q):
+            if category:
+                cat = db.query(Category).filter(Category.name.ilike(f"%{escape_like(category)}%")).first()
+                if cat:
+                    q = q.filter(Product.category_id == cat.id)
+            if manufacturer:
+                mfg = db.query(Manufacturer).filter(Manufacturer.name.ilike(f"%{escape_like(manufacturer)}%")).first()
+                if mfg:
+                    q = q.filter(Product.manufacturer_id == mfg.id)
+            if comm_method:
+                q = q.filter(Product.comm_methods.any(
+                    ProductCommMethod.method.has(DictCommMethod.name.ilike(f"%{escape_like(comm_method)}%"))
+                ))
+            if protocol:
+                q = q.filter(Product.comm_protocols.any(
+                    ProductCommProtocol.protocol.has(DictCommProtocol.name.ilike(f"%{escape_like(protocol)}%"))
+                ))
+            if power:
+                q = q.filter(Product.power_supplies.any(
+                    ProductPowerSupply.power.has(DictPowerSupply.name.ilike(f"%{escape_like(power)}%"))
+                ))
+            if min_price is not None:
+                q = q.filter(Product.base_price >= min_price)
+            if max_price is not None:
+                q = q.filter(Product.base_price <= max_price)
+            if sort_by == "price_asc":
+                q = q.order_by(Product.base_price.asc())
+            elif sort_by == "price_desc":
+                q = q.order_by(Product.base_price.desc())
+            return q
 
-        if keyword:
-            kw_filters = [Product.name.ilike(f"%{escape_like(keyword)}%"), Product.model.ilike(f"%{escape_like(keyword)}%")]
-            hit_count = db.query(Product).filter(Product.status == "active").filter(or_(*kw_filters)).count()
-            if hit_count > 0:
-                q = q.filter(or_(*kw_filters))
-            else:
-                q = q.filter(or_(*kw_filters))
-
-        if category:
-            cat = db.query(Category).filter(Category.name.ilike(f"%{escape_like(category)}%")).first()
-            if cat:
-                q = q.filter(Product.category_id == cat.id)
-
-        if manufacturer:
-            mfg = db.query(Manufacturer).filter(Manufacturer.name.ilike(f"%{escape_like(manufacturer)}%")).first()
-            if mfg:
-                q = q.filter(Product.manufacturer_id == mfg.id)
-
-        if comm_method:
-            q = q.filter(Product.comm_methods.any(
-                ProductCommMethod.method.has(DictCommMethod.name.ilike(f"%{escape_like(comm_method)}%"))
+        def _search_kw(kw: str, base_q, max_results: int):
+            """Search for a single keyword, return up to max_results products."""
+            kw_clean = escape_like(kw)
+            q = base_q.filter(or_(
+                Product.name.ilike(f"%{kw_clean}%"),
+                Product.model.ilike(f"%{kw_clean}%"),
+                Product.description.ilike(f"%{kw_clean}%"),
             ))
+            return q.options(
+                selectinload(Product.category),
+                selectinload(Product.manufacturer),
+                selectinload(Product.comm_methods).selectinload(ProductCommMethod.method),
+                selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
+            ).limit(max_results).all()
 
-        if protocol:
-            q = q.filter(Product.comm_protocols.any(
-                ProductCommProtocol.protocol.has(DictCommProtocol.name.ilike(f"%{escape_like(protocol)}%"))
-            ))
+        synonym_map = {
+            "漏水": "水浸", "漏水检测": "水浸", "液位检测": "水浸", "液位": "水浸",
+            "感应器": "传感器", "探测器": "传感器",
+            "空开": "智能空开", "烟雾": "烟感", "烟感": "烟雾", "无线": "WiFi",
+            "PM2.5": "PM2.5", "PM10": "PM", "空气质量": "空气质量检测",
+            "二氧化碳": "CO2", "CO2": "CO2",
+            "甲醛": "甲醛检测", "TVOC": "VOC", "VOC": "TVOC",
+        }
 
-        if power:
-            q = q.filter(Product.power_supplies.any(
-                ProductPowerSupply.power.has(DictPowerSupply.name.ilike(f"%{escape_like(power)}%"))
-            ))
+        base_q = db.query(Product).filter(Product.status == "active")
+        base_q = _apply_filters(base_q)
 
-        products = q.options(
-            selectinload(Product.category),
-            selectinload(Product.manufacturer),
-            selectinload(Product.comm_methods).selectinload(ProductCommMethod.method),
-            selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
-        ).limit(limit).all()
+        if len(keywords) <= 1:
+            # Single keyword — simple search
+            kw = keywords[0] if keywords else ""
+            products = _search_kw(kw, base_q, limit) if kw else []
+            if not products and kw:
+                # Try synonym
+                alt = kw
+                for old, new in sorted(synonym_map.items(), key=lambda x: -len(x[0])):
+                    if old in alt: alt = alt.replace(old, new)
+                if alt != kw:
+                    products = _search_kw(alt, base_q, limit)
+        else:
+            # Multi-keyword — search each independently, interleave results
+            per_kw_limit = 5
+            kw_results = []
+            seen_ids = set()
+            for kw in keywords:
+                found = _search_kw(kw, base_q, per_kw_limit)
+                if not found:
+                    # Try synonym
+                    alt = kw
+                    for old, new in sorted(synonym_map.items(), key=lambda x: -len(x[0])):
+                        if old in alt: alt = alt.replace(old, new)
+                    if alt != kw:
+                        found = _search_kw(alt, base_q, per_kw_limit)
+                deduped = []
+                for p in found:
+                    if p.id not in seen_ids:
+                        seen_ids.add(p.id)
+                        deduped.append(p)
+                kw_results.append(deduped)
 
-        if not products and keyword:
-            # Exact match failed, try synonym replacement
-            synonym_map = {
-                "漏水": "水浸", "漏水检测": "水浸", "液位检测": "水浸", "液位": "水浸",
-                "感应器": "传感器", "探测器": "传感器",
-                "空开": "智能空开", "烟雾": "烟感", "烟感": "烟雾",
-            }
-            for old, new in synonym_map.items():
-                if old in keyword:
-                    alt_kw = keyword.replace(old, new)
-                    q2 = db.query(Product).filter(Product.status == "active")
-                    q2 = q2.filter(or_(Product.name.ilike(f"%{escape_like(alt_kw)}%"), Product.model.ilike(f"%{escape_like(alt_kw)}%")))
-                    alt_products = q2.options(selectinload(Product.category), selectinload(Product.manufacturer)).limit(limit).all()
-                    if alt_products:
-                        products = alt_products
-                        break
+            # Interleave: take 1 from each keyword in turn
+            products = []
+            idx = 0
+            while True:
+                added = False
+                for pr in kw_results:
+                    if idx < len(pr):
+                        products.append(pr[idx])
+                        added = True
+                idx += 1
+                if not added:
+                    break
+
         if not products:
             return json.dumps({"found": 0, "message": "未找到匹配产品"}, ensure_ascii=False)
 
-        # Group by category, take top 3 per category
+        # Build result items; per-category cap only for single-keyword
+        per_cat = 3 if len(keywords) <= 1 else 20  # no practical cap for multi-kw
         by_cat: dict[str, list] = {}
         for p in products:
             cat_name = p.category.name if p.category else ""
@@ -183,7 +230,11 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
 
         result = []
         for items in by_cat.values():
-            result.extend(items[:3])
+            result.extend(items[:per_cat])
+
+        # Multi-kw: no global cap (each keyword already limited to 5)
+        if len(keywords) <= 1:
+            result = result[:5]
 
         return json.dumps({"found": len(result), "products": result}, ensure_ascii=False)
 
