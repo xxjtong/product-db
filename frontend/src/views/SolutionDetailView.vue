@@ -294,7 +294,7 @@ async function loadConv(id: number) {
   try {
     const res = await fetchConversation(id)
     chatCid.value = id; showConvs.value = false
-    const msgs = res.messages || []
+    const msgs = res.conversation?.messages || []
     chatMessages.value = []
     for (const m of msgs) {
       if (m.role === 'user' || m.role === 'assistant') {

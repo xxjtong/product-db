@@ -162,7 +162,7 @@ const showToast = inject<(msg: string, type?: string) => void>('toast', () => {}
 const token = () => localStorage.getItem('token') || ''
 const h = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` })
 
-interface AdminUser { id: number; username: string; role: string; email: string; is_active: boolean; created_at: string; last_login: string }
+interface AdminUser { id: number; username: string; role: string; email: string; is_active: boolean; created_at: string; last_login: string; ai_count?: number; ai_tokens?: number }
 interface LogEntry { id: number; user_id: number | null; ip_address: string; region: string; success: boolean; created_at: string }
 interface DownloadLog { id: number; user_id: number; file_type: string; entity_id: number; ip_address: string; created_at: string }
 

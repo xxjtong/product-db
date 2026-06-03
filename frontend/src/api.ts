@@ -104,7 +104,7 @@ export const deleteSupplier = (id: number) => api(`/suppliers/${id}`, { method: 
 export const fetchSolutions = (params: string = '') =>
   api<{ solutions: Solution[]; total: number; page: number; per_page: number }>(`/solutions${params ? '?' + params : ''}`)
 export const fetchSolution = (id: number) => api<{ solution: Solution }>(`/solutions/${id}`)
-export const createSolution = (data: any) => api('/solutions', { method: 'POST', body: JSON.stringify(data) })
+export const createSolution = (data: any) => api<{ solution: { id: number } }>('/solutions', { method: 'POST', body: JSON.stringify(data) })
 export const updateSolution = (id: number, data: any) => api(`/solutions/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteSolution = (id: number) => api(`/solutions/${id}`, { method: 'DELETE' })
 export const addSolutionItem = (solId: number, data: any) =>

@@ -26,7 +26,7 @@
           <span class="sidebar-stats-label">次AI</span>
         </div>
         <div class="sidebar-stats-row">
-          <span class="sidebar-stats-num">{{ formatTokens(aiStats.user_tokens_in + aiStats.user_tokens_out) }}</span>
+          <span class="sidebar-stats-num">{{ formatTokens(aiStats.user_tokens_in + (aiStats.user_tokens_out ?? 0)) }}</span>
           <span class="sidebar-stats-label">Token</span>
         </div>
       </div>
@@ -144,7 +144,7 @@ provide('toast', showToast)
 // Load session data on mount
 const currentUser = ref<any>(null)
 const fieldVisibility = ref<Record<string, boolean>>({})
-const aiStats = ref<{ total: number; user_count: number; total_tokens_in: number; user_tokens_in: number } | null>(null)
+const aiStats = ref<{ total: number; user_count: number; total_tokens_in: number; user_tokens_in: number; user_tokens_out?: number } | null>(null)
 provide('currentUser', currentUser)
 provide('fieldVisibility', fieldVisibility)
 

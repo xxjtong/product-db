@@ -38,6 +38,7 @@ export interface Product {
   model: string
   sku: string
   category_id: number
+  category_ids?: number[]
   category_name: string
   manufacturer_id: number | null
   manufacturer_name: string

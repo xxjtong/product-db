@@ -181,7 +181,7 @@ async function loadConv(id: number) {
   try {
     const res = await fetchConversation(id)
     convId.value = id
-    const msgs = res.messages || []
+    const msgs = res.conversation?.messages || []
     messages.value = msgs.map((m: any) => ({
       role: m.role,
       content: formatContent(m.content, m.role),
