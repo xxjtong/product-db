@@ -494,10 +494,11 @@ button {
     font-size: 18px;
   }
   .sidebar-link {
+    flex-direction: column;
     justify-content: center;
-    padding: 10px 8px;
-    gap: 0;
-    font-size: 0;
+    padding: 8px 4px;
+    gap: 2px;
+    font-size: 10px;
   }
   .sidebar-link svg {
     width: 20px;
