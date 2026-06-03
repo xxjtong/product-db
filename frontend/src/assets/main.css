@@ -503,6 +503,19 @@ button {
     width: 20px;
     height: 20px;
   }
+  /* Stats: shrink to match collapsed mode */
+  .sidebar-stats {
+    padding: 4px 6px;
+  }
+  .sidebar-stats .sidebar-stats-label { display: none; }
+  .sidebar-stats .sidebar-stats-row { justify-content: center; gap: 2px; }
+  .sidebar-stats .sidebar-stats-num { width: auto; text-align: center; font-size: 11px; }
+  /* User: center */
+  .sidebar-user-btn { padding: 6px; justify-content: center; }
+  .sidebar-username { display: none; }
+  /* Hide search and version */
+  .sidebar-search { display: none; }
+  .sidebar-version { display: none; }
   .app-content {
     padding: 16px;
   }
