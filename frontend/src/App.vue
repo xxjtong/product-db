@@ -151,7 +151,7 @@ provide('fieldVisibility', fieldVisibility)
 async function loadAiStats() {
   try {
     const token = localStorage.getItem('token')
-    const res = await fetch('/api/ai/stats', { headers: { 'Authorization': `Bearer ${token}` } })
+    const res = await fetch('/product-db/api/ai/stats', { headers: { 'Authorization': `Bearer ${token}` } })
     if (res.ok) {
       const data = await res.json()
       aiStats.value = data
@@ -163,7 +163,7 @@ async function loadSession() {
   try {
     const token = localStorage.getItem('token')
     if (!token) return
-    const res = await fetch('/api/auth/session', {
+    const res = await fetch('/product-db/api/auth/session', {
       headers: { 'Authorization': `Bearer ${token}` }
     })
     if (!res.ok) return
@@ -206,7 +206,7 @@ async function saveProfile() {
       body.current_password = profileCurPw.value
     }
     if (Object.keys(body).length === 0) { showProfile.value = false; return }
-    const res = await fetch('/api/auth/profile', {
+    const res = await fetch('/product-db/api/auth/profile', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify(body),

@@ -3,26 +3,7 @@ from __future__ import annotations
 import json
 import re
 import time
-import sqlite3
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
-
-_usage_pool = ThreadPoolExecutor(max_workers=1)
-
-def _save_usage(user_id: int, tokens_in: int, tokens_out: int, duration_ms: int, success: bool):
-    conn = sqlite3.connect('/Users/tong/product-db/backend/product_db.db', timeout=30)
-    try:
-        conn.execute(
-            "INSERT INTO ai_usage_logs (user_id, operation, tokens_in, tokens_out, duration_ms, success, created_at) "
-            "VALUES (?, 'chat', ?, ?, ?, ?, datetime('now', 'localtime'))",
-            (user_id, tokens_in, tokens_out, duration_ms, 1 if success else 0)
-        )
-        conn.commit()
-    except Exception as e:
-        import logging
-        logging.getLogger("uvicorn").warning(f"AI usage log failed: {e}")
-    finally:
-        conn.close()
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -31,6 +12,7 @@ from app.auth import get_current_user
 from app.config import settings
 from app.models.user import User
 from app.models.ai_models import AIConversation, AIMessage
+from app.models.ai_usage_log import AIUsageLog
 from app.models.system_setting import SystemSetting
 from app.services.ai_engine import engine, DEFAULT_MODEL
 from app.services.ai_tools import TOOL_DEFINITIONS, execute_tool
@@ -552,9 +534,18 @@ async def ai_chat(request: Request, db: Session = Depends(get_db), user=Depends(
             success = False
             yield f"data: {json.dumps({'event': 'error', 'text': str(e)}, ensure_ascii=False)}\n\n"
         finally:
-            # Update token counts via thread pool (WAL-safe)
+            # Persist usage log via SQLAlchemy session (before close)
             duration = int((time.time() - start_time) * 1000)
-            _usage_pool.submit(_save_usage, uid, tokens["in"], tokens["out"], duration, success)
+            try:
+                usage = AIUsageLog(
+                    user_id=uid, operation='chat',
+                    tokens_in=tokens.get("in", 0), tokens_out=tokens.get("out", 0),
+                    duration_ms=duration, success=success,
+                )
+                sse_db.add(usage)
+                sse_db.commit()
+            except Exception:
+                pass
             sse_db.close()
 
         yield "data: [DONE]\n\n"

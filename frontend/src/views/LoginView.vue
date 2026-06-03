@@ -31,7 +31,7 @@ const regOpen = ref(false)
 
 onMounted(async () => {
   try {
-    const res = await fetch('/api/auth/registration-status')
+    const res = await fetch('/product-db/api/auth/registration-status')
     const data = await res.json()
     regOpen.value = data.open
   } catch { /* ignore */ }
@@ -41,7 +41,7 @@ async function submit() {
   if (!username.value || !password.value) { error.value = '请输入用户名和密码'; return }
   loading.value = true; error.value = ''
   try {
-    const endpoint = isRegister.value ? '/api/auth/register' : '/api/auth/login'
+    const endpoint = isRegister.value ? '/product-db/api/auth/register' : '/product-db/api/auth/login'
     const body: any = { username: username.value, password: password.value }
     if (isRegister.value) body.email = email.value
     const res = await fetch(endpoint, {

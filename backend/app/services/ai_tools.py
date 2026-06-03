@@ -1,8 +1,10 @@
 """AI tool definitions for product database queries."""
 import json
-from sqlalchemy import or_
+from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 from app.utils.escape import escape_like
+from app.services.product_helpers import product_eager_loads
+from app.models.product import Product
 
 TOOL_DEFINITIONS = [
     {
@@ -240,7 +242,7 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
 
     elif tool_name == "get_product_detail":
         product_id = arguments.get("product_id")
-        p = db.get(Product, product_id)
+        p = db.scalar(select(Product).options(*product_eager_loads()).where(Product.id == product_id))
         if not p:
             return json.dumps({"error": "产品不存在"}, ensure_ascii=False)
 

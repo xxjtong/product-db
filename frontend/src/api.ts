@@ -1,6 +1,6 @@
 import type { Product, Category, Supplier, Solution, Quotation, SpecDefinition, Manufacturer, ProductDependency } from './types'
 
-const API_BASE = '/api'
+const API_BASE = '/product-db/api'
 
 export class ApiError extends Error {
   status: number

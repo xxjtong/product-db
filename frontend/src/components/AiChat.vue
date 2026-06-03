@@ -314,7 +314,7 @@ async function send(question?: string) {
     const headers: Record<string,string> = { 'Content-Type': 'application/json' }
     const token = localStorage.getItem('token')
     if (token) headers['Authorization'] = `Bearer ${token}`
-    const reader = (await fetch('/api/ai/chat', {
+    const reader = (await fetch('/product-db/api/ai/chat', {
       method: 'POST',
       headers,
       body: JSON.stringify({ input: q, conversation_id: convId.value }),

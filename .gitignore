@@ -29,3 +29,4 @@ backend/*.png
 backend/screenshots/
 *.db-shm
 *.db-wal
+backend/node_modules/

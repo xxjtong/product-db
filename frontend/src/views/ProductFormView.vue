@@ -259,7 +259,7 @@ async function onAiFetch() {
   aiFetching.value = true
   try {
     const token = localStorage.getItem('token')
-    const res = await (await fetch('/api/products/ai-fetch', {
+    const res = await (await fetch('/product-db/api/products/ai-fetch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify(url ? { url } : { text }),

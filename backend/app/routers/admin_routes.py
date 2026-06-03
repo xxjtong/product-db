@@ -26,11 +26,22 @@ def list_users(search: str = "", db: Session = Depends(get_db), user=Depends(get
     if search:
         q = q.filter(User.username.ilike(f"%{escape_like(search)}%"))
     users = q.order_by(User.id).all()
+    user_ids = [u.id for u in users]
+    # Batch-aggregate AI usage stats (avoid N+1)
+    from sqlalchemy import func as sa_func
+    count_rows = db.query(AIUsageLog.user_id, sa_func.count().label("cnt")).filter(
+        AIUsageLog.user_id.in_(user_ids)
+    ).group_by(AIUsageLog.user_id).all()
+    token_rows = db.query(AIUsageLog.user_id, sa_func.sum(AIUsageLog.tokens_in + AIUsageLog.tokens_out).label("tok")).filter(
+        AIUsageLog.user_id.in_(user_ids)
+    ).group_by(AIUsageLog.user_id).all()
+    counts = {row.user_id: row.cnt for row in count_rows}
+    totals = {row.user_id: row.tok or 0 for row in token_rows}
     result = []
     for u in users:
         d = u.to_dict()
-        d["ai_count"] = db.query(AIUsageLog).filter_by(user_id=u.id).count()
-        d["ai_tokens"] = db.query(func.sum(AIUsageLog.tokens_in + AIUsageLog.tokens_out)).filter_by(user_id=u.id).scalar() or 0
+        d["ai_count"] = counts.get(u.id, 0)
+        d["ai_tokens"] = totals.get(u.id, 0)
         result.append(d)
     return {"users": result}
 

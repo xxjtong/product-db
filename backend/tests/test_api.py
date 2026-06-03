@@ -107,7 +107,7 @@ def _seed_product(db, name="测试产品", model="TEST-001", category_id=1, manu
 # ============================================================
 class TestHealth:
     def test_health(self):
-        resp = client.get("/api/health")
+        resp = client.get("/product-db/api/health")
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
 
@@ -117,22 +117,22 @@ class TestHealth:
 # ============================================================
 class TestAuth:
     def test_login_fail(self):
-        resp = client.post("/api/auth/login", json={"username": "nobody", "password": "wrong"})
+        resp = client.post("/product-db/api/auth/login", json={"username": "nobody", "password": "wrong"})
         assert resp.status_code == 401
 
     def test_login_success(self):
-        resp = client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+        resp = client.post("/product-db/api/auth/login", json={"username": "admin", "password": "admin"})
         assert resp.status_code == 200
         data = resp.json()
         assert "token" in data
 
     def test_me(self):
-        resp = client.get("/api/auth/me")
+        resp = client.get("/product-db/api/auth/me")
         assert resp.status_code == 200
         assert "user" in resp.json()
 
     def test_admin_users(self):
-        resp = client.get("/api/admin/users")
+        resp = client.get("/product-db/api/admin/users")
         assert resp.status_code == 200
 
 
@@ -142,7 +142,7 @@ class TestAuth:
 class TestCategories:
     def test_create_and_list(self, db):
         cat = _seed_category(db)
-        resp = client.get("/api/categories")
+        resp = client.get("/product-db/api/categories")
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] >= 1
@@ -150,25 +150,25 @@ class TestCategories:
 
     def test_tree(self, db):
         _seed_category(db, name="父品类", slug="parent")
-        resp = client.get("/api/categories/tree")
+        resp = client.get("/product-db/api/categories/tree")
         assert resp.status_code == 200
         assert "tree" in resp.json()
 
     def test_create_category(self, db):
-        resp = client.post("/api/categories", json={"name": "新建品类", "slug": "new-cat"})
+        resp = client.post("/product-db/api/categories", json={"name": "新建品类", "slug": "new-cat"})
         assert resp.status_code == 200
         assert resp.json()["category"]["name"] == "新建品类"
 
     def test_update_category(self, db):
         cat = _seed_category(db)
-        resp = client.put(f"/api/categories/{cat.id}", json={"name": "更新品类"})
+        resp = client.put(f"/product-db/api/categories/{cat.id}", json={"name": "更新品类"})
         assert resp.status_code == 200
         assert resp.json()["category"]["name"] == "更新品类"
 
     def test_delete_category(self, db):
         cat = _seed_category(db)
         cat_id = cat.id
-        resp = client.delete(f"/api/categories/{cat_id}")
+        resp = client.delete(f"/product-db/api/categories/{cat_id}")
         assert resp.status_code == 200
         db.expire_all()
         assert db.get(Category, cat_id) is None
@@ -176,7 +176,7 @@ class TestCategories:
     def test_spec_definitions_crud(self, db):
         cat = _seed_category(db)
         # Create
-        resp = client.post(f"/api/categories/{cat.id}/spec-definitions", json={
+        resp = client.post(f"/product-db/api/categories/{cat.id}/spec-definitions", json={
             "spec_key": "ip_rating", "display_name": "IP等级",
             "spec_type": "enum", "options": ["IP30", "IP65", "IP67"],
         })
@@ -184,18 +184,18 @@ class TestCategories:
         sd_id = resp.json()["spec_definition"]["id"]
 
         # List
-        resp = client.get(f"/api/categories/{cat.id}/spec-definitions")
+        resp = client.get(f"/product-db/api/categories/{cat.id}/spec-definitions")
         assert resp.status_code == 200
         assert len(resp.json()["spec_definitions"]) == 1
 
         # Update
-        resp = client.put(f"/api/categories/{cat.id}/spec-definitions/{sd_id}",
+        resp = client.put(f"/product-db/api/categories/{cat.id}/spec-definitions/{sd_id}",
                           json={"display_name": "防护等级"})
         assert resp.status_code == 200
         assert resp.json()["spec_definition"]["display_name"] == "防护等级"
 
         # Delete
-        resp = client.delete(f"/api/categories/{cat.id}/spec-definitions/{sd_id}")
+        resp = client.delete(f"/product-db/api/categories/{cat.id}/spec-definitions/{sd_id}")
         assert resp.status_code == 200
 
 
@@ -205,32 +205,32 @@ class TestCategories:
 class TestSuppliers:
     def test_create_and_list(self, db):
         _seed_supplier(db)
-        resp = client.get("/api/suppliers")
+        resp = client.get("/product-db/api/suppliers")
         assert resp.status_code == 200
         assert resp.json()["total"] >= 1
 
     def test_search(self, db):
         _seed_supplier(db, name="深圳科技")
-        resp = client.get("/api/suppliers?search=深圳")
+        resp = client.get("/product-db/api/suppliers?search=深圳")
         assert resp.status_code == 200
         assert any(s["name"] == "深圳科技" for s in resp.json()["suppliers"])
 
     def test_update(self, db):
         s = _seed_supplier(db)
-        resp = client.put(f"/api/suppliers/{s.id}", json={"name": "更新供应商"})
+        resp = client.put(f"/product-db/api/suppliers/{s.id}", json={"name": "更新供应商"})
         assert resp.status_code == 200
         assert resp.json()["supplier"]["name"] == "更新供应商"
 
     def test_delete(self, db):
         s = _seed_supplier(db)
         s_id = s.id
-        resp = client.delete(f"/api/suppliers/{s_id}")
+        resp = client.delete(f"/product-db/api/suppliers/{s_id}")
         assert resp.status_code == 200
         db.expire_all()
         assert db.get(Supplier, s_id) is None
 
     def test_404_update(self):
-        resp = client.put("/api/suppliers/99999", json={"name": "x"})
+        resp = client.put("/product-db/api/suppliers/99999", json={"name": "x"})
         assert resp.status_code == 404
 
 
@@ -241,38 +241,38 @@ class TestProducts:
     def test_create_and_list(self, db):
         cat = _seed_category(db)
         _seed_product(db, category_id=cat.id)
-        resp = client.get("/api/products")
+        resp = client.get("/product-db/api/products")
         assert resp.status_code == 200
         assert resp.json()["total"] >= 1
 
     def test_filter_by_category(self, db):
         cat = _seed_category(db)
         _seed_product(db, category_id=cat.id)
-        resp = client.get(f"/api/products?category_id={cat.id}")
+        resp = client.get(f"/product-db/api/products?category_id={cat.id}")
         assert resp.status_code == 200
         assert resp.json()["total"] >= 1
 
     def test_search(self, db):
         cat = _seed_category(db)
         _seed_product(db, name="温度传感器", category_id=cat.id)
-        resp = client.get("/api/products?search=温度")
+        resp = client.get("/product-db/api/products?search=温度")
         assert resp.status_code == 200
 
     def test_detail(self, db):
         cat = _seed_category(db)
         p = _seed_product(db, category_id=cat.id)
-        resp = client.get(f"/api/products/{p.id}")
+        resp = client.get(f"/product-db/api/products/{p.id}")
         assert resp.status_code == 200
         assert resp.json()["product"]["name"] == "测试产品"
 
     def test_detail_404(self):
-        resp = client.get("/api/products/99999")
+        resp = client.get("/product-db/api/products/99999")
         assert resp.status_code == 404
 
     def test_create_product(self, db):
         cat = _seed_category(db)
         mfg = _seed_manufacturer(db)
-        resp = client.post("/api/products", json={
+        resp = client.post("/product-db/api/products", json={
             "name": "新产品", "model": "NEW-01",
             "category_id": cat.id, "manufacturer_id": mfg.id,
             "specs": {"ip_rating": "IP65"},
@@ -283,7 +283,7 @@ class TestProducts:
     def test_update_product(self, db):
         cat = _seed_category(db)
         p = _seed_product(db, category_id=cat.id)
-        resp = client.put(f"/api/products/{p.id}", json={"name": "更新产品"})
+        resp = client.put(f"/product-db/api/products/{p.id}", json={"name": "更新产品"})
         assert resp.status_code == 200
         assert resp.json()["product"]["name"] == "更新产品"
 
@@ -291,7 +291,7 @@ class TestProducts:
         cat = _seed_category(db)
         p = _seed_product(db, category_id=cat.id)
         p_id = p.id
-        resp = client.delete(f"/api/products/{p_id}")
+        resp = client.delete(f"/product-db/api/products/{p_id}")
         assert resp.status_code == 200
         db.expire_all()
         assert db.get(Product, p_id) is None
@@ -300,34 +300,34 @@ class TestProducts:
         cat = _seed_category(db)
         p1 = _seed_product(db, name="产品A", model="A", category_id=cat.id, specs={"ip_rating": "IP65"})
         p2 = _seed_product(db, name="产品B", model="B", category_id=cat.id, specs={"ip_rating": "IP67"})
-        resp = client.get(f"/api/products/compare?product_ids={p1.id},{p2.id}")
+        resp = client.get(f"/product-db/api/products/compare?product_ids={p1.id},{p2.id}")
         assert resp.status_code == 200
         assert "matrix" in resp.json()
 
     def test_compare_min_ids(self):
-        resp = client.get("/api/products/compare?product_ids=1")
+        resp = client.get("/product-db/api/products/compare?product_ids=1")
         assert resp.status_code == 400
 
     def test_spec_sheet(self, db):
         cat = _seed_category(db)
         p = _seed_product(db, category_id=cat.id)
-        resp = client.get(f"/api/products/{p.id}/spec-sheet")
+        resp = client.get(f"/product-db/api/products/{p.id}/spec-sheet")
         assert resp.status_code == 200
 
     def test_export(self, db):
         cat = _seed_category(db)
         _seed_product(db, category_id=cat.id)
-        resp = client.get("/api/products/export")
+        resp = client.get("/product-db/api/products/export")
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("application/vnd.openxmlformats")
 
     def test_ai_fetch_text(self):
-        resp = client.post("/api/products/ai-fetch", json={"text": "UG67 LoRaWAN Gateway IP67 Milesight"})
+        resp = client.post("/product-db/api/products/ai-fetch", json={"text": "UG67 LoRaWAN Gateway IP67 Milesight"})
         assert resp.status_code == 200
         assert "fetched" in resp.json()
 
     def test_ai_fetch_empty(self):
-        resp = client.post("/api/products/ai-fetch", json={"url": "", "text": ""})
+        resp = client.post("/product-db/api/products/ai-fetch", json={"url": "", "text": ""})
         assert resp.status_code == 400
 
 
@@ -339,7 +339,7 @@ class TestDependencies:
         cat = _seed_category(db)
         p = _seed_product(db, category_id=cat.id)
         target_cat = _seed_category(db, name="网关", slug="gateway")
-        resp = client.post(f"/api/products/{p.id}/dependencies", json={
+        resp = client.post(f"/product-db/api/products/{p.id}/dependencies", json={
             "depends_on_category_id": target_cat.id,
             "dependency_type": "required",
             "description": "需要网关",
@@ -347,7 +347,7 @@ class TestDependencies:
         assert resp.status_code == 200
         dep_id = resp.json()["dependency"]["id"]
 
-        resp = client.get(f"/api/products/{p.id}/dependencies")
+        resp = client.get(f"/product-db/api/products/{p.id}/dependencies")
         assert resp.status_code == 200
         assert len(resp.json()["dependencies"]) == 1
 
@@ -361,7 +361,7 @@ class TestDependencies:
         db.commit()
         db.refresh(dep)
 
-        resp = client.put(f"/api/products/{p.id}/dependencies/{dep.id}",
+        resp = client.put(f"/product-db/api/products/{p.id}/dependencies/{dep.id}",
                           json={"dependency_type": "recommended"})
         assert resp.status_code == 200
         assert resp.json()["dependency"]["dependency_type"] == "recommended"
@@ -377,7 +377,7 @@ class TestDependencies:
         db.refresh(dep)
         dep_id = dep.id
 
-        resp = client.delete(f"/api/products/{p.id}/dependencies/{dep_id}")
+        resp = client.delete(f"/product-db/api/products/{p.id}/dependencies/{dep_id}")
         assert resp.status_code == 200
         db.expire_all()
         assert db.get(ProductDependency, dep_id) is None
@@ -388,35 +388,35 @@ class TestDependencies:
 # ============================================================
 class TestSolutions:
     def test_create_and_list(self, db):
-        resp = client.post("/api/solutions", json={"name": "测试方案"})
+        resp = client.post("/product-db/api/solutions", json={"name": "测试方案"})
         assert resp.status_code == 200
         sol_id = resp.json()["solution"]["id"]
 
-        resp = client.get("/api/solutions")
+        resp = client.get("/product-db/api/solutions")
         assert resp.status_code == 200
         assert resp.json()["total"] >= 1
 
     def test_get_solution(self, db):
-        resp = client.post("/api/solutions", json={"name": "方案详情"})
+        resp = client.post("/product-db/api/solutions", json={"name": "方案详情"})
         sol_id = resp.json()["solution"]["id"]
 
-        resp = client.get(f"/api/solutions/{sol_id}")
+        resp = client.get(f"/product-db/api/solutions/{sol_id}")
         assert resp.status_code == 200
         assert resp.json()["solution"]["name"] == "方案详情"
 
     def test_update_solution(self, db):
-        resp = client.post("/api/solutions", json={"name": "原始方案"})
+        resp = client.post("/product-db/api/solutions", json={"name": "原始方案"})
         sol_id = resp.json()["solution"]["id"]
 
-        resp = client.put(f"/api/solutions/{sol_id}", json={"name": "更新方案"})
+        resp = client.put(f"/product-db/api/solutions/{sol_id}", json={"name": "更新方案"})
         assert resp.status_code == 200
         assert resp.json()["solution"]["name"] == "更新方案"
 
     def test_delete_solution(self, db):
-        resp = client.post("/api/solutions", json={"name": "删除方案"})
+        resp = client.post("/product-db/api/solutions", json={"name": "删除方案"})
         sol_id = resp.json()["solution"]["id"]
 
-        resp = client.delete(f"/api/solutions/{sol_id}")
+        resp = client.delete(f"/product-db/api/solutions/{sol_id}")
         assert resp.status_code == 200
 
     def test_solution_items_crud(self, db):
@@ -424,29 +424,29 @@ class TestSolutions:
         p = _seed_product(db, category_id=cat.id)
 
         # Create solution
-        resp = client.post("/api/solutions", json={"name": "BOM方案"})
+        resp = client.post("/product-db/api/solutions", json={"name": "BOM方案"})
         sol_id = resp.json()["solution"]["id"]
 
         # Add item
-        resp = client.post(f"/api/solutions/{sol_id}/items", json={
+        resp = client.post(f"/product-db/api/solutions/{sol_id}/items", json={
             "product_id": p.id, "quantity": 2, "unit_price": 1500,
         })
         assert resp.status_code == 200
         item_id = resp.json()["item"]["id"]
 
         # List items
-        resp = client.get(f"/api/solutions/{sol_id}/items")
+        resp = client.get(f"/product-db/api/solutions/{sol_id}/items")
         assert resp.status_code == 200
         assert len(resp.json()["items"]) == 1
 
         # Update item
-        resp = client.put(f"/api/solutions/{sol_id}/items/{item_id}",
+        resp = client.put(f"/product-db/api/solutions/{sol_id}/items/{item_id}",
                           json={"quantity": 5})
         assert resp.status_code == 200
         assert resp.json()["item"]["quantity"] == 5
 
         # Delete item
-        resp = client.delete(f"/api/solutions/{sol_id}/items/{item_id}")
+        resp = client.delete(f"/product-db/api/solutions/{sol_id}/items/{item_id}")
         assert resp.status_code == 200
 
 
@@ -458,14 +458,14 @@ class TestSolutionCheck:
         cat = _seed_category(db)
         p = _seed_product(db, category_id=cat.id)
 
-        resp = client.post("/api/solutions", json={"name": "完整方案"})
+        resp = client.post("/product-db/api/solutions", json={"name": "完整方案"})
         sol_id = resp.json()["solution"]["id"]
 
-        client.post(f"/api/solutions/{sol_id}/items", json={
+        client.post(f"/product-db/api/solutions/{sol_id}/items", json={
             "product_id": p.id, "quantity": 1,
         })
 
-        resp = client.get(f"/api/solutions/{sol_id}/check")
+        resp = client.get(f"/product-db/api/solutions/{sol_id}/check")
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
         assert len(resp.json()["warnings"]) == 0
@@ -482,13 +482,13 @@ class TestSolutionCheck:
         db.commit()
 
         # Create solution with only sensor (no gateway)
-        resp = client.post("/api/solutions", json={"name": "缺网关方案"})
+        resp = client.post("/product-db/api/solutions", json={"name": "缺网关方案"})
         sol_id = resp.json()["solution"]["id"]
-        client.post(f"/api/solutions/{sol_id}/items", json={
+        client.post(f"/product-db/api/solutions/{sol_id}/items", json={
             "product_id": sensor.id, "quantity": 10,
         })
 
-        resp = client.get(f"/api/solutions/{sol_id}/check")
+        resp = client.get(f"/product-db/api/solutions/{sol_id}/check")
         assert resp.status_code == 200
         assert resp.json()["ok"] is False
         assert len(resp.json()["warnings"]) >= 1
@@ -506,13 +506,13 @@ class TestSolutionCheck:
         db.add(dep)
         db.commit()
 
-        resp = client.post("/api/solutions", json={"name": "需推荐方案"})
+        resp = client.post("/product-db/api/solutions", json={"name": "需推荐方案"})
         sol_id = resp.json()["solution"]["id"]
-        client.post(f"/api/solutions/{sol_id}/items", json={
+        client.post(f"/product-db/api/solutions/{sol_id}/items", json={
             "product_id": sensor.id, "quantity": 5,
         })
 
-        resp = client.get(f"/api/solutions/{sol_id}/suggest")
+        resp = client.get(f"/product-db/api/solutions/{sol_id}/suggest")
         assert resp.status_code == 200
         suggestions = resp.json()["suggestions"]
         assert len(suggestions) >= 1
@@ -525,13 +525,13 @@ class TestSolutionCheck:
 # ============================================================
 class TestQuotations:
     def test_create_and_list(self, db):
-        resp = client.post("/api/quotations", json={"title": "测试报价单"})
+        resp = client.post("/product-db/api/quotations", json={"title": "测试报价单"})
         assert resp.status_code == 200
         qt = resp.json()["quotation"]
         assert qt["title"] == "测试报价单"
         assert qt["quote_number"].startswith("QT-")
 
-        resp = client.get("/api/quotations")
+        resp = client.get("/product-db/api/quotations")
         assert resp.status_code == 200
         assert resp.json()["total"] >= 1
 
@@ -551,7 +551,7 @@ class TestQuotations:
         db.add(item)
         db.commit()
 
-        resp = client.post("/api/quotations", json={
+        resp = client.post("/product-db/api/quotations", json={
             "solution_id": sol.id,
             "title": "从方案创建",
         })
@@ -560,18 +560,18 @@ class TestQuotations:
         assert qt["client_name"] == "客户甲"
 
     def test_update_quotation(self, db):
-        resp = client.post("/api/quotations", json={"title": "原始报价"})
+        resp = client.post("/product-db/api/quotations", json={"title": "原始报价"})
         qt_id = resp.json()["quotation"]["id"]
 
-        resp = client.put(f"/api/quotations/{qt_id}", json={"title": "更新报价"})
+        resp = client.put(f"/product-db/api/quotations/{qt_id}", json={"title": "更新报价"})
         assert resp.status_code == 200
         assert resp.json()["quotation"]["title"] == "更新报价"
 
     def test_delete_quotation(self, db):
-        resp = client.post("/api/quotations", json={"title": "删除报价"})
+        resp = client.post("/product-db/api/quotations", json={"title": "删除报价"})
         qt_id = resp.json()["quotation"]["id"]
 
-        resp = client.delete(f"/api/quotations/{qt_id}")
+        resp = client.delete(f"/product-db/api/quotations/{qt_id}")
         assert resp.status_code == 200
 
     def test_quotation_items_crud(self, db):
@@ -580,28 +580,28 @@ class TestQuotations:
         p.base_price = 100
         db.commit()
 
-        resp = client.post("/api/quotations", json={"title": "报价项测试"})
+        resp = client.post("/product-db/api/quotations", json={"title": "报价项测试"})
         qt_id = resp.json()["quotation"]["id"]
 
         # Add item
-        resp = client.post(f"/api/quotations/{qt_id}/items", json={
+        resp = client.post(f"/product-db/api/quotations/{qt_id}/items", json={
             "product_id": p.id, "quantity": 3, "unit_price": 100,
         })
         assert resp.status_code == 200
         item_id = resp.json()["item"]["id"]
 
         # List
-        resp = client.get(f"/api/quotations/{qt_id}/items")
+        resp = client.get(f"/product-db/api/quotations/{qt_id}/items")
         assert resp.status_code == 200
         assert len(resp.json()["items"]) == 1
 
         # Update
-        resp = client.put(f"/api/quotations/{qt_id}/items/{item_id}",
+        resp = client.put(f"/product-db/api/quotations/{qt_id}/items/{item_id}",
                           json={"quantity": 5})
         assert resp.status_code == 200
 
         # Delete
-        resp = client.delete(f"/api/quotations/{qt_id}/items/{item_id}")
+        resp = client.delete(f"/product-db/api/quotations/{qt_id}/items/{item_id}")
         assert resp.status_code == 200
 
     def test_export_xlsx(self, db):
@@ -610,13 +610,13 @@ class TestQuotations:
         p.base_price = 200
         db.commit()
 
-        resp = client.post("/api/quotations", json={"title": "导出测试"})
+        resp = client.post("/product-db/api/quotations", json={"title": "导出测试"})
         qt_id = resp.json()["quotation"]["id"]
-        client.post(f"/api/quotations/{qt_id}/items", json={
+        client.post(f"/product-db/api/quotations/{qt_id}/items", json={
             "product_id": p.id, "quantity": 1, "unit_price": 200,
         })
 
-        resp = client.get(f"/api/quotations/{qt_id}/export-xlsx")
+        resp = client.get(f"/product-db/api/quotations/{qt_id}/export-xlsx")
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("application/vnd.openxmlformats")
 
@@ -626,52 +626,52 @@ class TestQuotations:
 # ============================================================
 class TestBOMTemplates:
     def test_create_and_list(self, db):
-        resp = client.post("/api/bom-templates", json={
+        resp = client.post("/product-db/api/bom-templates", json={
             "name": "标准模板", "snapshot": {"cells": {"A1": {"v": "标题"}}},
         })
         assert resp.status_code == 200
         t_id = resp.json()["template"]["id"]
 
-        resp = client.get("/api/bom-templates")
+        resp = client.get("/product-db/api/bom-templates")
         assert resp.status_code == 200
         assert len(resp.json()["templates"]) >= 1
 
     def test_get_template(self, db):
-        resp = client.post("/api/bom-templates", json={
+        resp = client.post("/product-db/api/bom-templates", json={
             "name": "查询模板", "snapshot": {},
         })
         t_id = resp.json()["template"]["id"]
 
-        resp = client.get(f"/api/bom-templates/{t_id}")
+        resp = client.get(f"/product-db/api/bom-templates/{t_id}")
         assert resp.status_code == 200
         assert resp.json()["template"]["name"] == "查询模板"
 
     def test_update_template(self, db):
-        resp = client.post("/api/bom-templates", json={
+        resp = client.post("/product-db/api/bom-templates", json={
             "name": "旧模板", "snapshot": {},
         })
         t_id = resp.json()["template"]["id"]
 
-        resp = client.put(f"/api/bom-templates/{t_id}", json={"name": "新模板"})
+        resp = client.put(f"/product-db/api/bom-templates/{t_id}", json={"name": "新模板"})
         assert resp.status_code == 200
         assert resp.json()["template"]["name"] == "新模板"
 
     def test_delete_template(self, db):
-        resp = client.post("/api/bom-templates", json={
+        resp = client.post("/product-db/api/bom-templates", json={
             "name": "删除模板", "snapshot": {},
         })
         t_id = resp.json()["template"]["id"]
 
-        resp = client.delete(f"/api/bom-templates/{t_id}")
+        resp = client.delete(f"/product-db/api/bom-templates/{t_id}")
         assert resp.status_code == 200
 
     def test_duplicate_template(self, db):
-        resp = client.post("/api/bom-templates", json={
+        resp = client.post("/product-db/api/bom-templates", json={
             "name": "原始模板", "snapshot": {"cells": {"A1": {"v": "x"}}},
         })
         t_id = resp.json()["template"]["id"]
 
-        resp = client.post(f"/api/bom-templates/{t_id}/duplicate")
+        resp = client.post(f"/product-db/api/bom-templates/{t_id}/duplicate")
         assert resp.status_code == 200
         assert "副本" in resp.json()["template"]["name"]
 
@@ -685,19 +685,19 @@ class TestBOMSnapshots:
         p = _seed_product(db, category_id=cat.id)
 
         # Create default template
-        client.post("/api/bom-templates", json={
+        client.post("/product-db/api/bom-templates", json={
             "name": "默认模板", "snapshot": {"cells": {"A1": {"v": "BOM"}}}, "is_default": True,
         })
 
         # Create solution with item
-        resp = client.post("/api/solutions", json={"name": "BOM方案"})
+        resp = client.post("/product-db/api/solutions", json={"name": "BOM方案"})
         sol_id = resp.json()["solution"]["id"]
-        client.post(f"/api/solutions/{sol_id}/items", json={
+        client.post(f"/product-db/api/solutions/{sol_id}/items", json={
             "product_id": p.id, "quantity": 2, "unit_price": 100,
         })
 
         # Get snapshot (auto-generated)
-        resp = client.get(f"/api/solutions/{sol_id}/bom-snapshot")
+        resp = client.get(f"/product-db/api/solutions/{sol_id}/bom-snapshot")
         assert resp.status_code == 200
         assert "bom_snapshot" in resp.json()
         assert resp.json()["bom_snapshot"]["snapshot"]["cells"]["A1"]["v"] == "BOM"
@@ -706,17 +706,17 @@ class TestBOMSnapshots:
         cat = _seed_category(db)
         p = _seed_product(db, category_id=cat.id)
 
-        resp = client.post("/api/solutions", json={"name": "快照方案"})
+        resp = client.post("/product-db/api/solutions", json={"name": "快照方案"})
         sol_id = resp.json()["solution"]["id"]
 
         # Save snapshot
-        resp = client.put(f"/api/solutions/{sol_id}/bom-snapshot", json={
+        resp = client.put(f"/product-db/api/solutions/{sol_id}/bom-snapshot", json={
             "snapshot": {"cells": {"A1": {"v": "自定义内容"}}},
         })
         assert resp.status_code == 200
 
         # Read back
-        resp = client.get(f"/api/solutions/{sol_id}/bom-snapshot")
+        resp = client.get(f"/product-db/api/solutions/{sol_id}/bom-snapshot")
         assert resp.status_code == 200
         assert resp.json()["bom_snapshot"]["snapshot"]["cells"]["A1"]["v"] == "自定义内容"
 
@@ -724,14 +724,14 @@ class TestBOMSnapshots:
         cat = _seed_category(db)
         p = _seed_product(db, category_id=cat.id)
 
-        resp = client.post("/api/solutions", json={"name": "另存模板方案"})
+        resp = client.post("/product-db/api/solutions", json={"name": "另存模板方案"})
         sol_id = resp.json()["solution"]["id"]
 
-        client.put(f"/api/solutions/{sol_id}/bom-snapshot", json={
+        client.put(f"/product-db/api/solutions/{sol_id}/bom-snapshot", json={
             "snapshot": {"cells": {"A1": {"v": "另存测试"}}},
         })
 
-        resp = client.post(f"/api/solutions/{sol_id}/bom-snapshot/save-as-template", json={
+        resp = client.post(f"/product-db/api/solutions/{sol_id}/bom-snapshot/save-as-template", json={
             "name": "从快照创建模板",
         })
         assert resp.status_code == 200
@@ -741,13 +741,13 @@ class TestBOMSnapshots:
         cat = _seed_category(db)
         p = _seed_product(db, category_id=cat.id)
 
-        resp = client.post("/api/solutions", json={"name": "导出BOM方案"})
+        resp = client.post("/product-db/api/solutions", json={"name": "导出BOM方案"})
         sol_id = resp.json()["solution"]["id"]
-        client.post(f"/api/solutions/{sol_id}/items", json={
+        client.post(f"/product-db/api/solutions/{sol_id}/items", json={
             "product_id": p.id, "quantity": 1, "unit_price": 500,
         })
 
-        resp = client.get(f"/api/solutions/{sol_id}/bom-snapshot/export-xlsx")
+        resp = client.get(f"/product-db/api/solutions/{sol_id}/bom-snapshot/export-xlsx")
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("application/vnd.openxmlformats")
 
@@ -759,18 +759,18 @@ class TestDictionaries:
     def test_comm_methods(self, db):
         db.add(DictCommMethod(name="Ethernet", method_type="wired"))
         db.commit()
-        resp = client.get("/api/dicts/comm-methods")
+        resp = client.get("/product-db/api/dicts/comm-methods")
         assert resp.status_code == 200
 
     def test_comm_protocols(self, db):
         db.add(DictCommProtocol(name="MQTT"))
         db.commit()
-        resp = client.get("/api/dicts/comm-protocols")
+        resp = client.get("/product-db/api/dicts/comm-protocols")
         assert resp.status_code == 200
 
     def test_manufacturers(self, db):
         _seed_manufacturer(db)
-        resp = client.get("/api/dicts/manufacturers")
+        resp = client.get("/product-db/api/dicts/manufacturers")
         assert resp.status_code == 200
 
 
@@ -779,11 +779,11 @@ class TestDictionaries:
 # ============================================================
 class TestAI:
     def test_chat_no_input(self):
-        resp = client.post("/api/ai/chat", json={"input": ""})
+        resp = client.post("/product-db/api/ai/chat", json={"input": ""})
         assert resp.status_code == 400
 
     def test_conversations(self):
-        resp = client.get("/api/ai/conversations")
+        resp = client.get("/product-db/api/ai/conversations")
         assert resp.status_code == 200
 
 
@@ -792,7 +792,7 @@ class TestAI:
 # ============================================================
 class TestSettings:
     def test_list(self):
-        resp = client.get("/api/settings")
+        resp = client.get("/product-db/api/settings")
         assert resp.status_code == 200
 
 
@@ -801,7 +801,7 @@ class TestSettings:
 # ============================================================
 class TestImport:
     def test_import_preview_no_file(self):
-        resp = client.post("/api/products/import-preview")
+        resp = client.post("/product-db/api/products/import-preview")
         assert resp.status_code == 422
 
 

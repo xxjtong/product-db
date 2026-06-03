@@ -71,7 +71,7 @@ async function onFileSelect(e: Event) {
     const headers: Record<string,string> = {}
     const token = localStorage.getItem('token')
     if (token) headers['Authorization'] = `Bearer ${token}`
-    const res = await (await fetch('/api/products/import-preview', { method: 'POST', body: formData, headers })).json()
+    const res = await (await fetch('/product-db/api/products/import-preview', { method: 'POST', body: formData, headers })).json()
     headers.value = res.headers
     rows.value = res.rows
     previewRows.value = res.rows.slice(0, 10)
@@ -103,7 +103,7 @@ async function doImport() {
     const h: Record<string,string> = { 'Content-Type': 'application/json' }
     const t = localStorage.getItem('token')
     if (t) h['Authorization'] = `Bearer ${t}`
-    const res = await (await fetch('/api/products/import-confirm', {
+    const res = await (await fetch('/product-db/api/products/import-confirm', {
       method: 'POST', headers: h,
       body: JSON.stringify({ mapping: mapping.value, rows: rows.value }),
     })).json()

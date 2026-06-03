@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@univerjs/icons": "^1.4.0",
+    "@univerjs/sheets-numfmt": "^0.25.0"
+  }
+}

@@ -30,7 +30,22 @@ pytest tests/ -v
 cd frontend
 npx vite --host 0.0.0.0 --port 5173
 npx vitest run
+npx vue-tsc --noEmit
 ```
+
+## 路径前缀配置
+
+生产部署在 Nginx 反向代理子路径 `/product-db/`。Nginx 配置 `proxy_pass http://127.0.0.1:8002;`（**无**末尾斜杠）保留前缀透传。
+
+| 组件 | 配置 |
+|------|------|
+| `vite.config.ts` | `base: '/product-db/'` |
+| `backend/app/main.py` | 所有路由前缀 `/product-db/`（包括 `/product-db/api/`、`/product-db/assets/`、SPA catch-all） |
+| `frontend/src/router.ts` | `createWebHistory('/product-db/')` |
+| `frontend/src/api.ts` | `API_BASE = '/product-db/api'` |
+| `frontend/src/components/AiChat.vue` | SSE fetch: `/product-db/api/ai/chat` |
+| 所有前端 View | 直接 fetch 调用统一使用 `/product-db/api/` 前缀 |
+| `backend/tests/test_api.py` | 测试 URL 使用 `/product-db/api/` 前缀 |
 
 ## 项目结构
 

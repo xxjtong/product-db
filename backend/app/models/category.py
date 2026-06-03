@@ -1,5 +1,5 @@
 from app.database import Base, JSONBType
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -8,7 +8,7 @@ class Category(Base):
     __tablename__ = "device_categories"
 
     id = Column(Integer, primary_key=True)
-    parent_id = Column(Integer, ForeignKey("device_categories.id"), nullable=True)
+    parent_id = Column(Integer, ForeignKey("device_categories.id"), nullable=True, index=True)
     name = Column(String(100), nullable=False)
     slug = Column(String(100), unique=True, nullable=True, index=True)
     level = Column(Integer, default=1)  # 1=大类, 2=子类, 3=孙子类
@@ -37,7 +37,7 @@ class CategorySpecDefinition(Base):
     __tablename__ = "category_spec_definitions"
 
     id = Column(Integer, primary_key=True)
-    category_id = Column(Integer, ForeignKey("device_categories.id", ondelete="CASCADE"), nullable=False)
+    category_id = Column(Integer, ForeignKey("device_categories.id", ondelete="CASCADE"), nullable=False, index=True)
     spec_key = Column(String(100), nullable=False)
     display_name = Column(String(200), nullable=False)
     spec_type = Column(String(50), nullable=False)

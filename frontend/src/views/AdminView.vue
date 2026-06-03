@@ -223,13 +223,13 @@ async function load() {
   loadError.value = ''
   try {
     const [uRes, lRes, fRes, pRes, aRes, dRes, rRes] = await Promise.all([
-      adminApi('/api/admin/users'),
-      adminApi(`/api/admin/login-logs?page=${loginLogsPage.value}&per_page=20`),
-      adminApi('/api/admin/fields'),
-      adminApi('/api/admin/ai-settings'),
-      adminApi('/api/admin/ai-usage'),
-      adminApi(`/api/admin/download-logs?page=${dlogsPage.value}&per_page=20`),
-      fetch('/api/auth/registration-status').then(r => r.json()),
+      adminApi('/product-db/api/admin/users'),
+      adminApi(`/product-db/api/admin/login-logs?page=${loginLogsPage.value}&per_page=20`),
+      adminApi('/product-db/api/admin/fields'),
+      adminApi('/product-db/api/admin/ai-settings'),
+      adminApi('/product-db/api/admin/ai-usage'),
+      adminApi(`/product-db/api/admin/download-logs?page=${dlogsPage.value}&per_page=20`),
+      fetch('/product-db/api/auth/registration-status').then(r => r.json()),
     ])
     users.value = uRes.users || []
     logs.value = lRes.logs || []; loginLogsTotal.value = lRes.total || 0
@@ -252,7 +252,7 @@ async function toggleField(key: string) {
   const fv = fieldList.value.find(f => f.key === key)
   if (!fv) return; fv.visible = !fv.visible
   try {
-    await fetch('/api/admin/fields', { method: 'PUT', headers: h(), body: JSON.stringify({ [key]: fv.visible }) })
+    await fetch('/product-db/api/admin/fields', { method: 'PUT', headers: h(), body: JSON.stringify({ [key]: fv.visible }) })
   } catch { fv.visible = !fv.visible; showToast('保存失败', 'error') }
 }
 
@@ -260,7 +260,7 @@ async function toggleField(key: string) {
 async function saveAiSettings() {
   aiSaving.value = true
   try {
-    await fetch('/api/admin/ai-settings', {
+    await fetch('/product-db/api/admin/ai-settings', {
       method: 'PUT', headers: h(),
       body: JSON.stringify({ prompts: aiPrompts.value, models: aiModels.value }),
     })
@@ -273,7 +273,7 @@ async function saveAiSettings() {
 async function toggleReg() {
   regOpen.value = !regOpen.value
   try {
-    await fetch('/api/settings/registration_open', { method: 'PUT', headers: h(), body: JSON.stringify({ value: regOpen.value ? 'true' : 'false' }) })
+    await fetch('/product-db/api/settings/registration_open', { method: 'PUT', headers: h(), body: JSON.stringify({ value: regOpen.value ? 'true' : 'false' }) })
     showToast(regOpen.value ? '注册已开放' : '注册已关闭', 'success')
   } catch { regOpen.value = !regOpen.value; showToast('保存失败', 'error') }
 }
@@ -284,7 +284,7 @@ function openEdit(u: any) { editing.value = u; form.value = { username: u.userna
 
 async function saveUser() {
   try {
-    const url = editing.value ? `/api/admin/users/${editing.value.id}` : '/api/admin/users'
+    const url = editing.value ? `/product-db/api/admin/users/${editing.value.id}` : '/product-db/api/admin/users'
     await fetch(url, { method: editing.value ? 'PUT' : 'POST', headers: h(), body: JSON.stringify(form.value) })
     modalVisible.value = false; showToast('已保存', 'success'); load()
   } catch (e: any) { showToast(e.message, 'error') }
@@ -296,7 +296,7 @@ async function doResetPwd() {
   if (!newPwd.value || newPwd.value.length < 8) { showToast('密码至少8位', 'error'); return }
   if (!pwdTarget.value) return
   try {
-    await fetch(`/api/admin/users/${pwdTarget.value.id}/password`, { method: 'PUT', headers: h(), body: JSON.stringify({ password: newPwd.value }) })
+    await fetch(`/product-db/api/admin/users/${pwdTarget.value.id}/password`, { method: 'PUT', headers: h(), body: JSON.stringify({ password: newPwd.value }) })
     pwdModalVisible.value = false; showToast('密码已重置', 'success')
   } catch (e: any) { showToast('重置失败', 'error') }
 }
@@ -304,7 +304,7 @@ async function doResetPwd() {
 async function doDelete(u: any) {
   showConfirm('删除用户', `确定删除用户「${u.username}」？`, async () => {
     try {
-      await fetch(`/api/admin/users/${u.id}`, { method: 'DELETE', headers: h() })
+      await fetch(`/product-db/api/admin/users/${u.id}`, { method: 'DELETE', headers: h() })
       showToast('已删除', 'success'); load()
     } catch (e: any) { showToast('删除失败', 'error') }
   })
