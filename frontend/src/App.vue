@@ -166,7 +166,14 @@ async function loadSession() {
     const res = await fetch('/product-db/api/auth/session', {
       headers: { 'Authorization': `Bearer ${token}` }
     })
-    if (!res.ok) return
+    if (!res.ok) {
+      if (res.status === 401) {
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        router.push('/login')
+      }
+      return
+    }
     const data = await res.json()
     currentUser.value = data.user
     fieldVisibility.value = data.field_visibility || {}

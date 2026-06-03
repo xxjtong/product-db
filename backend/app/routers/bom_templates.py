@@ -145,7 +145,81 @@ def save_bom_snapshot(solution_id: int, data: BOMSnapshotSave, db: Session = Dep
         db.add(existing)
     db.commit()
     db.refresh(existing)
+
+    # Sync snapshot cell data back to solution_items
+    _sync_snapshot_to_items(solution_id, data.snapshot, db)
+
     return {"bom_snapshot": existing.to_dict()}
+
+
+def _sync_snapshot_to_items(solution_id: int, snapshot: dict, db: Session):
+    """Parse BOM snapshot cells and update solution_items with edited values.
+
+    Sheet layout: data rows start at row 3 (snapshot) or row 5 (basic bom).
+    Columns: A=seq B=name C=SKU D=qty E=price F=subtotal G=discount H=remark
+    We match by SKU in column C to find the corresponding solution_item.
+    """
+    cells = snapshot.get("cells", {})
+    if not cells:
+        return
+
+    # Build ref → (row, col) lookup, grouped by row
+    rows = {}
+    for ref, cell in cells.items():
+        if not isinstance(cell, dict):
+            continue
+        m = re.match(r"^([A-Z]+)(\d+)$", ref)
+        if not m:
+            continue
+        col_letter = m.group(1)
+        row_num = int(m.group(2))
+        if row_num not in rows:
+            rows[row_num] = {}
+        rows[row_num][col_letter] = cell
+
+    # Extract SKU → values mapping from data rows
+    sku_updates = {}
+    for row_num in sorted(rows.keys()):
+        rd = rows[row_num]
+        sku = rd.get("C", {}).get("v")
+        if not sku or not isinstance(sku, str) or not sku.strip():
+            continue
+        sku = sku.strip()
+        qty = float(rd.get("D", {}).get("v", 0) or 0)
+        price = float(rd.get("E", {}).get("v", 0) or 0)
+        discount = float(rd.get("G", {}).get("v", 100) or 100)
+        remark = str(rd.get("H", {}).get("v", "") or "")
+        sku_updates[sku] = {"quantity": qty, "unit_price": price, "discount_rate": discount, "remark": remark}
+
+    if not sku_updates:
+        return
+
+    # Match by SKU via Product → SolutionItem
+    products = {p.sku: p.id for p in db.query(Product).all() if p.sku}
+    items = db.query(SolutionItem).filter_by(solution_id=solution_id).all()
+
+    updated = 0
+    for item in items:
+        # Find the product's SKU for this item
+        pid = item.product_id
+        item_sku = None
+        for sku, prod_id in products.items():
+            if prod_id == pid:
+                item_sku = sku
+                break
+        if not item_sku or item_sku not in sku_updates:
+            continue
+
+        u = sku_updates[item_sku]
+        item.quantity = u["quantity"]
+        item.unit_price = u["unit_price"]
+        item.discount_rate = u["discount_rate"]
+        if u["remark"]:
+            item.remark = u["remark"]
+        updated += 1
+
+    if updated:
+        db.commit()
 
 
 @router.post("/solutions/{solution_id}/bom-snapshot/save-as-template")

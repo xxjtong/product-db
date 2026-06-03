@@ -3,6 +3,7 @@
     <button class="btn-secondary" @click="checkDeps"><ShieldCheckIcon style="width:14px;height:14px" />依赖检查</button>
     <button class="btn-secondary" @click="doCreateQuotation">生成报价单</button>
     <button class="btn-secondary" @click="showBom = !showBom">{{ showBom ? '收起' : '编辑' }} BOM 表格</button>
+    <button class="btn-primary" @click="openUniverEditor"><Edit3Icon style="width:14px;height:14px" />编辑BOM表格</button>
     <button class="btn-secondary" @click="$router.back()">返回</button>
   </PageHeader>
 
@@ -133,7 +134,7 @@
 <script setup lang="ts">
 import { ref, onMounted, inject, computed, nextTick, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ShieldCheckIcon, Trash2Icon, PlusIcon, InboxIcon } from 'lucide-vue-next'
+import { ShieldCheckIcon, Trash2Icon, PlusIcon, InboxIcon, Edit3Icon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import { defineAsyncComponent } from 'vue'
 const BOMSpreadsheet = defineAsyncComponent(() => import('../components/BOMSpreadsheet.vue'))
@@ -272,6 +273,13 @@ async function doCreateQuotation() {
     const res = await createQuotation({ solution_id: Number(route.params.id) }) as any
     showToast('报价单已生成', 'success'); router.push(`/quotations/${res.quotation.id}`)
   } catch (e: any) { showToast(e.detail || e.message, 'error') }
+}
+
+function openUniverEditor() {
+  const token = localStorage.getItem('token')
+  if (!token) { showToast('请先登录', 'error'); return }
+  const base = import.meta.env.BASE_URL || '/product-db/'
+  window.open(`${base}univer-bom.html?solutionId=${route.params.id}&token=${encodeURIComponent(token)}`, '_blank')
 }
 
 // AI Chat with GenUI component support

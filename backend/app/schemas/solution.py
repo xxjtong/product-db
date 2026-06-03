@@ -41,3 +41,7 @@ class SolutionItemUpdate(BaseModel):
 
 class BOMSnapshotSave(BaseModel):
     snapshot: dict
+
+
+class BatchDeleteRequest(BaseModel):
+    ids: list[int]

@@ -14,7 +14,7 @@ from app.models.dependency import ProductDependency
 from app.auth import get_current_user
 from app.utils.escape import escape_like
 from app.models.user import User
-from app.schemas.solution import SolutionCreate, SolutionUpdate, SolutionItemCreate, SolutionItemUpdate
+from app.schemas.solution import SolutionCreate, SolutionUpdate, SolutionItemCreate, SolutionItemUpdate, BatchDeleteRequest
 from datetime import datetime
 
 router = APIRouter()
@@ -65,6 +65,15 @@ def list_solutions(
         "page": page,
         "per_page": per_page,
     }
+
+
+@router.post("/solutions/batch-delete")
+def batch_delete_solutions(data: BatchDeleteRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    if not data.ids:
+        raise HTTPException(400, "ids is required")
+    deleted = db.query(Solution).filter(Solution.id.in_(data.ids)).delete(synchronize_session="fetch")
+    db.commit()
+    return {"ok": True, "deleted": deleted}
 
 
 @router.post("/solutions")

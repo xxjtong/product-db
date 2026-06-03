@@ -107,6 +107,7 @@ export const fetchSolution = (id: number) => api<{ solution: Solution }>(`/solut
 export const createSolution = (data: any) => api<{ solution: { id: number } }>('/solutions', { method: 'POST', body: JSON.stringify(data) })
 export const updateSolution = (id: number, data: any) => api(`/solutions/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteSolution = (id: number) => api(`/solutions/${id}`, { method: 'DELETE' })
+export const batchDeleteSolutions = (ids: number[]) => api('/solutions/batch-delete', { method: 'POST', body: JSON.stringify({ ids }) })
 export const addSolutionItem = (solId: number, data: any) =>
   api(`/solutions/${solId}/items`, { method: 'POST', body: JSON.stringify(data) })
 export const updateSolutionItem = (solId: number, itemId: number, data: any) =>

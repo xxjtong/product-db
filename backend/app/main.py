@@ -95,11 +95,17 @@ async def serve_assets(file_path: str):
 # API routes need /product-db/ prefix since Nginx preserves it
 # (include_router calls below use prefix="/api" — need prefix="/product-db/api")
 
-# Serve index.html for all SPA routes
+# Serve SPA index.html for all routes, except univer-bom.html standalone page
 @app.get("/product-db")
 @app.get("/product-db/")
 @app.get("/product-db/{full_path:path}")
 async def serve_spa(full_path: str = ""):
+    # Univer BOM editor is a standalone multi-page entry
+    if full_path == "univer-bom.html":
+        univer_path = os.path.join(_frontend_dist, "univer-bom.html")
+        if os.path.isfile(univer_path):
+            return FileResponse(univer_path)
+
     index_path = f"{_frontend_dist}/index.html"
     if not os.path.isfile(index_path):
         return JSONResponse({"detail": "Frontend not built"}, status_code=503)
