@@ -113,9 +113,9 @@ let fabMoved = false
 
 function getFabDefaultPos(): { x: number; y: number } {
   if (window.innerWidth <= 480) {
-    return { x: window.innerWidth - 68, y: 80 }  // above bottom nav (52px + gap)
+    return { x: window.innerWidth - 68, y: 84 }
   }
-  return { x: window.innerWidth - 68, y: 20 }
+  return { x: window.innerWidth - 68, y: 84 }
 }
 
 function toggleFab(e: MouseEvent) {
@@ -512,13 +512,14 @@ function quickReply(reply: string, msg: any) {
 </script>
 
 <style scoped>
-.ai-chat { position: fixed; bottom: 20px; right: 20px; z-index: 2000; }
+.ai-chat { position: fixed; bottom: 84px; right: 20px; z-index: 2000; }
 .ai-fab {
   width: 48px; height: 48px; border-radius: 50%;
   background: var(--color-accent); color: #fff;
   border: none; cursor: pointer;
   box-shadow: 0 4px 12px rgba(0,0,0,.2);
   display: flex; align-items: center; justify-content: center; padding: 0;
+  touch-action: none; user-select: none;
 }
 .ai-fab:hover { transform: scale(1.05); }
 .ai-panel {
