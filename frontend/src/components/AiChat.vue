@@ -1,6 +1,14 @@
 <template>
   <div class="ai-chat">
-    <button v-if="!open" class="ai-fab" @click="open = true; loadConvs()">
+    <button
+      v-if="!open"
+      ref="fabEl"
+      class="ai-fab"
+      :style="fabPosition"
+      @mousedown.prevent="startDragFab"
+      @touchstart.prevent="startDragFabTouch"
+      @click="toggleFab"
+    >
       <MessageCircleIcon style="width:22px;height:22px" />
     </button>
 
@@ -74,7 +82,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, watch } from 'vue'
+import { ref, computed, nextTick, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessageCircleIcon, Minimize2Icon } from 'lucide-vue-next'
 import SolutionProductCard from './GenUI/SolutionProductCard.vue'
@@ -91,9 +99,98 @@ const genuiRegistry: Record<string, any> = { SolutionProductCard, QuoteDraftCard
 const router = useRouter()
 const open = ref(false)
 const inputEl = ref<HTMLInputElement | null>(null)
+const fabEl = ref<HTMLElement | null>(null)
+
+// FAB draggable position
+const fabPos = ref({ x: NaN, y: NaN })
+const fabPosition = computed(() => {
+  if (isNaN(fabPos.value.x)) return {}
+  return { left: fabPos.value.x + 'px', bottom: fabPos.value.y + 'px', right: 'auto' }
+})
+let fabDragging = false
+let fabStart = { x: 0, y: 0, left: 0, bottom: 0 }
+let fabMoved = false
+
+function getFabDefaultPos(): { x: number; y: number } {
+  if (window.innerWidth <= 480) {
+    return { x: window.innerWidth - 68, y: 80 }  // above bottom nav (52px + gap)
+  }
+  return { x: window.innerWidth - 68, y: 20 }
+}
+
+function toggleFab(e: MouseEvent) {
+  if (fabMoved) { fabMoved = false; return }
+  open.value = true
+  loadConvs()
+}
+
+function startDragFab(e: MouseEvent) {
+  const el = fabEl.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  fabStart = { x: e.clientX, y: e.clientY, left: rect.left, bottom: window.innerHeight - rect.bottom }
+  fabDragging = true
+  fabMoved = false
+  document.addEventListener('mousemove', onDragFab)
+  document.addEventListener('mouseup', stopDragFab)
+}
+
+function startDragFabTouch(e: TouchEvent) {
+  const el = fabEl.value
+  if (!el || !e.touches[0]) return
+  const rect = el.getBoundingClientRect()
+  const t = e.touches[0]
+  fabStart = { x: t.clientX, y: t.clientY, left: rect.left, bottom: window.innerHeight - rect.bottom }
+  fabDragging = true
+  fabMoved = false
+  document.addEventListener('touchmove', onDragFabTouch, { passive: false })
+  document.addEventListener('touchend', stopDragFabTouch)
+}
+
+function onDragFab(e: MouseEvent) {
+  const dx = e.clientX - fabStart.x
+  const dy = e.clientY - fabStart.y
+  if (Math.abs(dx) > 3 || Math.abs(dy) > 3) fabMoved = true
+  const x = Math.max(0, Math.min(window.innerWidth - 56, fabStart.left + dx))
+  const y = Math.max(70, Math.min(window.innerHeight - 56, fabStart.bottom - dy))
+  fabPos.value = { x, y }
+}
+
+function onDragFabTouch(e: TouchEvent) {
+  e.preventDefault()
+  const t = e.touches[0]
+  if (!t) return
+  const dx = t.clientX - fabStart.x
+  const dy = t.clientY - fabStart.y
+  if (Math.abs(dx) > 5 || Math.abs(dy) > 5) fabMoved = true
+  const x = Math.max(0, Math.min(window.innerWidth - 56, fabStart.left + dx))
+  const y = Math.max(70, Math.min(window.innerHeight - 56, fabStart.bottom - dy))
+  fabPos.value = { x, y }
+}
+
+function stopDragFab() {
+  fabDragging = false
+  document.removeEventListener('mousemove', onDragFab)
+  document.removeEventListener('mouseup', stopDragFab)
+}
+
+function stopDragFabTouch() {
+  fabDragging = false
+  document.removeEventListener('touchmove', onDragFabTouch)
+  document.removeEventListener('touchend', stopDragFabTouch)
+}
+
+// Reset FAB position on window resize
+window.addEventListener('resize', () => {
+  if (!open.value) fabPos.value = getFabDefaultPos()
+})
 
 watch(open, (val) => {
   if (val) nextTick(() => inputEl.value?.focus())
+})
+
+onMounted(() => {
+  fabPos.value = getFabDefaultPos()
 })
 const expanded = ref(false)
 const input = ref('')
