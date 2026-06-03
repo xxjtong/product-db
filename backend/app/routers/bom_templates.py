@@ -287,6 +287,7 @@ def _cell_ref_to_rc(ref: str):
 
 def _inline_style_to_openpyxl(s: dict) -> dict:
     """Convert snapshot inline style to openpyxl kwargs."""
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     result = {}
     font_kwargs = {}
 
@@ -301,7 +302,10 @@ def _inline_style_to_openpyxl(s: dict) -> dict:
     if s.get("ff"):
         font_kwargs["name"] = s["ff"]
     if s.get("cl"):
-        font_kwargs["color"] = s["cl"].lstrip("#")
+        cl = s["cl"]
+        if isinstance(cl, dict):
+            cl = cl.get("rgb", "#000000")
+        font_kwargs["color"] = cl.lstrip("#")
 
     if font_kwargs:
         result["font"] = Font(**font_kwargs)
@@ -312,12 +316,12 @@ def _inline_style_to_openpyxl(s: dict) -> dict:
                                       fill_type="solid")
 
     align_kwargs = {}
-    if s.get("ht"):
-        align_map = {"left": "left", "center": "center", "right": "right"}
-        align_kwargs["horizontal"] = align_map.get(s["ht"], s["ht"])
-    if s.get("vt"):
-        v_map = {"top": "top", "middle": "center", "bottom": "bottom"}
-        align_kwargs["vertical"] = v_map.get(s["vt"], s["vt"])
+    if s.get("ht") is not None:
+        align_map = {0: "left", 1: "left", 2: "center", 3: "right", "left": "left", "center": "center", "right": "right"}
+        align_kwargs["horizontal"] = align_map.get(s["ht"], "left")
+    if s.get("vt") is not None:
+        v_map = {0: "top", 1: "top", 2: "center", 3: "bottom", "top": "top", "middle": "center", "bottom": "bottom"}
+        align_kwargs["vertical"] = v_map.get(s["vt"], "top")
     if s.get("tb"):
         align_kwargs["wrap_text"] = True
     if align_kwargs:
@@ -347,11 +351,11 @@ def _write_snapshot_to_xlsx(ws, snapshot: dict):
             for attr, value in style_kwargs.items():
                 setattr(openpyxl_cell, attr, value)
 
-    # Apply column widths
+    # Apply column widths (keys are cell refs like "A1" from Univer save)
     col_widths = snapshot.get("colWidths", {})
     for col_key, width in col_widths.items():
-        _, col = _cell_ref_to_rc(col_key + "1")
-        ws.column_dimensions[col_key].width = max(float(width) * 0.14, 3)
+        col_letter = ''.join(c for c in col_key if c.isalpha())
+        ws.column_dimensions[col_letter].width = max(float(width) * 0.14, 3)
 
     # Apply row heights
     row_heights = snapshot.get("rowHeights", {})

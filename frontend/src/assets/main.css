@@ -470,7 +470,10 @@ button {
 /* Scrollable tables on small screens */
 .data-table { width: 100%; }
 @media (max-width: 768px) {
-  .data-table { display: block; overflow-x: auto; white-space: nowrap; }
+  .card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .data-table { white-space: nowrap; }
+  .data-table th,
+  .data-table td { white-space: nowrap; }
   .card:has(.data-table) {
     background: linear-gradient(to right, white 30%, transparent),
                 radial-gradient(at right, rgba(0,0,0,.08), transparent 70%) right;
@@ -615,6 +618,7 @@ button {
   .data-table th,
   .data-table td {
     padding: 6px 8px;
+    white-space: nowrap;
   }
 
   /* Smaller buttons */

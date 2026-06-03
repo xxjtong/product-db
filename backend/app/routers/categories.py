@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.category import Category, CategorySpecDefinition
@@ -76,6 +77,25 @@ def delete_category(cat_id: int, db: Session = Depends(get_db), user=Depends(get
     cat = db.get(Category, cat_id)
     if not cat:
         raise HTTPException(404, "Category not found")
+
+    # Cascade-delete child records to avoid FK violations
+    from app.models.product import Product
+    from app.models.mapping import ProductCommMethod, ProductCommProtocol, ProductPowerSupply
+    from app.models.mapping import ProductHardwareInterface, ProductSensorCapability, ProductImage
+    from app.models.dependency import ProductDependency
+    from app.models.quotation import QuotationItem
+    from app.models.solution import SolutionItem
+
+    db.execute(text('DELETE FROM category_spec_definitions WHERE category_id = :cid'), {'cid': cat_id})
+    db.execute(text('DELETE FROM product_categories WHERE category_id = :cid'), {'cid': cat_id})
+    db.execute(text('DELETE FROM product_dependencies WHERE depends_on_category_id = :cid'), {'cid': cat_id})
+    # Update products using old single-category column (NOT NULL, fallback to first category)
+    fallback = db.query(Category).filter(Category.id != cat_id, Category.is_active == True).first()
+    fallback_id = fallback.id if fallback else 1
+    db.execute(text('UPDATE products SET category_id = :fid WHERE category_id = :cid'),
+               {'cid': cat_id, 'fid': fallback_id})
+    db.execute(text('UPDATE device_categories SET parent_id = NULL WHERE parent_id = :cid'), {'cid': cat_id})
+
     db.delete(cat)
     db.commit()
     return {"ok": True}

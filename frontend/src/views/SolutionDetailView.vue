@@ -3,7 +3,6 @@
     <button class="btn-secondary" @click="checkDeps"><ShieldCheckIcon style="width:14px;height:14px" />依赖检查</button>
     <button class="btn-secondary" @click="doCreateQuotation">生成报价单</button>
     <button class="btn-secondary" @click="showBom = !showBom">{{ showBom ? '收起' : '编辑' }} BOM 表格</button>
-    <button class="btn-primary" @click="openUniverEditor"><Edit3Icon style="width:14px;height:14px" />编辑BOM表格</button>
     <button class="btn-secondary" @click="$router.back()">返回</button>
   </PageHeader>
 
@@ -71,10 +70,11 @@
       </div>
 
       <table class="data-table" v-if="solution.items?.length">
-        <thead><tr><th>产品</th><th style="width:80px">数量</th><th style="width:100px">单价</th><th style="width:80px">折扣%</th><th style="width:100px">小计</th><th style="width:120px">备注</th><th style="width:40px"></th></tr></thead>
+        <thead><tr><th>产品</th><th>型号</th><th style="width:80px">数量</th><th style="width:100px">单价</th><th style="width:80px">折扣%</th><th style="width:100px">小计</th><th style="width:120px">备注</th><th style="width:40px"></th></tr></thead>
         <tbody>
           <tr v-for="item in solution.items" :key="item.id">
             <td><router-link :to="`/products/${item.product_id}`" class="text-sm">{{ item.product_name }}</router-link></td>
+            <td class="font-mono text-sm text-muted">{{ item.product_model || '—' }}</td>
             <td><input v-model.number="item.quantity" type="number" min="1" style="width:60px" @change="updateItem(item)" /></td>
             <td class="font-mono text-sm">{{ item.unit_price }}</td>
             <td><input v-model.number="item.discount_rate" type="number" style="width:60px" @change="updateItem(item)" /></td>
@@ -85,20 +85,6 @@
         </tbody>
       </table>
       <div v-else class="empty-state" style="padding:24px"><InboxIcon /><p>暂无产品，使用上方 AI 助手或批量选品添加</p></div>
-    </div>
-
-    <!-- Dependency check + Graph -->
-    <div v-if="checkResult" class="card mb-16">
-      <h3>依赖检查结果</h3>
-      <div v-if="checkResult.ok" style="color:var(--color-success)">✓ 所有依赖已满足</div>
-      <div v-else>
-        <div v-for="w in checkResult.warnings" :key="w.description" style="color:var(--color-danger);margin-bottom:4px">
-          ⚠ {{ w.type === 'missing_category' ? '缺少品类' : '缺少产品' }}: {{ w.target_name }} — {{ w.description }}
-        </div>
-      </div>
-    </div>
-    <div class="card mb-16">
-      <DependencyGraph :solutionId="Number(route.params.id)" />
     </div>
 
     <!-- BOM Spreadsheet -->
@@ -134,15 +120,14 @@
 <script setup lang="ts">
 import { ref, onMounted, inject, computed, nextTick, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ShieldCheckIcon, Trash2Icon, PlusIcon, InboxIcon, Edit3Icon } from 'lucide-vue-next'
+import { ShieldCheckIcon, Trash2Icon, PlusIcon, InboxIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import { defineAsyncComponent } from 'vue'
 const BOMSpreadsheet = defineAsyncComponent(() => import('../components/BOMSpreadsheet.vue'))
-import DependencyGraph from '../components/DependencyGraph.vue'
 import Modal from '../components/Modal.vue'
 import SolutionProductCard from '../components/GenUI/SolutionProductCard.vue'
 import QuoteDraftCard from '../components/GenUI/QuoteDraftCard.vue'
-import { fetchSolution, fetchProducts, addSolutionItem, updateSolutionItem, deleteSolutionItem, checkSolution, createQuotation, updateSolution, streamAiChat, fetchConversations, fetchConversation } from '../api'
+import { fetchSolution, fetchProducts, addSolutionItem, updateSolutionItem, deleteSolutionItem, createQuotation, updateSolution, streamAiChat, fetchConversations, fetchConversation } from '../api'
 import type { Solution, Product } from '../types'
 import DOMPurify from 'dompurify'
 
@@ -158,9 +143,6 @@ const showToast = inject<(msg: string, type?: string) => void>('toast', () => {}
 
 const solution = ref<Solution | null>(null)
 const allProducts = ref<Product[]>([])
-interface CheckWarning { type: string; description: string; target_name?: string }
-interface CheckResult { ok: boolean; warnings: CheckWarning[] }
-const checkResult = ref<CheckResult | null>(null)
 
 // AI chat
 interface ChatMessage {
@@ -263,23 +245,11 @@ async function removeItem(itemId: number) {
   catch (e: any) { showToast(e.detail || e.message, 'error') }
 }
 
-async function checkDeps() {
-  try { checkResult.value = await checkSolution(Number(route.params.id)) }
-  catch (e: any) { showToast(e.detail || e.message, 'error') }
-}
-
 async function doCreateQuotation() {
   try {
     const res = await createQuotation({ solution_id: Number(route.params.id) }) as any
     showToast('报价单已生成', 'success'); router.push(`/quotations/${res.quotation.id}`)
   } catch (e: any) { showToast(e.detail || e.message, 'error') }
-}
-
-function openUniverEditor() {
-  const token = localStorage.getItem('token')
-  if (!token) { showToast('请先登录', 'error'); return }
-  const base = import.meta.env.BASE_URL || '/product-db/'
-  window.open(`${base}univer-bom.html?solutionId=${route.params.id}&token=${encodeURIComponent(token)}`, '_blank')
 }
 
 // AI Chat with GenUI component support

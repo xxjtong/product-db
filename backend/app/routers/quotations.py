@@ -14,6 +14,7 @@ from app.auth import get_current_user
 from app.models.user import User
 from app.utils.escape import escape_like
 from app.schemas.quotation import QuotationCreate, QuotationUpdate, QuotationItemCreate, QuotationItemUpdate
+from app.schemas.solution import BatchDeleteRequest
 from datetime import datetime, timedelta
 from io import BytesIO
 
@@ -145,6 +146,15 @@ def create_quotation(data: QuotationCreate, db: Session = Depends(get_db), user=
     db.commit()
     db.refresh(qt)
     return {"quotation": qt.to_dict()}
+
+
+@router.post("/quotations/batch-delete")
+def batch_delete_quotations(data: BatchDeleteRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    if not data.ids:
+        raise HTTPException(400, "ids is required")
+    deleted = db.query(Quotation).filter(Quotation.id.in_(data.ids)).delete(synchronize_session="fetch")
+    db.commit()
+    return {"ok": True, "deleted": deleted}
 
 
 @router.get("/quotations/{quotation_id}")

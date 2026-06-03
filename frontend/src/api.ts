@@ -119,7 +119,10 @@ export const suggestSolution = (solId: number) => api<{ suggestions: any[] }>(`/
 export const fetchBomSnapshot = (solId: number) => api<{ bom_snapshot: any }>(`/solutions/${solId}/bom-snapshot`)
 export const saveBomSnapshot = (solId: number, data: any) =>
   api(`/solutions/${solId}/bom-snapshot`, { method: 'PUT', body: JSON.stringify(data) })
-export const bomExportUrl = (solId: number) => `${API_BASE}/solutions/${solId}/bom-snapshot/export-xlsx`
+export const bomExportUrl = (solId: number) => {
+  const token = localStorage.getItem('token') || ''
+  return `${API_BASE}/solutions/${solId}/bom-snapshot/export-xlsx?token=${encodeURIComponent(token)}`
+}
 
 // --- Quotations ---
 export const fetchQuotations = (params: string = '') =>
@@ -128,13 +131,17 @@ export const fetchQuotation = (id: number) => api<{ quotation: Quotation }>(`/qu
 export const createQuotation = (data: any) => api('/quotations', { method: 'POST', body: JSON.stringify(data) })
 export const updateQuotation = (id: number, data: any) => api(`/quotations/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteQuotation = (id: number) => api(`/quotations/${id}`, { method: 'DELETE' })
+export const batchDeleteQuotations = (ids: number[]) => api('/quotations/batch-delete', { method: 'POST', body: JSON.stringify({ ids }) })
 export const addQuotationItem = (qtId: number, data: any) =>
   api(`/quotations/${qtId}/items`, { method: 'POST', body: JSON.stringify(data) })
 export const updateQuotationItem = (qtId: number, itemId: number, data: any) =>
   api(`/quotations/${qtId}/items/${itemId}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteQuotationItem = (qtId: number, itemId: number) =>
   api(`/quotations/${qtId}/items/${itemId}`, { method: 'DELETE' })
-export const quotationExportUrl = (qtId: number) => `${API_BASE}/quotations/${qtId}/export-xlsx`
+export const quotationExportUrl = (qtId: number) => {
+  const token = localStorage.getItem('token') || ''
+  return `${API_BASE}/quotations/${qtId}/export-xlsx?token=${encodeURIComponent(token)}`
+}
 
 // --- AI ---
 export async function* streamAiChat(input: string, conversationId?: number | null) {

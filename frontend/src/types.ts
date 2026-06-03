@@ -106,6 +106,8 @@ export interface SolutionItem {
   solution_id: number
   product_id: number
   product_name: string
+  product_model: string
+  product_sku: string
   quantity: number
   unit_price: number
   discount_rate: number

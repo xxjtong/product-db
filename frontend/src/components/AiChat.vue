@@ -5,8 +5,8 @@
       ref="fabEl"
       class="ai-fab"
       :style="fabPosition"
-      @mousedown.prevent="startDragFab"
-      @touchstart.prevent="startDragFabTouch"
+      @mousedown="startDragFab"
+      @touchstart="startDragFabTouch"
       @click="toggleFab"
     >
       <MessageCircleIcon style="width:22px;height:22px" />
@@ -113,9 +113,9 @@ let fabMoved = false
 
 function getFabDefaultPos(): { x: number; y: number } {
   if (window.innerWidth <= 480) {
-    return { x: window.innerWidth - 68, y: 84 }
+    return { x: window.innerWidth - 68, y: 60 }
   }
-  return { x: window.innerWidth - 68, y: 84 }
+  return { x: window.innerWidth - 68, y: 60 }
 }
 
 function toggleFab(e: MouseEvent) {
@@ -150,7 +150,7 @@ function startDragFabTouch(e: TouchEvent) {
 function onDragFab(e: MouseEvent) {
   const dx = e.clientX - fabStart.x
   const dy = e.clientY - fabStart.y
-  if (Math.abs(dx) > 3 || Math.abs(dy) > 3) fabMoved = true
+  if (Math.abs(dx) > 8 || Math.abs(dy) > 8) fabMoved = true
   const x = Math.max(0, Math.min(window.innerWidth - 56, fabStart.left + dx))
   const y = Math.max(70, Math.min(window.innerHeight - 56, fabStart.bottom - dy))
   fabPos.value = { x, y }
@@ -162,7 +162,7 @@ function onDragFabTouch(e: TouchEvent) {
   if (!t) return
   const dx = t.clientX - fabStart.x
   const dy = t.clientY - fabStart.y
-  if (Math.abs(dx) > 5 || Math.abs(dy) > 5) fabMoved = true
+  if (Math.abs(dx) > 10 || Math.abs(dy) > 10) fabMoved = true
   const x = Math.max(0, Math.min(window.innerWidth - 56, fabStart.left + dx))
   const y = Math.max(70, Math.min(window.innerHeight - 56, fabStart.bottom - dy))
   fabPos.value = { x, y }
@@ -512,7 +512,7 @@ function quickReply(reply: string, msg: any) {
 </script>
 
 <style scoped>
-.ai-chat { position: fixed; bottom: 84px; right: 20px; z-index: 2000; }
+.ai-chat { position: fixed; bottom: 60px; right: 20px; z-index: 2000; }
 .ai-fab {
   width: 48px; height: 48px; border-radius: 50%;
   background: var(--color-accent); color: #fff;
@@ -526,16 +526,16 @@ function quickReply(reply: string, msg: any) {
   background: #fff; border-radius: var(--radius-lg);
   box-shadow: 0 8px 30px rgba(0,0,0,.15);
   display: flex; flex-direction: column;
-  position: fixed; bottom: 20px; right: 20px;
-  width: 640px; height: 640px;
+  position: fixed; bottom: 60px; right: 20px;
+  width: 480px; height: 640px;
   min-width: 360px; min-height: 400px;
-  max-width: 90vw; max-height: calc(100vh - 40px);
+  max-width: 90vw; max-height: calc(100vh - 76px);
   overflow: hidden;
   resize: both;
 }
 .ai-panel.expanded {
-  width: 960px;
-  height: calc(100vh - 40px);
+  width: 640px;
+  height: calc(100vh - 76px);
 }
 .ai-header {
   padding: 10px 14px; background: var(--color-accent); color: #fff;
@@ -594,5 +594,21 @@ code { background: var(--color-hover); padding: 1px 4px; border-radius: 3px; fon
   border-left: 2px solid var(--color-text-secondary);
   border-top: 2px solid var(--color-text-secondary);
   opacity: .3;
+}
+
+@media (max-width: 480px) {
+  .ai-panel {
+    width: calc(100vw - 16px);
+    height: calc(100vh - 120px);
+    max-height: calc(100vh - 120px);
+    min-width: unset;
+    right: 8px;
+    bottom: 68px;
+  }
+  .ai-panel.expanded {
+    width: calc(100vw - 16px);
+    height: calc(100vh - 120px);
+  }
+  .ai-chat { bottom: 60px; right: 8px; }
 }
 </style>

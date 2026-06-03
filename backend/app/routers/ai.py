@@ -157,9 +157,13 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int):
     has_search_intent = any(k in inp for k in ["找", "搜索", "查", "推荐", "有没有", "列出", "哪些", "什么"])
     has_product_keyword = any(k in inp for k in ["网关", "传感器", "路由器", "温度", "湿度", "开关", "控制", "灯", "门禁", "空调", "表", "锁", "屏", "摄像", "控制器"])
     if has_search_intent or has_product_keyword:
-        # Try to search products
-        keyword = user_input  # use full query as keyword for relevance
-        args = {"keyword": keyword, "limit": 5}
+        # Try to search products — split on + for multi-keyword
+        keyword = user_input
+        if '+' in keyword:
+            parts = [p.strip() for p in keyword.split('+') if p.strip()]
+            args = {"keywords": parts, "limit": 5}
+        else:
+            args = {"keyword": keyword, "limit": 5}
 
         yield {"event": "tool", "text": "搜索产品..."}
         result_str = execute_tool("search_products", args, db)
@@ -204,7 +208,7 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int):
         yield {"event": "tool", "text": "搜索产品..."}
         search_terms = [user_input]
         if len(user_input) > 2:
-            words = re.split(r'[，,、\s]+', user_input)
+            words = re.split(r'[+，,、\s]+', user_input)
             search_terms = [user_input] + [w for w in words if len(w) >= 1]
         results = None
         result_str = ""

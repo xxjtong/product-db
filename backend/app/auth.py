@@ -2,7 +2,7 @@ import hashlib
 from passlib.context import CryptContext
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.config import settings
 from app.database import get_db
@@ -43,7 +43,17 @@ def create_token(user_id: int, username: str) -> str:
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
+    token: str = Query(None),
 ) -> User:
+    if not credentials and token:
+        try:
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+            user_id = int(payload.get("sub"))
+            user = db.get(User, user_id)
+            if user and user.is_active:
+                return user
+        except (JWTError, ValueError, TypeError):
+            pass
     if not credentials:
         if not settings.DEV_MODE:
             raise HTTPException(

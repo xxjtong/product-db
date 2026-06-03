@@ -61,15 +61,21 @@ class SolutionItem(Base):
 
     def to_dict(self, product_map=None):
         product_name = ""
+        product_model = ""
+        product_sku = ""
         if self.product_id and product_map:
             product_name = product_map.get(self.product_id, "")
         elif self.product:
             product_name = self.product.name
+            product_model = self.product.model or ""
+            product_sku = self.product.sku or ""
         return {
             "id": self.id,
             "solution_id": self.solution_id,
             "product_id": self.product_id,
             "product_name": product_name,
+            "product_model": product_model,
+            "product_sku": product_sku,
             "quantity": float(self.quantity) if self.quantity else 0,
             "unit_price": float(self.unit_price) if self.unit_price else 0,
             "discount_rate": float(self.discount_rate) if self.discount_rate else 100,

@@ -3,6 +3,9 @@
     <button class="btn-primary" @click="$router.push('/solutions')">
       <PlusIcon style="width:16px;height:16px" />新增
     </button>
+    <button v-if="selectedIds.size" class="btn-danger" @click="confirmBatchDelete">
+      <Trash2Icon style="width:14px;height:14px" />删除选中 ({{ selectedIds.size }})
+    </button>
   </PageHeader>
 
   <div class="card" style="margin-bottom:16px;padding:8px 12px">
@@ -22,9 +25,13 @@
     <div v-if="loading" class="empty-state"><p>加载中...</p></div>
     <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="load">重试</button></div>
     <table v-else-if="quotations.length" class="data-table">
-      <thead><tr><th>编号</th><th>标题</th><th>客户</th><th>状态</th><th>金额</th><th>创建时间</th><th>操作</th></tr></thead>
+      <thead><tr>
+        <th style="width:32px"><input type="checkbox" :checked="allSelected" @change="toggleAll" /></th>
+        <th>编号</th><th>标题</th><th>客户</th><th>状态</th><th>金额</th><th>创建时间</th><th>操作</th>
+      </tr></thead>
       <tbody>
         <tr v-for="q in quotations" :key="q.id">
+          <td><input type="checkbox" :checked="selectedIds.has(q.id)" @change="toggleSelect(q.id)" /></td>
           <td class="font-mono text-sm">{{ q.quote_number }}</td>
           <td>{{ q.title || '—' }}</td>
           <td>{{ q.client_name || '—' }}</td>
@@ -43,15 +50,16 @@
   </div>
 
   <ConfirmDialog title="删除报价单" :message="`确定删除报价单「${deleteTarget?.quote_number}」？`" :visible="!!deleteTarget" @confirm="doDelete" @cancel="deleteTarget = null" />
+  <ConfirmDialog title="批量删除" :message="`确定删除 ${selectedIds.size} 个报价单？`" :visible="showBatchConfirm" @confirm="doBatchDelete" @cancel="showBatchConfirm = false" />
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, inject } from 'vue'
+import { ref, onMounted, inject, computed } from 'vue'
 import { PlusIcon, Trash2Icon, InboxIcon, EyeIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Pagination from '../components/Pagination.vue'
-import { fetchQuotations, deleteQuotation } from '../api'
+import { fetchQuotations, deleteQuotation, batchDeleteQuotations } from '../api'
 import type { Quotation } from '../types'
 
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
@@ -63,7 +71,11 @@ const perPage = ref(20)
 const deleteTarget = ref<any>(null)
 const search = ref('')
 const statusFilter = ref('')
+const selectedIds = ref<Set<number>>(new Set())
+const showBatchConfirm = ref(false)
 let searchTimer: any = null
+
+const allSelected = computed(() => quotations.value.length > 0 && quotations.value.every(q => selectedIds.value.has(q.id)))
 
 const loading = ref(false)
 const loadError = ref('')
@@ -87,6 +99,35 @@ async function load() {
     loadError.value = e.message || '加载失败'
   }
   loading.value = false
+}
+
+function toggleSelect(id: number) {
+  const next = new Set(selectedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selectedIds.value = next
+}
+
+function toggleAll() {
+  if (allSelected.value) {
+    selectedIds.value = new Set()
+  } else {
+    selectedIds.value = new Set(quotations.value.map(q => q.id))
+  }
+}
+
+function confirmBatchDelete() {
+  showBatchConfirm.value = true
+}
+
+async function doBatchDelete() {
+  try {
+    await batchDeleteQuotations([...selectedIds.value])
+    showToast(`已删除 ${selectedIds.value.size} 个报价单`, 'success')
+    selectedIds.value = new Set()
+    showBatchConfirm.value = false
+    await load()
+  } catch (e: any) { showToast(e.detail || e.message, 'error') }
 }
 
 function confirmDelete(q: any) { deleteTarget.value = q }
