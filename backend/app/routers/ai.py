@@ -333,13 +333,18 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                 keywords = [str(kw_raw).strip()]
             else:
                 keywords = []
-            if keywords:
-                yield {"event": "tool", "text": f"搜索 {' + '.join(keywords)}..."}
-                args = {"keywords": keywords, "limit": 5}
+            brand = extracted.get("brand") or extracted.get("manufacturer")
+            has_filter = bool(extracted.get("category") or extracted.get("comm_method") or extracted.get("protocol") or extracted.get("power") or brand)
+            if keywords or has_filter:
+                if keywords:
+                    yield {"event": "tool", "text": f"搜索 {' + '.join(keywords)}..."}
+                elif brand:
+                    yield {"event": "tool", "text": f"搜索品牌 {brand}..."}
+                else:
+                    yield {"event": "tool", "text": f"筛选产品..."}
+                args = {"keywords": keywords or [], "limit": 5}
                 for f in ("category", "comm_method", "protocol", "power"):
                     if extracted.get(f): args[f] = extracted[f]
-                # Support both "brand" and "manufacturer"
-                brand = extracted.get("brand") or extracted.get("manufacturer")
                 if brand: args["manufacturer"] = brand
                 if extracted.get("min_price") is not None: args["min_price"] = extracted["min_price"]
                 if extracted.get("max_price") is not None: args["max_price"] = extracted["max_price"]
