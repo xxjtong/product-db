@@ -13,6 +13,14 @@
 
     <div v-if="uploading" class="text-sm text-muted" style="padding:4px 0">上传中...</div>
 
+    <div
+      class="drop-zone"
+      :class="{ 'drop-active': dragOver }"
+      @dragover.prevent="dragOver = true"
+      @dragleave="dragOver = false"
+      @drop.prevent="onDrop"
+    >拖拽文件到此处上传</div>
+
     <table v-if="files.length" class="data-table" style="margin-top:8px">
       <thead><tr><th>文件</th><th>大小</th><th>类型</th><th style="width:80px">操作</th></tr></thead>
       <tbody>
@@ -57,11 +65,19 @@ interface FileItem { id: number; filename: string; file_url: string; file_size: 
 const files = ref<FileItem[]>([])
 const fileLabel = ref('')
 const uploading = ref(false)
+const dragOver = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 const previewFile = ref<FileItem | null>(null)
 const previewText = ref('')
 
 function triggerUpload() { fileInput.value?.click() }
+
+async function onDrop(e: DragEvent) {
+  dragOver.value = false
+  const file = e.dataTransfer?.files?.[0]
+  if (!file) return
+  await uploadFile(file)
+}
 function isImage(t: string) { return ['jpg','jpeg','png','gif','webp','bmp'].includes(t) }
 
 function previewUrl(fileId: number) { return downloadUrl(fileId) }
@@ -101,10 +117,7 @@ async function loadFiles() {
   } catch { /* ignore */ }
 }
 
-async function onFileSelect(e: Event) {
-  const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
+async function uploadFile(file: File) {
   uploading.value = true
   try {
     const token = localStorage.getItem('token')
@@ -122,6 +135,13 @@ async function onFileSelect(e: Event) {
     showToast('文件已上传', 'success')
   } catch (e: any) { showToast(e.message || '上传失败', 'error') }
   uploading.value = false
+}
+
+async function onFileSelect(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  await uploadFile(file)
   input.value = ''
 }
 
@@ -150,5 +170,13 @@ onMounted(loadFiles)
   background: #fff; border-radius: 12px; padding: 20px;
   width: 90vw; max-width: 900px; max-height: 90vh; overflow: auto;
   box-shadow: 0 8px 40px rgba(0,0,0,.2);
+}
+.drop-zone {
+  border: 2px dashed var(--color-border); border-radius: 8px;
+  padding: 20px; text-align: center; color: var(--color-text-secondary);
+  font-size: 13px; transition: all .2s; margin-top: 8px;
+}
+.drop-zone.drop-active {
+  border-color: var(--color-accent); background: #eff6ff; color: var(--color-accent);
 }
 </style>
