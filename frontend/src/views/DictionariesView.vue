@@ -16,8 +16,8 @@
   <div class="card" v-show="activeTab === 'comm_methods'">
     <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">通讯方式</h3><button class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
     <table class="data-table">
-      <thead><tr><th>ID</th><th>类型</th><th>名称</th><th style="width:60px"></th></tr></thead>
-      <tbody><tr v-for="m in commMethods" :key="m.id"><td>{{ m.id }}</td><td>{{ m.method_type === 'wired' ? '有线' : '无线' }}</td><td>{{ m.name }}</td><td>
+      <thead><tr><th>ID</th><th>类型</th><th>名称</th><th style="width:60px">操作</th></tr></thead>
+      <tbody><tr v-for="m in commMethods" :key="m.id"><td>{{ m.id }}</td><td>{{ m.method_type === 'wired' ? '有线' : '无线' }}</td><td>{{ m.name }}</td><td style="white-space:nowrap">
         <button class="btn-icon btn-sm" @click="openDictEdit(m)"><PencilIcon style="width:14px;height:14px" /></button>
         <button class="btn-icon btn-sm" @click="doDictDelete(m.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
     </table>
@@ -28,8 +28,8 @@
   <div class="card" v-show="activeTab === 'comm_protocols'">
     <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">通讯协议</h3><button class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
     <table class="data-table">
-      <thead><tr><th>ID</th><th>名称</th><th style="width:60px"></th></tr></thead>
-      <tbody><tr v-for="p in commProtocols" :key="p.id"><td>{{ p.id }}</td><td>{{ p.name }}</td><td>
+      <thead><tr><th>ID</th><th>名称</th><th style="width:60px">操作</th></tr></thead>
+      <tbody><tr v-for="p in commProtocols" :key="p.id"><td>{{ p.id }}</td><td>{{ p.name }}</td><td style="white-space:nowrap">
         <button class="btn-icon btn-sm" @click="openDictEdit(p)"><PencilIcon style="width:14px;height:14px" /></button>
         <button class="btn-icon btn-sm" @click="doDictDelete(p.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
     </table>
@@ -40,8 +40,8 @@
   <div class="card" v-show="activeTab === 'power_supplies'">
     <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">供电方式</h3><button class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
     <table class="data-table">
-      <thead><tr><th>ID</th><th>类别</th><th>名称</th><th style="width:60px"></th></tr></thead>
-      <tbody><tr v-for="p in powerSupplies" :key="p.id"><td>{{ p.id }}</td><td>{{ p.supply_category }}</td><td>{{ p.name }}</td><td>
+      <thead><tr><th>ID</th><th>类别</th><th>名称</th><th style="width:60px">操作</th></tr></thead>
+      <tbody><tr v-for="p in powerSupplies" :key="p.id"><td>{{ p.id }}</td><td>{{ p.supply_category }}</td><td>{{ p.name }}</td><td style="white-space:nowrap">
         <button class="btn-icon btn-sm" @click="openDictEdit(p)"><PencilIcon style="width:14px;height:14px" /></button>
         <button class="btn-icon btn-sm" @click="doDictDelete(p.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
     </table>
@@ -52,8 +52,8 @@
   <div class="card" v-show="activeTab === 'sensor_metrics'">
     <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">传感器指标</h3><button class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
     <table class="data-table">
-      <thead><tr><th>ID</th><th>名称</th><th>单位</th><th style="width:60px"></th></tr></thead>
-      <tbody><tr v-for="m in sensorMetrics" :key="m.id"><td>{{ m.id }}</td><td>{{ m.name }}</td><td>{{ m.unit || '—' }}</td><td>
+      <thead><tr><th>ID</th><th>名称</th><th>单位</th><th style="width:60px">操作</th></tr></thead>
+      <tbody><tr v-for="m in sensorMetrics" :key="m.id"><td>{{ m.id }}</td><td>{{ m.name }}</td><td>{{ m.unit || '—' }}</td><td style="white-space:nowrap">
         <button class="btn-icon btn-sm" @click="openDictEdit(m)"><PencilIcon style="width:14px;height:14px" /></button>
         <button class="btn-icon btn-sm" @click="doDictDelete(m.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
     </table>
