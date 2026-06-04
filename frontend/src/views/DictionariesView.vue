@@ -14,40 +14,48 @@
 
   <!-- 通讯方式 -->
   <div class="card" v-show="activeTab === 'comm_methods'">
-    <h3 style="margin-bottom:12px">通讯方式</h3>
+    <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">通讯方式</h3><button class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
     <table class="data-table">
-      <thead><tr><th>ID</th><th>类型</th><th>名称</th></tr></thead>
-      <tbody><tr v-for="m in commMethods" :key="m.id"><td>{{ m.id }}</td><td>{{ m.method_type === 'wired' ? '有线' : '无线' }}</td><td>{{ m.name }}</td></tr></tbody>
+      <thead><tr><th>ID</th><th>类型</th><th>名称</th><th style="width:60px"></th></tr></thead>
+      <tbody><tr v-for="m in commMethods" :key="m.id"><td>{{ m.id }}</td><td>{{ m.method_type === 'wired' ? '有线' : '无线' }}</td><td>{{ m.name }}</td><td>
+        <button class="btn-icon btn-sm" @click="openDictEdit(m)"><PencilIcon style="width:14px;height:14px" /></button>
+        <button class="btn-icon btn-sm" @click="doDictDelete(m.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
     </table>
     <Pagination :total="cmTotal" :page="cmPage" :per-page="dictPerPage" @change="p => { cmPage = p; loadCommMethods() }" @update:per-page="s => { dictPerPage = s; cmPage = 1; loadCommMethods() }" />
   </div>
 
   <!-- 通讯协议 -->
   <div class="card" v-show="activeTab === 'comm_protocols'">
-    <h3 style="margin-bottom:12px">通讯协议</h3>
+    <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">通讯协议</h3><button class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
     <table class="data-table">
-      <thead><tr><th>ID</th><th>名称</th></tr></thead>
-      <tbody><tr v-for="p in commProtocols" :key="p.id"><td>{{ p.id }}</td><td>{{ p.name }}</td></tr></tbody>
+      <thead><tr><th>ID</th><th>名称</th><th style="width:60px"></th></tr></thead>
+      <tbody><tr v-for="p in commProtocols" :key="p.id"><td>{{ p.id }}</td><td>{{ p.name }}</td><td>
+        <button class="btn-icon btn-sm" @click="openDictEdit(p)"><PencilIcon style="width:14px;height:14px" /></button>
+        <button class="btn-icon btn-sm" @click="doDictDelete(p.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
     </table>
     <Pagination :total="cpTotal" :page="cpPage" :per-page="dictPerPage" @change="p => { cpPage = p; loadCommProtocols() }" @update:per-page="s => { dictPerPage = s; cpPage = 1; loadCommProtocols() }" />
   </div>
 
   <!-- 供电方式 -->
   <div class="card" v-show="activeTab === 'power_supplies'">
-    <h3 style="margin-bottom:12px">供电方式</h3>
+    <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">供电方式</h3><button class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
     <table class="data-table">
-      <thead><tr><th>ID</th><th>类别</th><th>名称</th></tr></thead>
-      <tbody><tr v-for="p in powerSupplies" :key="p.id"><td>{{ p.id }}</td><td>{{ p.supply_category }}</td><td>{{ p.name }}</td></tr></tbody>
+      <thead><tr><th>ID</th><th>类别</th><th>名称</th><th style="width:60px"></th></tr></thead>
+      <tbody><tr v-for="p in powerSupplies" :key="p.id"><td>{{ p.id }}</td><td>{{ p.supply_category }}</td><td>{{ p.name }}</td><td>
+        <button class="btn-icon btn-sm" @click="openDictEdit(p)"><PencilIcon style="width:14px;height:14px" /></button>
+        <button class="btn-icon btn-sm" @click="doDictDelete(p.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
     </table>
     <Pagination :total="psTotal" :page="psPage" :per-page="dictPerPage" @change="p => { psPage = p; loadPowerSupplies() }" @update:per-page="s => { dictPerPage = s; psPage = 1; loadPowerSupplies() }" />
   </div>
 
   <!-- 传感器指标 -->
   <div class="card" v-show="activeTab === 'sensor_metrics'">
-    <h3 style="margin-bottom:12px">传感器指标</h3>
+    <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">传感器指标</h3><button class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
     <table class="data-table">
-      <thead><tr><th>ID</th><th>名称</th><th>单位</th></tr></thead>
-      <tbody><tr v-for="m in sensorMetrics" :key="m.id"><td>{{ m.id }}</td><td>{{ m.name }}</td><td>{{ m.unit || '—' }}</td></tr></tbody>
+      <thead><tr><th>ID</th><th>名称</th><th>单位</th><th style="width:60px"></th></tr></thead>
+      <tbody><tr v-for="m in sensorMetrics" :key="m.id"><td>{{ m.id }}</td><td>{{ m.name }}</td><td>{{ m.unit || '—' }}</td><td>
+        <button class="btn-icon btn-sm" @click="openDictEdit(m)"><PencilIcon style="width:14px;height:14px" /></button>
+        <button class="btn-icon btn-sm" @click="doDictDelete(m.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
     </table>
     <Pagination :total="smTotal" :page="smPage" :per-page="dictPerPage" @change="p => { smPage = p; loadSensorMetrics() }" @update:per-page="s => { dictPerPage = s; smPage = 1; loadSensorMetrics() }" />
   </div>
@@ -122,6 +130,18 @@
       </template>
     </Modal>
   </div>
+  <Modal :title="dictEditing ? '编辑' : '新增'" :visible="dictModalVisible" @close="dictModalVisible = false">
+    <div class="form-grid">
+      <div class="form-group"><label>名称 *</label><input v-model="dictForm.name" /></div>
+      <div class="form-group" v-if="activeTab === 'comm_methods'"><label>类型</label><select v-model="dictForm.method_type"><option value="wired">有线</option><option value="wireless">无线</option></select></div>
+      <div class="form-group" v-if="activeTab === 'power_supplies'"><label>类别</label><input v-model="dictForm.supply_category" /></div>
+      <div class="form-group" v-if="activeTab === 'sensor_metrics'"><label>单位</label><input v-model="dictForm.unit" /></div>
+    </div>
+    <template #footer>
+      <button class="btn-secondary" @click="dictModalVisible = false">取消</button>
+      <button class="btn-primary" @click="saveDict">保存</button>
+    </template>
+  </Modal>
   <ConfirmDialog title="删除厂商" :message="`确定删除该厂商？`" :visible="confirmState.visible" @confirm="confirmState.action(); confirmState.visible = false" @cancel="confirmState.visible = false" />
   </template>
 </template>
@@ -133,7 +153,7 @@ import PageHeader from '../components/PageHeader.vue'
 import Modal from '../components/Modal.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Pagination from '../components/Pagination.vue'
-import { fetchCommMethods, fetchCommProtocols, fetchPowerSupplies, fetchSensorMetrics, fetchManufacturers, createManufacturer, updateManufacturer, fetchSuppliers, fetchSuppliersPaginated, createSupplier, updateSupplier, deleteSupplier } from '../api'
+import { fetchCommMethods, fetchCommProtocols, fetchPowerSupplies, fetchSensorMetrics, fetchManufacturers, createManufacturer, updateManufacturer, fetchSuppliers, fetchSuppliersPaginated, createSupplier, updateSupplier, deleteSupplier, createCommMethod, updateCommMethod, deleteCommMethod, createCommProtocol, updateCommProtocol, deleteCommProtocol, createPowerSupply, updatePowerSupply, deletePowerSupply, createSensorMetric, updateSensorMetric, deleteSensorMetric } from '../api'
 import type { Manufacturer, Supplier } from '../types'
 
 const activeTab = ref('comm_methods')
@@ -265,6 +285,37 @@ async function saveSup() {
   catch (e: any) { showToast(e.detail || e.message, 'error') }
 }
 async function deleteSup(id: number) { await deleteSupplier(id); showToast('已删除', 'success'); await loadSuppliers() }
+
+// Dict CRUD (shared for comm/protocol/power/metric)
+const dictModalVisible = ref(false)
+const dictEditing = ref<any>(null)
+const dictForm = ref<Record<string,any>>({ name: '', method_type: 'wired', supply_category: '', unit: '' })
+
+function openDictAdd() { dictEditing.value = null; dictForm.value = { name: '', method_type: 'wired', supply_category: '', unit: '' }; dictModalVisible.value = true }
+function openDictEdit(item: any) { dictEditing.value = item; dictForm.value = { ...item }; dictModalVisible.value = true }
+
+async function saveDict() {
+  try {
+    const tab = activeTab.value
+    const creators: Record<string, Function> = { comm_methods: createCommMethod, comm_protocols: createCommProtocol, power_supplies: createPowerSupply, sensor_metrics: createSensorMetric }
+    const updaters: Record<string, Function> = { comm_methods: updateCommMethod, comm_protocols: updateCommProtocol, power_supplies: updatePowerSupply, sensor_metrics: updateSensorMetric }
+    if (dictEditing.value) await updaters[tab](dictEditing.value.id, dictForm.value)
+    else await creators[tab](dictForm.value)
+    dictModalVisible.value = false
+    const loaders: Record<string, Function> = { comm_methods: loadCommMethods, comm_protocols: loadCommProtocols, power_supplies: loadPowerSupplies, sensor_metrics: loadSensorMetrics }
+    await loaders[tab]()
+    showToast('已保存', 'success')
+  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+}
+
+async function doDictDelete(id: number) {
+  if (!confirm('确定删除？')) return
+  const tab = activeTab.value
+  const deleters: Record<string, Function> = { comm_methods: deleteCommMethod, comm_protocols: deleteCommProtocol, power_supplies: deletePowerSupply, sensor_metrics: deleteSensorMetric }
+  const loaders: Record<string, Function> = { comm_methods: loadCommMethods, comm_protocols: loadCommProtocols, power_supplies: loadPowerSupplies, sensor_metrics: loadSensorMetrics }
+  try { await deleters[tab](id); await loaders[tab](); showToast('已删除', 'success') }
+  catch (e: any) { showToast(e.detail || e.message, 'error') }
+}
 
 onMounted(loadAll)
 </script>

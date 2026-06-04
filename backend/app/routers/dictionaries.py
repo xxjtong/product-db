@@ -106,3 +106,97 @@ def list_sensor_metrics(page: int = 1, per_page: int = 20, db: Session = Depends
     total = len(items)
     start = (page-1)*per_page; items = items[start:start+per_page]
     return {"sensor_metrics": [i.to_dict() for i in items], "total": total}
+
+
+# --- Generic dict CRUD helpers ---
+
+def _dict_create(model, data: dict, db: Session):
+    item = model(**{k: v for k, v in data.items() if v is not None})
+    db.add(item); db.commit(); db.refresh(item)
+    return item.to_dict()
+
+def _dict_update(item, data: dict, db: Session):
+    for k, v in data.items():
+        if v is not None: setattr(item, k, v)
+    db.commit()
+    return item.to_dict()
+
+
+# --- Comm Methods CRUD ---
+
+@router.post("/dicts/comm-methods")
+def create_comm_method(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    return {"comm_method": _dict_create(DictCommMethod, data, db)}
+
+@router.put("/dicts/comm-methods/{item_id}")
+def update_comm_method(item_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    item = db.get(DictCommMethod, item_id)
+    if not item: raise HTTPException(404, "Not found")
+    return {"comm_method": _dict_update(item, data, db)}
+
+@router.delete("/dicts/comm-methods/{item_id}")
+def delete_comm_method(item_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    item = db.get(DictCommMethod, item_id)
+    if not item: raise HTTPException(404, "Not found")
+    db.delete(item); db.commit()
+    return {"ok": True}
+
+
+# --- Comm Protocols CRUD ---
+
+@router.post("/dicts/comm-protocols")
+def create_comm_protocol(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    return {"comm_protocol": _dict_create(DictCommProtocol, data, db)}
+
+@router.put("/dicts/comm-protocols/{item_id}")
+def update_comm_protocol(item_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    item = db.get(DictCommProtocol, item_id)
+    if not item: raise HTTPException(404, "Not found")
+    return {"comm_protocol": _dict_update(item, data, db)}
+
+@router.delete("/dicts/comm-protocols/{item_id}")
+def delete_comm_protocol(item_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    item = db.get(DictCommProtocol, item_id)
+    if not item: raise HTTPException(404, "Not found")
+    db.delete(item); db.commit()
+    return {"ok": True}
+
+
+# --- Power Supplies CRUD ---
+
+@router.post("/dicts/power-supplies")
+def create_power_supply(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    return {"power_supply": _dict_create(DictPowerSupply, data, db)}
+
+@router.put("/dicts/power-supplies/{item_id}")
+def update_power_supply(item_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    item = db.get(DictPowerSupply, item_id)
+    if not item: raise HTTPException(404, "Not found")
+    return {"power_supply": _dict_update(item, data, db)}
+
+@router.delete("/dicts/power-supplies/{item_id}")
+def delete_power_supply(item_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    item = db.get(DictPowerSupply, item_id)
+    if not item: raise HTTPException(404, "Not found")
+    db.delete(item); db.commit()
+    return {"ok": True}
+
+
+# --- Sensor Metrics CRUD ---
+
+@router.post("/dicts/sensor-metrics")
+def create_sensor_metric(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    return {"sensor_metric": _dict_create(DictSensorMetric, data, db)}
+
+@router.put("/dicts/sensor-metrics/{item_id}")
+def update_sensor_metric(item_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    item = db.get(DictSensorMetric, item_id)
+    if not item: raise HTTPException(404, "Not found")
+    return {"sensor_metric": _dict_update(item, data, db)}
+
+@router.delete("/dicts/sensor-metrics/{item_id}")
+def delete_sensor_metric(item_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    item = db.get(DictSensorMetric, item_id)
+    if not item: raise HTTPException(404, "Not found")
+    db.delete(item); db.commit()
+    return {"ok": True}
