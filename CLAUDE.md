@@ -120,13 +120,15 @@ backend/app/
 │   ├── ai.py, auth_routes.py, admin_routes.py
 │   ├── dictionaries.py, system_settings.py
 ├── services/
-│   ├── ai_engine.py     # LlmEngine (DeepSeek API async)
-│   ├── ai_tools.py      # Tool Calling 4 工具 + Mock 回退
-│   ├── ai_extract.py    # AI 产品识别提取
-│   ├── product_helpers.py # 产品查询辅助 (eager loads, name maps, mappings)
-│   ├── spec_service.py  # 规格校验 + 产品对比
-│   ├── storage.py       # 文件管理 (路径穿越防护)
-│   └── field_visibility.py # 字段可见性 (30s 缓存)
+│   ├── ai_engine.py            # LlmEngine (DeepSeek API async)
+│   ├── ai_tools.py             # Tool Calling 4 工具 + Mock 回退
+│   ├── ai_extract.py           # AI 产品识别提取
+│   ├── product_helpers.py      # 产品查询辅助 (eager loads, name maps, mappings)
+│   ├── product_category_helper.py # product_categories 多对多统一操作
+│   ├── spec_service.py         # 规格校验 + 产品对比
+│   ├── spec_generator.py       # HTML/PDF 规格书生成
+│   ├── storage.py              # 文件管理 (路径穿越防护)
+│   └── field_visibility.py     # 字段可见性 (30s 缓存)
 ├── utils/
 │   ├── security.py      # SSRF 防护 (validate_url)
 │   ├── helpers.py       # apply_partial_update
@@ -142,8 +144,8 @@ frontend/src/
 ├── utils/
 │   └── markdown.ts      # 共享 HTML/markdown 格式化工具
 ├── views/               # 14 个页面视图
-│   ├── SolutionDetailView.vue # 方案详情 (AI 气泡 + BOM 编辑)
-│   └── SolutionsView.vue     # 方案列表 (行内状态编辑)
+│   ├── SolutionDetailView.vue # 方案详情 (客户信息 + AI 气泡 + 产品清单)
+│   └── SolutionsView.vue     # 方案列表 (行内状态下拉, 批量选择)
 ├── components/          # 通用组件
 │   ├── AiChat.vue            # AI 浮动对话面板 (可拖拽/缩放, 气泡式)
 │   ├── BOMSpreadsheet.vue    # BOM HTML 表格编辑器
@@ -175,29 +177,29 @@ frontend/src/
 │                                                          │
 │  4. run_agent(messages, db, conv_id):                    │
 │     ┌─────────────────────────────────────────────────┐ │
-│     │ Round 0: Keyword Extraction                      │ │
+│     │ Round 0: LLM 产品匹配 + 关键词提取                 │ │
 │     │                                                  │ │
 │     │  kw_system = keyword_prompt + db_ctx (300s缓存)  │ │
-│     │    - db_ctx: 品类/厂商/字典/414产品全量描述+specs │ │
+│     │    - db_ctx: 品类/厂商/字典/414产品全量[ID:xxx] 描述+specs  │ │
 │     │    - size: ~98KB ≈ 44K tokens                    │ │
 │     │    - prompt 存储在 system_settings 表, 管理后台可编辑│ │
 │     │                                                  │ │
-│     │  LLM (deepseek-v4-flash, temp=0)                 │ │
-│     │    → {"keywords":["光照","网关"],"category":null, │ │
-│     │       "comm_method":null,"brand":null,...}        │ │
+│     │  LLM (deepseek-chat, temp=0)                     │ │
+│     │    → {"keywords":["光照","网关"],                  │ │
+│     │       "matches":{"光照":[231,237],"网关":[278,280]}}│ │
 │     │                                                  │ │
-│     │  execute_tool("search_products", args)           │ │
-│     │    → 多关键词: 逐词独立搜索5条 → 去重交错合并      │ │
-│     │    → 单关键词: 搜5条 → per_cat=3 → 总上限5条      │ │
-│     │    → 0结果: 同义词替换回退                         │ │
+│     │  代码验证 ID → DB 取真实数据 → 去重 → 交错合并    │ │
+│     │    → 每关键词 top 10 → 跨关键词去重 → 最多5条/词  │ │
+│     │    → 价格过滤由 SQL 层处理                         │ │
+│     │    → 0结果/DSML: fallback SQL LIKE               │ │
 │     │                                                  │ │
 │     │  SSE: tool事件 + products事件 + component事件      │ │
 │     │  products_found = True, max_turns = 1            │ │
 │     └─────────────────────────────────────────────────┘ │
 │     ┌─────────────────────────────────────────────────┐ │
-│     │ Round 1: Chat LLM                                │ │
+│     │ Round 1: Chat LLM (deepseek-v4-flash)            │ │
 │     │                                                  │ │
-│     │  products_found=True → tools=None → 纯文本回复    │ │
+│     │  products_found=True → 简要文本回复                │ │
 │     │  products_found=False → tools=TOOL_DEFINITIONS    │ │
 │     │                                                  │ │
 │     │  LLM 失败 → 若有产品数据: 直接展示                 │ │
@@ -228,18 +230,21 @@ frontend/src/
 
 ```json
 {
-  "keywords": ["光照", "网关"],   // 必填, LLM自主拆词
-  "category": null,               // 仅用户明确说出才填
-  "comm_method": null,            // LoRaWAN/WiFi/Ethernet/4G/5G...
-  "protocol": null,               // MQTT/HTTP/ModbusRTU...
-  "power": null,                  // DC/PoE/Battery...
-  "brand": null,                  // 厂商名, 必须来自DB
-  "min_price": null,              // 数字, 未提则null
-  "max_price": null,              // 数字, 未提则null
-  "sort_by": null                 // price_asc / price_desc
+  "keywords": ["光照", "网关"],        // 必填, LLM自主拆词 (最多4个)
+  "matches": {"光照":[231,237,...]},   // 每个关键词匹配的产品ID (最多10个/词)
+  "category": null,                    // 仅用户明确说出才填
+  "comm_method": null,                 // LoRaWAN/WiFi/Ethernet/4G/5G...
+  "protocol": null,                    // MQTT/HTTP/ModbusRTU...
+  "power": null,                       // DC/PoE/Battery...
+  "brand": null,                       // 厂商名, 必须来自DB
+  "min_price": null,                   // 数字, 未提则null
+  "max_price": null,                   // 数字, 未提则null
+  "sort_by": null                      // price_asc / price_desc
 }
 ```
 
+**模型**: keyword 提取用 `deepseek-chat` (无 reasoning_content 开销), Chat LLM 用 `deepseek-v4-flash`。
+**DSML fallback**: deepseek 偶尔返回 `<｜DSML｜tool_calls>` 格式，代码检测后解析关键词执行 SQL LIKE。
 **Prompt 管理**：`ai_keyword_prompt` 存储在 `system_settings` 表，通过 `/admin/ai-settings` API 在管理后台在线编辑。同义词映射（漏水→水浸, 感应器→传感器, 无线→WiFi 等）同时在 prompt 规则和代码 `synonym_map` 两处维护。
 
 ### Round 1: Chat LLM + 工具调用
@@ -304,14 +309,40 @@ API key 存在?
 | `AiChat.vue` | 全局右下角浮动 FAB | 可拖拽/缩放, 独立对话列表 |
 | `SolutionDetailView.vue` | 方案详情页内嵌 | 产品卡片含"加入方案"按钮, 气泡式布局 |
 
+## API 概览
+
+| 分组 | 端点 | 说明 |
+|------|------|------|
+| Auth | `POST /auth/login|register` | JWT 登录/注册, 频率限制 |
+| Products | `GET|POST /products`, `GET|PUT|DELETE /products/{id}` | CRUD + 分页 + 品类/厂商/通讯筛选 |
+| Categories | `GET|POST /categories`, `PUT|DELETE /categories/{id}` | 树形品类管理 |
+| Solutions | `GET|POST /solutions`, `PUT|DELETE /solutions/{id}` | 方案 CRUD + 行内状态编辑 |
+| Quotations | `GET|POST /quotations`, `PUT|DELETE /quotations/{id}` | 报价 CRUD + 导出 xlsx |
+| Quotation BOM | `GET|PUT /quotations/{id}/bom` | 报价单 BOM 编辑器数据源 |
+| BOM Snapshots | `GET|PUT /solutions/{id}/bom-snapshot` | 方案 BOM 快照 |
+| Dicts | `GET|POST /dicts/{type}`, `PUT|DELETE /dicts/{type}/{id}` | 通讯/协议/供电/传感器/厂商/供应商 |
+| AI | `POST /ai/chat` (SSE), `GET /ai/conversations` | AI 方案助手 |
+| Files | `GET|POST /products/{id}/files`, `GET|DELETE /products/files/{id}` | 产品文件 (下载需auth) |
+| Admin | `GET|PUT /admin/*` | 用户管理/系统设置/AI设置 (admin only) |
+
+## 核心数据模型
+
+- **权限**: 8 张业务表含 `created_by` → users.id, `filter_by_ownership()` 列表过滤, `check_ownership()` 单资源 403
+- **品类**: `product_categories` 多对多中间表, 统一通过 `product_category_helper.py` 操作
+- **产品**: Product.cost_price 对非 admin 隐藏 (field_visibility), specs/urls JSON 字段
+- **方案**: Solution → SolutionItem (级联删除), `created_by` 自动记录
+- **报价**: Quotation → QuotationItem (product_snapshot JSON), `download_count` 下载计数
+- **BOM**: SolutionBOMSnapshot 快照格式 (cells + colWidths), BOMTemplate 可复用模板
+- **AI**: AIConversation + AIMessage (多轮对话), AIUsageLog (token 用量)
+
 ## 方案 (Solution) 工作流
 
 ```
-创建方案 → AI 助手选品 → 批量加入 BOM → 依赖检查 → 生成报价单
+创建方案 → AI 助手选品 → 批量加入/移除产品 → 生成报价单
               │                  │            │
-         GenUI卡片+勾选     搜索+多选    缺件告警+推荐 (N+1 已预加载)
+         GenUI卡片+勾选     行内编辑数量/折扣  报价单含产品快照
               │
-         BOM 表格编辑器 (HTML table, 内联编辑+保存+导出xlsx)
+         方案列表行内状态下拉 (草稿/进行中/完成)
 ```
 
 ## 品类系统
@@ -326,25 +357,32 @@ API key 存在?
 
 | 组件 | 功能 |
 |------|------|
-| `AiChat.vue` | AI 浮动对话面板 (可拖拽/缩放, 气泡式) |
-| `SolutionDetailView.vue` | 方案详情 (客户信息 + AI 方案助手 + 产品清单 + 依赖图 + BOM 编辑器) |
-| `BOMSpreadsheet.vue` | BOM HTML 表格编辑器 (内联编辑/保存/导出/模板) |
-| `DependencyGraph.vue` | Canvas 依赖关系图 (ResizeObserver 自适应) |
-| `SolutionsView.vue` | 方案列表 (行内状态下拉框) |
+| `AiChat.vue` | AI 浮动对话面板 (可拖拽/缩放, 气泡式, DOMPurify清洗) |
+| `SolutionDetailView.vue` | 方案详情 (客户信息 + AI 方案助手 + 产品清单行内编辑, 懒加载 picker) |
+| `BOMSpreadsheet.vue` | BOM HTML 表格编辑器 (支持 solutionId/quotationId, 添加/删除行, toast通知) |
+| `QuotationDetailView.vue` | 报价单详情 (只读表格 + BOM 编辑器 + xlsx 导出 + 合计行) |
+| `SolutionsView.vue` | 方案列表 (行内状态下拉框, ¥价格格式) |
+| `QuotationsView.vue` | 报价单列表 (行内状态下拉框, ¥价格格式) |
 | `GenUI/` | AI 动态组件 (SolutionProductCard, QuoteDraftCard) |
 
 ## BOM 表格编辑器
 
 - HTML 表格实现，点击单元格直接编辑
-- 列: 序号/产品名称/型号SKU/数量/单价/折扣%/小计/备注 + 合计行
-- 按钮: 重新加载/保存/导出xlsx/另存为模板
+- 列: `# | 产品名称 | 型号/SKU | 功能描述 | 数量 | 单价 | 折扣% | 小计 | 备注` + 合计行
+- 按钮: 重新加载/保存/添加行/导出xlsx (模板保存已移除)
+- 每行垃圾桶图标删除 + confirm 确认
 - 500px 最大高度，超出滚动
-- 保存时将编辑数据转为快照格式写入 `solution_bom_snapshots` 表
+- 支持两种数据源:
+  - `solutionId`: 读写 `solution_bom_snapshots` 表 (方案页已移除)
+  - `quotationId`: 读写 `quotation_items` 表 (报价单页使用)
+- 通知统一使用全局 `showToast()` (不再使用 `alert()`)
+- 报价单 BOM 导出 XLSX 格式统一匹配编辑器列布局
 
 ## 产品文件 (Product Files)
 
 - `product_files` 表: product_id, filename, file_url, file_size, file_type, label
 - API: GET/POST `/products/{id}/files`, GET/DELETE `/products/files/{id}`
+- 下载端点已加 `Depends(get_current_user)` 认证，支持 `?token=` 参数
 - 支持格式: pdf/doc/xlsx/zip/txt/csv + 图片, 最大 20MB
 - 上传 → `save_file()` UUID 重命名存到 `app/uploads/`
 - 下载 → `StreamingResponse` + UTF-8 文件名
@@ -353,36 +391,41 @@ API key 存在?
 
 ## 品类系统
 
-- 产品支持**多品类** (`product_categories` 多对多, 1297条, 平均3.1类/产品)
-- `products.category_id` 为遗留单列，逐步废弃中
-- 品类树 31 张表: 9 个固定排前 (会议/工位/信发/门禁访客/能耗/FM 等), 其余按 sort_order
+- 产品支持**多品类** (`product_categories` 多对多, 统一通过 `product_category_helper.py` 操作)
+- `products.category_id` 为遗留单列，逐步废弃中 (FK `ondelete=RESTRICT` 防止意外删除)
+- 品类树 27 个活跃品类: 传感器/网关/节点终端/安防/工具/执行器等
 - 产品列表筛选: 父品类行 + 点击展开子品类行（独立行显示）
 - 后端递归查询子孙品类 ID, 选中父品类覆盖所有后代产品
 - 删除品类自动级联清理 FK: spec_definitions, product_categories, dependencies, products.category_id → fallback, children.parent_id → NULL
 
 ## 数据库优化
 
-- 5 个业务索引: ai_messages(conv_id), product_files(product_id), solution_items(solution_id), quotation_items(quotation_id), quotations(solution_id)
-- 报价单下载计数: `quotations.download_count` + `download_logs` 表
+- 业务索引: ai_messages(conv_id), product_files(product_id), solution_items(solution_id), quotation_items(quotation_id), quotations(solution_id)
+- 报价单下载计数: `quotations.download_count` + `download_logs` 表 (下载端点无 auth 但需 token 参数)
 - SQLite 31 张表, ~4000 行, 单文件运行
 - 图片: 90% 远程 URL, 10% 本地 `app/uploads/`
+- `product_category_helper.py` 消除 5 处 raw SQL, 统一 ORM 参数化查询
 
 ## 关键约定
 
 - 模型统一 `to_dict()` 方法，Product 支持 map 参数防 N+1
 - 通用 partial update: `apply_partial_update(obj, data, fields)`
+- **权限**: `filter_by_ownership()` 过滤列表, `check_ownership()` 校验单资源 (admin 看全部, 普通用户看 NULL/自己/admin)
+- **created_by**: 8 表 (products, categories, manufacturers, suppliers, 4 dict) 创建时自动设为 `user.id`
 - DEV_MODE=True 时免登录 (自动创建 admin/admin)，生产必须 False
-- SECRET_KEY 生产环境必填，否则 sys.exit(1)
+- SECRET_KEY 必填且 ≥32 字符 (DEV_MODE 除外), 否则 sys.exit(1)
 - 前端 CSS 变量定义在 main.css，组件用 scoped 样式
-- API 统一通过 `api.ts` → `api<T>()` 泛型函数
+- API 统一通过 `api.ts` → `api<T>()` 泛型函数, headers 正确合并
 - API_BASE = `/product-db/api`, Vite proxy 匹配 `/product-db/api` → backend
 - `window.open()` 下载/导出需 `?token=` query param 认证
 - SSE component 事件 → GenUI 组件动态渲染
 - 密码: bcrypt (passlib) + 旧 SHA256 自动升级
 - v-html 全部经 DOMPurify.sanitize() 清洗
-- 字典数据 300s TTL 缓存, AI 上下文 300s TTL 缓存
-- 方案列表状态可直接行内下拉修改（草稿/进行中/完成）
-- AI 方案助手使用气泡式对话布局（用户右侧蓝色，AI 左侧灰色）
+- 字典/供应商数据 30s TTL 缓存, AI 上下文 300s TTL 缓存
+- 方案/报价单列表状态行内下拉修改, 报价单列表也支持
+- AI 方案助手使用气泡式对话布局 (用户右侧蓝色, AI 左侧灰色, tool 状态左对齐)
 - 导航栏排序: 搜索栏 → 产品 → 方案 → 报价单 → 品类 → 字典 → 管理
-- 字典页面: 标签切换（通讯方式/协议/供电/传感器/厂商/供应商）
+- 字典页面: 标签切换 (通讯方式/协议/供电/传感器/厂商/供应商)
 - 供应商管理已并入字典页，无独立导航
+- 所有表格统一列: `# | 产品名称 | 型号/SKU | 功能描述 | 数量 | 单价 | 折扣% | 小计 | 备注`
+- 价格统一 ¥ + toLocaleString() 千位分隔格式
