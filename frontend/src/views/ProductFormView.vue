@@ -88,7 +88,7 @@
         <UploadIcon style="width:14px;height:14px" />上传
         <input type="file" accept="image/*" style="display:none" @change="onFileSelect" />
       </label>
-      <input v-model="imageUrlInput" style="flex:1;min-width:180px;height:32px;font-size:13px" placeholder="粘贴URL下载" @keyup.enter="onDownloadImage" />
+      <input v-model="imageUrlInput" style="flex:1;min-width:180px;height:32px;font-size:13px" placeholder="粘贴URL或图片" @keyup.enter="onDownloadImage" @paste="onPasteImage" />
       <button class="btn-secondary btn-sm" @click="onDownloadImage" :disabled="imageDownloading">{{ imageDownloading ? '下载中' : '下载' }}</button>
     </div>
 
@@ -399,6 +399,28 @@ async function onDownloadImage() {
     }
   } catch (err: any) { showToast(err.detail || err.message, 'error') }
   imageDownloading.value = false
+}
+
+async function onPasteImage(e: ClipboardEvent) {
+  const items = e.clipboardData?.items
+  if (!items) return
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault()
+      const blob = item.getAsFile()
+      if (!blob) continue
+      const fd = new FormData()
+      fd.append('file', blob, 'paste.' + (item.type.split('/')[1] || 'png'))
+      try {
+        const res = await uploadProductImage(fd)
+        if (res.url) {
+          form.value.images.push({ url: res.url, is_primary: form.value.images.length === 0, sort_order: form.value.images.length })
+          showToast('图片已粘贴', 'success')
+        }
+      } catch (err: any) { showToast(err.detail || err.message, 'error') }
+      break
+    }
+  }
 }
 
 let _catChangeSeq = 0
