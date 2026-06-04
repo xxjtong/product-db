@@ -363,6 +363,8 @@ function formatContent(text: string, role: string): string {
       if (d.categories) return d.categories.map((c: any) => escapeHtml(c.name)).join('、')
     } catch { /* ignore */ }
   }
+  // Strip raw tool call XML that LLM may output
+  text = stripToolCalls(text)
   // Simple markdown-to-HTML for assistant messages
   return escapeHtml(text)
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
