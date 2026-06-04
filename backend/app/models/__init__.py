@@ -11,6 +11,7 @@ from app.models.system_setting import SystemSetting
 from app.models.field_setting import FieldSetting
 from app.models.ai_usage_log import AIUsageLog
 from app.models.download_log import DownloadTicket, DownloadLog
+from app.models.product_file import ProductFile
 from app.models.user import User
 from app.models.dictionary import Manufacturer, DictCommMethod, DictCommProtocol, DictPowerSupply, DictSensorMetric
 from app.models.mapping import (ProductCommMethod, ProductCommProtocol, ProductPowerSupply,

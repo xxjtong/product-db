@@ -3,10 +3,13 @@ import os
 import uuid
 from pathlib import Path
 
-UPLOAD_DIR = Path(os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads", "products"))
+UPLOAD_DIR = Path(os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads"))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-ALLOWED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}
+ALLOWED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp',
+                       '.pdf', '.doc', '.docx', '.xls', '.xlsx',
+                       '.zip', '.rar', '.bin', '.hex', '.txt', '.csv'}
+MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
 VALID_SIGNATURES = [
     b'\xff\xd8\xff',       # JPEG
     b'\x89PNG\r\n\x1a\n',  # PNG
@@ -23,14 +26,20 @@ def save_upload(file_bytes: bytes, filename: str, product_id: int = 0) -> str:
     filepath = os.path.join(UPLOAD_DIR, safe_name)
     with open(filepath, "wb") as f:
         f.write(file_bytes)
-    return f"/api/uploads/products/{safe_name}"
+    return f"/product-db/api/uploads/{safe_name}"
 
 
 def delete_file(url: str) -> bool:
     """Delete a file by its URL path."""
-    if not url or "/api/uploads/products/" not in url:
+    if not url:
         return False
-    filename = url.split("/api/uploads/products/")[-1]
+    # Support both /api/uploads/products/xxx and /product-db/api/uploads/xxx
+    for prefix in ("/api/uploads/products/", "/product-db/api/uploads/"):
+        if prefix in url:
+            filename = url.split(prefix)[-1]
+            break
+    else:
+        return False
     filepath = Path(os.path.join(UPLOAD_DIR, filename)).resolve()
     if not filepath.is_relative_to(UPLOAD_DIR.resolve()):
         return False
@@ -78,3 +87,18 @@ def upload_from_url(source_url: str, product_id: int = 0) -> str:
         raise ValueError(f"File extension '{ext}' not allowed")
 
     return save_upload(content, f"download{ext}", product_id)
+
+
+def save_file(file_bytes: bytes, original_filename: str) -> str:
+    """Save uploaded document file. Returns local URL path.
+    Validates extension and size, generates safe filename."""
+    ext = Path(original_filename).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise ValueError(f"File extension '{ext}' not allowed")
+    if len(file_bytes) > MAX_FILE_SIZE:
+        raise ValueError(f"File too large (max {MAX_FILE_SIZE // (1024*1024)}MB)")
+    safe_name = f"{uuid.uuid4().hex[:12]}{ext}"
+    filepath = os.path.join(UPLOAD_DIR, safe_name)
+    with open(filepath, "wb") as f:
+        f.write(file_bytes)
+    return f"/product-db/api/uploads/{safe_name}"

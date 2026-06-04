@@ -161,6 +161,9 @@
       <h3>备注</h3>
       <p class="text-sm" style="white-space:pre-wrap">{{ product.custom_fields.remark }}</p>
     </div>
+
+    <!-- Product files -->
+    <ProductFiles :productId="Number(route.params.id)" />
   </div>
   <div v-else-if="loadError" style="text-align:center;padding:48px;color:var(--color-danger)">{{ loadError }}<br /><button class="btn-primary btn-sm" style="margin-top:12px" @click="load">重试</button></div>
   <div v-else style="text-align:center;padding:48px;color:var(--color-text-secondary)">加载中...</div>
@@ -173,6 +176,7 @@ import { PencilIcon, FileTextIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import TagBadge from '../components/TagBadge.vue'
 import DependencyEditor from '../components/DependencyEditor.vue'
+import ProductFiles from '../components/ProductFiles.vue'
 import { fetchProduct, specSheetUrl, fetchCategories } from '../api'
 import type { Product, SpecDefinition } from '../types'
 
