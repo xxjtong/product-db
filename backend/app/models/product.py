@@ -81,6 +81,7 @@ class Product(Base):
             "category_id": self.category_id,
             "category_name": cat_name or "",
             "category_ids": [self.category_id] if self.category_id else [],
+            "all_category_names": [cat_name] if cat_name else [],
             "manufacturer_id": self.manufacturer_id,
             "manufacturer_name": manufacturer_name or "",
             "supplier_id": self.supplier_id,

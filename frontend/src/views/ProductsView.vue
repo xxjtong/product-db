@@ -80,7 +80,7 @@
       <thead>
         <tr>
           <th style="width:32px"><input type="checkbox" :checked="selectedIds.length === products.length" @change="toggleAll($event)" title="全选" /></th>
-          <th>名称</th><th>型号</th><th>品类</th><th>厂商</th><th>通讯</th><th>供电</th><th>操作</th>
+          <th>名称</th><th>型号</th><th>厂商</th><th>品类</th><th>通讯</th><th>供电</th><th>操作</th>
         </tr>
       </thead>
       <tbody>
@@ -95,8 +95,10 @@
             </div>
           </td>
           <td class="font-mono text-sm">{{ p.model || p.sku || '—' }}</td>
-          <td>{{ p.category_name }}</td>
-          <td>{{ p.manufacturer_name }}</td>
+          <td>{{ p.manufacturer_name || '—' }}</td>
+          <td>
+            <TagBadge v-for="cn in (p.all_category_names?.length ? p.all_category_names : [p.category_name])" :key="cn" :label="cn" />
+          </td>
           <td>
             <TagBadge v-for="cm in p.comm_methods.slice(0,3)" :key="cm.method_id" :label="cm.method_name" />
             <span v-if="p.comm_methods.length > 3" class="text-sm text-muted">+{{ p.comm_methods.length - 3 }}</span>

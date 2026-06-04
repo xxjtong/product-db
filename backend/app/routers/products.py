@@ -125,6 +125,21 @@ def list_products(
     cats, mfgs, sups = get_name_maps(db)
 
     product_list = [p.to_dict(cats, sups, mfgs) for p in products]
+    # Enrich with multi-category names
+    from app.models.category import Category as CatModel
+    cat_id_to_name = {c.id: c.name for c in db.query(CatModel).all()}
+    pc_rows = db.execute(text(
+        'SELECT product_id, category_id FROM product_categories WHERE product_id IN (SELECT id FROM products WHERE status=:s)'
+    ), {'s': 'active'}).fetchall()
+    pc_map: dict[int, list[str]] = {}
+    for pid, cid in pc_rows:
+        name = cat_id_to_name.get(cid, '')
+        if name and pid not in pc_map: pc_map[pid] = []
+        if name: pc_map[pid].append(name)
+    for p in product_list:
+        pid = p['id']
+        extra = pc_map.get(pid, [])
+        if extra: p['all_category_names'] = extra
     # Apply field visibility for non-admin users
     from app.services.field_visibility import filter_fields_for_user
     is_admin = getattr(user, 'role', '') == 'admin'
@@ -473,8 +488,27 @@ async def ai_fetch_file(file: UploadFile = File(...), db: Session = Depends(get_
     if not text.strip():
         raise HTTPException(400, "No text content extracted from file")
 
-    result = call_ai_extract("", filename, text, db) if settings.AI_GATEWAY_KEY \
-        else regex_extract_from_text("", text, db)
+    if settings.AI_GATEWAY_KEY:
+        from app.services.ai_engine import engine
+        from app.services.ai_extract import build_extraction_prompt
+        system_prompt = build_extraction_prompt(db)
+        user_msg = f"来源: {filename}\n\n规格文本:\n{text}\n\n请提取产品的结构化信息。"
+        import asyncio as _asyncio, re as _re
+        try:
+            result = await engine.chat([
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_msg},
+            ], temperature=0.1, max_tokens=3000)
+            content = result["choices"][0]["message"]["content"]
+            json_match = _re.search(r'\{.*\}', content, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+            else:
+                result = regex_extract_from_text("", text, db)
+        except Exception:
+            result = regex_extract_from_text("", text, db)
+    else:
+        result = regex_extract_from_text("", text, db)
     return {"fetched": {"filename": filename, **result}}
 
 
