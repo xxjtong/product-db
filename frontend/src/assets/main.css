@@ -447,6 +447,10 @@ button {
   padding: 3px 8px;
   background: #f8fafc;
 }
+.filter-tag.sub.active {
+  background: var(--color-accent);
+  color: #fff;
+}
 .filter-row {
   display: flex; flex-wrap: wrap; gap: 6px;
 }

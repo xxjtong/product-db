@@ -2,10 +2,18 @@
   <PageHeader title="字典管理" />
 
   <div v-if="loading" class="empty-state"><p>加载中...</p></div>
-  <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="onMounted(() => {})">重试</button></div>
+  <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="loadAll">重试</button></div>
   <template v-else>
 
-  <div class="card" style="margin-bottom:16px">
+  <!-- Tab bar -->
+  <div class="card" style="margin-bottom:16px;padding:8px 12px">
+    <div class="dict-tabs">
+      <button v-for="t in tabs" :key="t.key" :class="['dict-tab', { active: activeTab === t.key }]" @click="activeTab = t.key">{{ t.label }}</button>
+    </div>
+  </div>
+
+  <!-- 通讯方式 -->
+  <div class="card" v-show="activeTab === 'comm_methods'">
     <h3 style="margin-bottom:12px">通讯方式</h3>
     <table class="data-table">
       <thead><tr><th>ID</th><th>类型</th><th>名称</th></tr></thead>
@@ -14,7 +22,8 @@
     <Pagination :total="cmTotal" :page="cmPage" :per-page="dictPerPage" @change="p => { cmPage = p; loadCommMethods() }" @update:per-page="s => { dictPerPage = s; cmPage = 1; loadCommMethods() }" />
   </div>
 
-  <div class="card" style="margin-bottom:16px">
+  <!-- 通讯协议 -->
+  <div class="card" v-show="activeTab === 'comm_protocols'">
     <h3 style="margin-bottom:12px">通讯协议</h3>
     <table class="data-table">
       <thead><tr><th>ID</th><th>名称</th></tr></thead>
@@ -23,7 +32,8 @@
     <Pagination :total="cpTotal" :page="cpPage" :per-page="dictPerPage" @change="p => { cpPage = p; loadCommProtocols() }" @update:per-page="s => { dictPerPage = s; cpPage = 1; loadCommProtocols() }" />
   </div>
 
-  <div class="card" style="margin-bottom:16px">
+  <!-- 供电方式 -->
+  <div class="card" v-show="activeTab === 'power_supplies'">
     <h3 style="margin-bottom:12px">供电方式</h3>
     <table class="data-table">
       <thead><tr><th>ID</th><th>类别</th><th>名称</th></tr></thead>
@@ -32,7 +42,8 @@
     <Pagination :total="psTotal" :page="psPage" :per-page="dictPerPage" @change="p => { psPage = p; loadPowerSupplies() }" @update:per-page="s => { dictPerPage = s; psPage = 1; loadPowerSupplies() }" />
   </div>
 
-  <div class="card" style="margin-bottom:16px">
+  <!-- 传感器指标 -->
+  <div class="card" v-show="activeTab === 'sensor_metrics'">
     <h3 style="margin-bottom:12px">传感器指标</h3>
     <table class="data-table">
       <thead><tr><th>ID</th><th>名称</th><th>单位</th></tr></thead>
@@ -41,7 +52,8 @@
     <Pagination :total="smTotal" :page="smPage" :per-page="dictPerPage" @change="p => { smPage = p; loadSensorMetrics() }" @update:per-page="s => { dictPerPage = s; smPage = 1; loadSensorMetrics() }" />
   </div>
 
-  <div class="card">
+  <!-- 厂商 -->
+  <div class="card" v-show="activeTab === 'manufacturers'">
     <div class="flex justify-between items-center" style="margin-bottom:12px">
       <h3 style="margin:0">厂商</h3>
       <button class="btn-primary btn-sm" @click="openAddMfg">+ 新增</button>
@@ -60,7 +72,7 @@
         </tr>
       </tbody>
     </table>
-    <Pagination v-if="mfgTotal > perPage" :total="mfgTotal" :page="mfgPage" :per-page="perPage" @change="p => { mfgPage = p; loadManufacturers() }" @update:per-page="s => { perPage = s; mfgPage = 1; loadManufacturers() }" />
+    <Pagination :total="mfgTotal" :page="mfgPage" :per-page="perPage" @change="p => { mfgPage = p; loadManufacturers() }" @update:per-page="s => { perPage = s; mfgPage = 1; loadManufacturers() }" />
 
     <Modal :title="editingMfg ? '编辑厂商' : '新增厂商'" :visible="mfgModalVisible" @close="mfgModalVisible = false">
       <div class="form-grid">
@@ -70,6 +82,43 @@
       <template #footer>
         <button class="btn-secondary" @click="mfgModalVisible = false">取消</button>
         <button class="btn-primary" @click="saveMfg">保存</button>
+      </template>
+    </Modal>
+  </div>
+  <!-- 供应商 -->
+  <div class="card" v-show="activeTab === 'suppliers'">
+    <div class="flex justify-between items-center" style="margin-bottom:12px">
+      <h3 style="margin:0">供应商</h3>
+      <button class="btn-primary btn-sm" @click="openAddSup">+ 新增</button>
+    </div>
+    <table class="data-table">
+      <thead><tr><th>ID</th><th>名称</th><th>联系人</th><th>电话</th><th>操作</th></tr></thead>
+      <tbody>
+        <tr v-for="s in suppliers" :key="s.id">
+          <td>{{ s.id }}</td>
+          <td>{{ s.name }}</td>
+          <td>{{ s.contact || '—' }}</td>
+          <td>{{ s.phone || '—' }}</td>
+          <td>
+            <button class="btn-icon btn-sm" @click="openEditSup(s)"><PencilIcon style="width:14px;height:14px" /></button>
+            <button class="btn-icon btn-sm" @click="showConfirm(() => deleteSup(s.id))"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <Pagination :total="supTotal" :page="supPage" :per-page="perPage" @change="p => { supPage = p; loadSuppliers() }" @update:per-page="s => { perPage = s; supPage = 1; loadSuppliers() }" />
+
+    <Modal :title="editingSup ? '编辑供应商' : '新增供应商'" :visible="supModalVisible" @close="supModalVisible = false">
+      <div class="form-grid">
+        <div class="form-group"><label>名称 *</label><input v-model="supForm.name" /></div>
+        <div class="form-group"><label>联系人</label><input v-model="supForm.contact" /></div>
+        <div class="form-group"><label>电话</label><input v-model="supForm.phone" /></div>
+        <div class="form-group"><label>邮箱</label><input v-model="supForm.email" /></div>
+        <div class="form-group full"><label>备注</label><input v-model="supForm.notes" /></div>
+      </div>
+      <template #footer>
+        <button class="btn-secondary" @click="supModalVisible = false">取消</button>
+        <button class="btn-primary" @click="saveSup">保存</button>
       </template>
     </Modal>
   </div>
@@ -84,9 +133,18 @@ import PageHeader from '../components/PageHeader.vue'
 import Modal from '../components/Modal.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Pagination from '../components/Pagination.vue'
-import { fetchCommMethods, fetchCommProtocols, fetchPowerSupplies, fetchSensorMetrics, fetchManufacturers, createManufacturer, updateManufacturer } from '../api'
-import type { Manufacturer } from '../types'
+import { fetchCommMethods, fetchCommProtocols, fetchPowerSupplies, fetchSensorMetrics, fetchManufacturers, createManufacturer, updateManufacturer, fetchSuppliers, createSupplier, updateSupplier, deleteSupplier } from '../api'
+import type { Manufacturer, Supplier } from '../types'
 
+const activeTab = ref('comm_methods')
+const tabs = [
+  { key: 'comm_methods', label: '通讯方式' },
+  { key: 'comm_protocols', label: '通讯协议' },
+  { key: 'power_supplies', label: '供电方式' },
+  { key: 'sensor_metrics', label: '传感器指标' },
+  { key: 'manufacturers', label: '厂商' },
+  { key: 'suppliers', label: '供应商' },
+]
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 const confirmState = ref({ visible: false, action: () => {} })
 function showConfirm(action: () => void) { confirmState.value = { visible: true, action } }
@@ -168,23 +226,56 @@ async function loadAll() {
   loading.value = true
   loadError.value = ''
   try {
-    const [cm, cp, ps, sm, mfg] = await Promise.all([
+    const [cm, cp, ps, sm, mfg, sup] = await Promise.all([
       fetchCommMethods(cmPage.value, dictPerPage.value),
       fetchCommProtocols(cpPage.value, dictPerPage.value),
       fetchPowerSupplies(psPage.value, dictPerPage.value),
       fetchSensorMetrics(smPage.value, dictPerPage.value),
       fetchManufacturers(mfgPage.value, perPage.value),
+      fetchSuppliers(`page=1&per_page=${perPage.value}`),
     ])
     commMethods.value = cm.comm_methods; cmTotal.value = cm.total
     commProtocols.value = cp.comm_protocols; cpTotal.value = cp.total
     powerSupplies.value = ps.power_supplies; psTotal.value = ps.total
     sensorMetrics.value = sm.sensor_metrics; smTotal.value = sm.total
     manufacturers.value = mfg.manufacturers; mfgTotal.value = mfg.total || 0
+    suppliers.value = (sup as any).suppliers; supTotal.value = (sup as any).total || 0
   } catch (e: any) {
     loadError.value = e.message || '加载失败'
   }
   loading.value = false
 }
 
+// Suppliers
+const suppliers = ref<Supplier[]>([])
+const supTotal = ref(0)
+const supPage = ref(1)
+const supModalVisible = ref(false)
+const editingSup = ref<Supplier | null>(null)
+const supForm = ref({ name: '', contact: '', phone: '', email: '', notes: '' })
+
+async function loadSuppliers() {
+  const res = await fetchSuppliers(`page=${supPage.value}&per_page=${perPage.value}`) as any
+  suppliers.value = res.suppliers; supTotal.value = res.total
+}
+function openAddSup() { editingSup.value = null; supForm.value = { name: '', contact: '', phone: '', email: '', notes: '' }; supModalVisible.value = true }
+function openEditSup(s: Supplier) { editingSup.value = s; supForm.value = { name: s.name, contact: s.contact || '', phone: s.phone || '', email: s.email || '', notes: s.notes || '' }; supModalVisible.value = true }
+async function saveSup() {
+  try { editingSup.value ? await updateSupplier(editingSup.value.id, supForm.value) : await createSupplier(supForm.value); supModalVisible.value = false; await loadSuppliers(); showToast('已保存', 'success') }
+  catch (e: any) { showToast(e.detail || e.message, 'error') }
+}
+async function deleteSup(id: number) { await deleteSupplier(id); showToast('已删除', 'success'); await loadSuppliers() }
+
 onMounted(loadAll)
 </script>
+
+<style scoped>
+.dict-tabs { display: flex; gap: 4px; }
+.dict-tab {
+  padding: 6px 16px; border: none; background: transparent;
+  font-size: 13px; cursor: pointer; border-radius: 6px;
+  color: var(--color-text-secondary); transition: all .15s;
+}
+.dict-tab:hover { background: var(--color-hover); color: var(--color-text); }
+.dict-tab.active { background: var(--color-accent); color: #fff; }
+</style>
