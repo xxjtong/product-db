@@ -524,7 +524,7 @@ async function save() {
 
 onMounted(async () => {
   const [catRes, supRes, mfgRes, cmRes, cpRes, psRes, smRes] = await Promise.all([
-    fetchCategories(), fetchSuppliers('', true), fetchManufacturers(),
+    fetchCategories(), fetchSuppliers('', true), fetchManufacturers(1, 200),
     fetchCommMethods(), fetchCommProtocols(), fetchPowerSupplies(), fetchSensorMetrics(),
   ])
   categories.value = catRes.categories
