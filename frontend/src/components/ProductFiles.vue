@@ -14,27 +14,41 @@
     <div v-if="uploading" class="text-sm text-muted" style="padding:4px 0">上传中...</div>
 
     <table v-if="files.length" class="data-table" style="margin-top:8px">
-      <thead><tr><th>文件</th><th>大小</th><th>类型</th><th style="width:40px"></th></tr></thead>
+      <thead><tr><th>文件</th><th>大小</th><th>类型</th><th style="width:80px">操作</th></tr></thead>
       <tbody>
         <tr v-for="f in files" :key="f.id">
-          <td>
-            <a :href="downloadUrl(f.id)" class="text-sm">{{ f.label || f.filename }}</a>
-          </td>
+          <td><span class="text-sm" style="cursor:pointer" @click="preview(f)">{{ f.label || f.filename }}</span></td>
           <td class="text-sm text-muted">{{ formatSize(f.file_size) }}</td>
           <td class="text-sm text-muted">{{ f.file_type || '—' }}</td>
-          <td>
-            <button class="btn-icon btn-sm" @click="doDelete(f.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
+          <td style="white-space:nowrap">
+            <button class="btn-icon btn-sm" @click="preview(f)" title="预览"><EyeIcon style="width:14px;height:14px" /></button>
+            <a :href="downloadUrl(f.id)" class="btn-icon btn-sm" title="下载"><DownloadIcon style="width:14px;height:14px" /></a>
+            <button class="btn-icon btn-sm" @click="doDelete(f.id)" title="删除"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
           </td>
         </tr>
       </tbody>
     </table>
     <div v-else class="text-sm text-muted" style="padding:8px 0">暂无文件</div>
+
+    <!-- Preview modal -->
+    <div v-if="previewFile" class="preview-overlay" @click.self="previewFile = null">
+      <div class="preview-modal">
+        <div class="flex justify-between items-center" style="margin-bottom:8px">
+          <strong>{{ previewFile.label || previewFile.filename }}</strong>
+          <button class="btn-icon btn-sm" @click="previewFile = null">✕</button>
+        </div>
+        <iframe v-if="previewFile.file_type === 'pdf'" :src="previewUrl(previewFile.id)" width="100%" height="600" style="border:none;border-radius:4px" />
+        <img v-else-if="isImage(previewFile.file_type)" :src="previewUrl(previewFile.id)" style="max-width:100%;max-height:600px;object-fit:contain" />
+        <pre v-else-if="previewFile.file_type === 'txt' || previewFile.file_type === 'csv'" style="max-height:500px;overflow:auto;background:var(--color-hover);padding:12px;border-radius:4px;font-size:12px;white-space:pre-wrap">{{ previewText }}</pre>
+        <div v-else class="text-sm text-muted" style="text-align:center;padding:60px 0">该格式不支持在线预览<br /><a :href="downloadUrl(previewFile.id)">下载查看</a></div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, inject } from 'vue'
-import { Trash2Icon, UploadIcon } from 'lucide-vue-next'
+import { Trash2Icon, UploadIcon, EyeIcon, DownloadIcon } from 'lucide-vue-next'
 
 const props = defineProps<{ productId: number; hideEmpty?: boolean }>()
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
@@ -44,8 +58,24 @@ const files = ref<FileItem[]>([])
 const fileLabel = ref('')
 const uploading = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
+const previewFile = ref<FileItem | null>(null)
+const previewText = ref('')
 
 function triggerUpload() { fileInput.value?.click() }
+function isImage(t: string) { return ['jpg','jpeg','png','gif','webp','bmp'].includes(t) }
+
+function previewUrl(fileId: number) { return downloadUrl(fileId) }
+
+async function preview(f: FileItem) {
+  previewFile.value = f
+  previewText.value = ''
+  if (f.file_type === 'txt' || f.file_type === 'csv') {
+    try {
+      const resp = await fetch(previewUrl(f.id))
+      previewText.value = await resp.text()
+    } catch { previewText.value = '加载失败' }
+  }
+}
 
 const API_BASE_URL = import.meta.env.BASE_URL + 'api'
 
@@ -110,3 +140,15 @@ async function doDelete(fileId: number) {
 
 onMounted(loadFiles)
 </script>
+
+<style scoped>
+.preview-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 3000;
+  display: flex; align-items: center; justify-content: center;
+}
+.preview-modal {
+  background: #fff; border-radius: 12px; padding: 20px;
+  width: 90vw; max-width: 900px; max-height: 90vh; overflow: auto;
+  box-shadow: 0 8px 40px rgba(0,0,0,.2);
+}
+</style>

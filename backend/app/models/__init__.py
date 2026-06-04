@@ -1,6 +1,7 @@
 from app.models.category import Category, CategorySpecDefinition
 from app.models.product import Product
 from app.models.supplier import Supplier
+from app.models.dependency import ProductDependency
 from app.models.solution import Solution, SolutionItem
 from app.models.bom_template import BOMTemplate, SolutionBOMSnapshot
 from app.models.quotation import Quotation, QuotationItem

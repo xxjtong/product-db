@@ -26,12 +26,12 @@
           <div class="filter-row">
             <span v-for="p in categoryTree" :key="p.id" :class="['filter-tag', { active: filters.category_id === p.id }]" @click="toggleCategory(p.id)">{{ p.name }}</span>
           </div>
-          <!-- Row 2: children of selected parent -->
-          <div v-for="p in categoryTree" :key="'sub-'+p.id">
+          <!-- Sub-categories: show below clicked parent -->
+          <template v-for="p in categoryTree" :key="'sub-'+p.id">
             <div v-if="filters.category_id === p.id && p.children?.length" class="filter-row sub-row">
               <span v-for="c in p.children" :key="c.id" :class="['filter-tag sub', { active: filters.sub_category_id === c.id }]" @click="toggleSubCategory(c.id)">{{ c.name }}</span>
             </div>
-          </div>
+          </template>
         </div>
       </div>
       <!-- 厂商 — default open -->
@@ -260,7 +260,7 @@ onMounted(async () => {
   const q = (route.query.search as string) || ''
   if (q) search.value = q
   const [cmRes, cpRes, psRes, mfgRes, catRes] = await Promise.all([
-    fetchCommMethods(), fetchCommProtocols(), fetchPowerSupplies(), fetchManufacturers(), fetchCategoryTree(),
+    fetchCommMethods(), fetchCommProtocols(), fetchPowerSupplies(), fetchManufacturers(1, 200), fetchCategoryTree(),
   ])
   commMethods.value = cmRes.comm_methods
   commProtocols.value = cpRes.comm_protocols

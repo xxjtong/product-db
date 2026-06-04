@@ -69,7 +69,10 @@ export const deleteProduct = (id: number) => api(`/products/${id}`, { method: 'D
 export const compareProducts = (ids: string) =>
   api<{ products: Record<number, any>; matrix: Record<string, Record<number, any>>; display_names: Record<string, string> }>(`/products/compare?product_ids=${ids}`)
 export const exportProducts = (params = '') => `${API_BASE}/products/export${params ? '?' + params : ''}`
-export const specSheetUrl = (id: number) => `${API_BASE}/products/${id}/spec-sheet`
+export const specSheetUrl = (id: number) => {
+  const token = localStorage.getItem('token') || ''
+  return `${API_BASE}/products/${id}/spec-sheet?token=${encodeURIComponent(token)}`
+}
 
 // --- Product Dependencies ---
 export const fetchDependencies = (productId: number) =>
