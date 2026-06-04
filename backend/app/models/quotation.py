@@ -19,6 +19,7 @@ class Quotation(Base):
     status = Column(String(20), default="draft")
     total_amount = Column(Numeric(14, 2), default=0)
     notes = Column(Text, nullable=True)
+    download_count = Column(Integer, default=0)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
@@ -42,6 +43,7 @@ class Quotation(Base):
             "created_by": self.created_by,
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else "",
             "updated_at": self.updated_at.strftime("%Y-%m-%d %H:%M") if self.updated_at else "",
+            "download_count": self.download_count or 0,
             "items": [item.to_dict() for item in self.items],
         }
 

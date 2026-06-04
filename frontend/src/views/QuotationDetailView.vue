@@ -1,6 +1,7 @@
 <template>
   <PageHeader :title="quotation ? `报价单 ${quotation.quote_number}` : '报价单详情'" :breadcrumb="[{ label: '报价单', to: '/quotations' }, { label: quotation?.quote_number || '详情', to: '' }]">
     <button v-if="quotation" class="btn-secondary" @click="openExport">导出 xlsx</button>
+    <span v-if="quotation?.download_count" class="text-sm text-muted" style="margin:0 8px">已下载 {{ quotation.download_count }} 次</span>
     <button class="btn-secondary" @click="$router.back()">返回</button>
   </PageHeader>
 

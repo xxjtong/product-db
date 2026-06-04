@@ -301,6 +301,14 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
     ws.append([])
     ws.append(["合计", "", "", "", "", "", float(qt.total_amount or 0)])
 
+    # Log download
+    from app.models.download_log import DownloadLog
+    import logging
+    log = DownloadLog(user_id=user.id, file_type="quotation", entity_id=quotation_id, ip_address="")
+    db.add(log)
+    qt.download_count = (qt.download_count or 0) + 1
+    db.commit()
+
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)

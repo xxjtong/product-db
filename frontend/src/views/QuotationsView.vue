@@ -27,7 +27,7 @@
     <table v-else-if="quotations.length" class="data-table">
       <thead><tr>
         <th style="width:32px"><input type="checkbox" :checked="allSelected" @change="toggleAll" /></th>
-        <th>编号</th><th>标题</th><th>客户</th><th>状态</th><th>金额</th><th>创建时间</th><th>操作</th>
+        <th>编号</th><th>标题</th><th>客户</th><th>状态</th><th>金额</th><th>下载</th><th>创建时间</th><th>操作</th>
       </tr></thead>
       <tbody>
         <tr v-for="q in quotations" :key="q.id">
@@ -37,6 +37,7 @@
           <td>{{ q.client_name || '—' }}</td>
           <td><span :class="['tag', `tag-${q.status}`]">{{ q.status }}</span></td>
           <td class="font-mono">{{ q.total_amount }}</td>
+          <td class="text-sm text-muted">{{ q.download_count || 0 }}</td>
           <td class="text-sm">{{ q.created_at }}</td>
           <td>
             <button class="btn-icon btn-sm" title="查看" @click="$router.push(`/quotations/${q.id}`)"><EyeIcon style="width:14px;height:14px" /></button>
