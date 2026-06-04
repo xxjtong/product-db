@@ -259,6 +259,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             from app.models.category import Category
             from app.models.product import Product
             from app.models.dictionary import Manufacturer, DictCommMethod, DictCommProtocol, DictPowerSupply, DictSensorMetric
+            from sqlalchemy import text as sa_text
             cats = db.query(Category).filter(Category.is_active == True).order_by(Category.name).all()
             mfgs = db.query(Manufacturer).order_by(Manufacturer.name).all()
             methods = db.query(DictCommMethod).order_by(DictCommMethod.name).all()
@@ -268,7 +269,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             products = db.query(Product.id, Product.name, Product.model, Product.description, Product.specs)\
                 .filter(Product.status == 'active').order_by(Product.name).all()
             # Load per-product categories
-            pc_rows = db.execute(text(
+            pc_rows = db.execute(sa_text(
                 'SELECT product_id, category_id FROM product_categories'
             )).fetchall()
             cat_id_to_name = {c.id: c.name for c in cats}
