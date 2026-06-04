@@ -111,13 +111,15 @@ def list_sensor_metrics(page: int = 1, per_page: int = 20, db: Session = Depends
 # --- Generic dict CRUD helpers ---
 
 def _dict_create(model, data: dict, db: Session):
-    item = model(**{k: v for k, v in data.items() if v is not None})
+    valid_cols = {c.name for c in model.__table__.columns if c.name != 'id'}
+    item = model(**{k: v for k, v in data.items() if v is not None and k in valid_cols})
     db.add(item); db.commit(); db.refresh(item)
     return item.to_dict()
 
 def _dict_update(item, data: dict, db: Session):
+    valid_cols = {c.name for c in item.__table__.columns if c.name != 'id'}
     for k, v in data.items():
-        if v is not None: setattr(item, k, v)
+        if v is not None and k in valid_cols: setattr(item, k, v)
     db.commit()
     return item.to_dict()
 
