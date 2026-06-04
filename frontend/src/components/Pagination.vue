@@ -9,7 +9,7 @@
     <button :disabled="page >= totalPages" @click="$emit('change', page + 1)">下一页</button>
     <span class="page-size-wrap">
       每页
-      <select v-model="localPerPage" @change="onPerPageChange" class="page-size-select">
+      <select :value="perPage" @change="onPerPageChange($event)" class="page-size-select">
         <option v-for="n in pageSizes" :key="n" :value="n">{{ n === 0 ? '全部' : n }}</option>
       </select>
       条
@@ -26,13 +26,12 @@ const emit = defineEmits<{ change: [page: number]; 'update:perPage': [perPage: n
 const pageSizes = [10, 20, 50, 100, 0]
 const totalPages = computed(() => props.perPage > 0 ? Math.ceil(props.total / props.perPage) : 1)
 const jumpPage = ref(String(props.page))
-const localPerPage = ref(props.perPage)
 
 watch(() => props.page, (p) => { jumpPage.value = String(p) })
-watch(() => props.perPage, (p) => { localPerPage.value = p })
 
-function onPerPageChange() {
-  emit('update:perPage', localPerPage.value)
+function onPerPageChange(e: Event) {
+  const val = Number((e.target as HTMLSelectElement).value)
+  emit('update:perPage', val)
 }
 
 function doJump() {

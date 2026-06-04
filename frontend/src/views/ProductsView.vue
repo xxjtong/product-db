@@ -16,13 +16,22 @@
   <!-- Filter panel -->
   <div class="card" style="margin-bottom:16px;padding:12px 16px">
     <div class="filter-panel">
-      <!-- 品类 — default open -->
+      <!-- 品类 — two-level, default open -->
       <div class="filter-group" v-if="categoryTree.length">
         <div class="filter-group-header" @click="filterOpen.category = !filterOpen.category">
           <span class="filter-label">品类</span><span class="filter-toggle">{{ filterOpen.category ? '▲' : '▼' }}</span>
         </div>
         <div :class="['filter-tags', filterOpen.category ? 'expanded' : 'collapsed']">
-          <span v-for="c in flatCategories" :key="c.id" :class="['filter-tag', { active: filters.category_id === c.id }]" @click="toggleCategory(c.id)">{{ c.name }}</span>
+          <!-- Row 1: parent categories -->
+          <div class="filter-row">
+            <span v-for="p in categoryTree" :key="p.id" :class="['filter-tag', { active: filters.category_id === p.id }]" @click="toggleCategory(p.id)">{{ p.name }}</span>
+          </div>
+          <!-- Row 2: children of selected parent -->
+          <div v-for="p in categoryTree" :key="'sub-'+p.id">
+            <div v-if="filters.category_id === p.id && p.children?.length" class="filter-row sub-row">
+              <span v-for="c in p.children" :key="c.id" :class="['filter-tag sub', { active: filters.sub_category_id === c.id }]" @click="toggleSubCategory(c.id)">{{ c.name }}</span>
+            </div>
+          </div>
         </div>
       </div>
       <!-- 厂商 — default open -->
@@ -166,6 +175,7 @@ const exportUrl = exportProducts()
 
 const filters = reactive<Record<string, any>>({
   category_id: null,
+  sub_category_id: null,
   comm_method: null,
   comm_protocol: null,
   power_supply: null,
@@ -182,6 +192,13 @@ function flattenTree(nodes: any[], result: any[] = []) {
 
 function toggleCategory(id: number) {
   filters.category_id = filters.category_id === id ? null : id
+  filters.sub_category_id = null  // reset sub when parent changes
+  page.value = 1
+  loadProducts()
+}
+
+function toggleSubCategory(id: number) {
+  filters.sub_category_id = filters.sub_category_id === id ? null : id
   page.value = 1
   loadProducts()
 }
@@ -195,7 +212,8 @@ function toggleFilter(key: string, value: any) {
 function buildParams(): string {
   const parts: string[] = []
   if (search.value) parts.push(`search=${encodeURIComponent(search.value)}`)
-  if (filters.category_id) parts.push(`category_id=${filters.category_id}`)
+  if (filters.sub_category_id) parts.push(`category_id=${filters.sub_category_id}`)
+  else if (filters.category_id) parts.push(`category_id=${filters.category_id}`)
   if (filters.comm_method) parts.push(`comm_method=${filters.comm_method}`)
   if (filters.comm_protocol) parts.push(`comm_protocol=${filters.comm_protocol}`)
   if (filters.power_supply) parts.push(`power_supply=${filters.power_supply}`)

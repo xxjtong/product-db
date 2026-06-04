@@ -30,7 +30,7 @@
       </tbody>
     </table>
     <div v-else class="empty-state"><InboxIcon /><p>暂无品类</p></div>
-    <Pagination :total="total" :page="page" :per-page="perPage" @change="p => { page = p; loadCategories() }" />
+    <Pagination :total="total" :page="page" :per-page="perPage" @change="p => { page = p; loadCategories() }" @update:per-page="s => { perPage = s; page = 1; loadCategories() }" />
   </div>
 
   <!-- Category modal -->
@@ -40,8 +40,9 @@
       <div class="form-group"><label>Slug</label><input v-model="catForm.slug" /></div>
       <div class="form-group">
         <label>父品类</label>
-        <select v-model="catForm.parent_id"><option :value="null">— 顶级 —</option><option v-for="c in allCats" :key="c.id" :value="c.id">{{ '—'.repeat(c.level-1) }}{{ c.name }}</option></select>
+        <select v-model="catForm.parent_id" @change="onParentChange"><option :value="null">— 顶级 —</option><option v-for="c in allCats" :key="c.id" :value="c.id">{{ '—'.repeat(c.level-1) }}{{ c.name }}</option></select>
       </div>
+      <div class="form-group"><label>层级</label><input v-model.number="catForm.level" type="number" min="1" max="5" /></div>
       <div class="form-group"><label>排序</label><input v-model.number="catForm.sort_order" type="number" /></div>
       <div class="form-group">
         <label>状态</label>
@@ -120,12 +121,18 @@ const categories = ref<Category[]>([])
 const allCats = ref<Category[]>([])
 const total = ref(0)
 const page = ref(1)
-const perPage = 25
+const perPage = ref(25)
 
 // Category CRUD
 const catModalVisible = ref(false)
 const editingCat = ref<Category | null>(null)
-const catForm = reactive({ name: '', slug: '', parent_id: null as number | null, sort_order: 0, is_active: true })
+const catForm = reactive({ name: '', slug: '', parent_id: null as number | null, level: 1, sort_order: 0, is_active: true })
+
+function onParentChange() {
+  if (!catForm.parent_id) { catForm.level = 1; return }
+  const parent = allCats.value.find(c => c.id === catForm.parent_id)
+  catForm.level = parent ? parent.level + 1 : 2
+}
 const deleteTarget = ref<Category | null>(null)
 
 // Spec definitions
@@ -143,7 +150,7 @@ const flatList = computed(() => {
 
 async function loadCategories() {
   try {
-    const res = await fetchCategories(`page=${page.value}&per_page=${perPage}`)
+    const res = await fetchCategories(`page=${page.value}&per_page=${perPage.value}`)
     categories.value = res.categories
     total.value = res.total || 0
   } catch (e: any) { showToast(e.message || '加载失败', 'error') }
@@ -158,13 +165,13 @@ async function loadAllCats() {
 
 function openAddCategory() {
   editingCat.value = null
-  Object.assign(catForm, { name: '', slug: '', parent_id: null, sort_order: 0, is_active: true })
+  Object.assign(catForm, { name: '', slug: '', parent_id: null, level: 1, sort_order: 0, is_active: true })
   catModalVisible.value = true
 }
 
 function openEditCategory(c: any) {
   editingCat.value = c
-  Object.assign(catForm, { name: c.name, slug: c.slug || '', parent_id: c.parent_id, sort_order: c.sort_order || 0, is_active: c.is_active })
+  Object.assign(catForm, { name: c.name, slug: c.slug || '', parent_id: c.parent_id, level: c.level || 1, sort_order: c.sort_order || 0, is_active: c.is_active })
   catModalVisible.value = true
 }
 

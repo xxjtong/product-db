@@ -16,10 +16,28 @@ def list_categories(
     page: int = 1,
     per_page: int = 50,
 ):
-    q = db.query(Category).order_by(Category.sort_order, Category.id)
-    total = q.count()
-    cats = q.offset((page - 1) * per_page).limit(per_page).all()
-    return {"categories": [c.to_dict() for c in cats], "total": total, "page": page, "per_page": per_page}
+    all_cats = db.query(Category).order_by(Category.sort_order, Category.id).all()
+    cat_dicts = [c.to_dict() for c in all_cats]
+
+    # Flatten tree: parent immediately followed by its children
+    def flatten(parent_id=None):
+        result = []
+        for c in cat_dicts:
+            if c["parent_id"] == parent_id:
+                result.append(c)
+                result.extend(flatten(c["id"]))
+        return result
+
+    flat = flatten(None)
+    # Include any orphaned children (parent deleted)
+    seen = {c["id"] for c in flat}
+    for c in cat_dicts:
+        if c["id"] not in seen:
+            flat.append(c)
+
+    total = len(flat)
+    paged = flat[(page - 1) * per_page : page * per_page]
+    return {"categories": paged, "total": total, "page": page, "per_page": per_page}
 
 
 @router.get("/categories/tree")

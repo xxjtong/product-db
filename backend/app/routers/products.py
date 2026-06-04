@@ -68,10 +68,25 @@ def list_products(
     q = db.query(Product).options(*product_eager_loads())
 
     if category_id:
-        # Include child categories
-        child_cats = db.query(Category).filter_by(parent_id=category_id).all()
-        cat_ids = [category_id] + [c.id for c in child_cats]
-        q = q.filter(Product.category_id.in_(cat_ids))
+        # Collect all descendant category IDs recursively
+        def get_descendants(pid):
+            ids = [pid]
+            children = db.query(Category).filter_by(parent_id=pid).all()
+            for child in children:
+                ids.extend(get_descendants(child.id))
+            return ids
+        cat_ids = get_descendants(category_id)
+        # Filter via many-to-many product_categories table (no ORM model, use subquery)
+        from sqlalchemy import select as sa_select
+        cat_id_list = ','.join(str(cid) for cid in cat_ids)
+        q = q.filter(
+            or_(
+                Product.id.in_(
+                    text(f'SELECT product_id FROM product_categories WHERE category_id IN ({cat_id_list})')
+                ),
+                Product.category_id.in_(cat_ids)  # fallback: old single-category column
+            )
+        )
 
     if search:
         search_lower = search.lower()
