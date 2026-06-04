@@ -13,14 +13,6 @@
 
     <div v-if="uploading" class="text-sm text-muted" style="padding:4px 0">上传中...</div>
 
-    <div
-      class="drop-zone"
-      :class="{ 'drop-active': dragOver }"
-      @dragover.prevent="dragOver = true"
-      @dragleave="dragOver = false"
-      @drop.prevent="onDrop"
-    >拖拽文件到此处上传</div>
-
     <table v-if="files.length" class="data-table" style="margin-top:8px">
       <thead><tr><th>文件</th><th>大小</th><th>类型</th><th style="width:80px">操作</th></tr></thead>
       <tbody>
@@ -37,6 +29,14 @@
       </tbody>
     </table>
     <div v-else class="text-sm text-muted" style="padding:8px 0">暂无文件</div>
+
+    <div
+      class="drop-zone"
+      :class="{ 'drop-active': dragOver }"
+      @dragover.prevent="dragOver = true"
+      @dragleave="dragOver = false"
+      @drop.prevent="onDrop"
+    >拖拽文件到此处上传</div>
 
     <!-- Preview modal -->
     <div v-if="previewFile" class="preview-overlay" @click.self="previewFile = null">

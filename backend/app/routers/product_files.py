@@ -1,7 +1,7 @@
 """Product file upload/download API."""
 import os
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.auth import get_current_user
@@ -68,18 +68,13 @@ def download_file(file_id: int, db: Session = Depends(get_db)):
     }
     media_type = media_map.get(pf.file_type, "application/octet-stream")
 
-    def iterfile():
-        with open(filepath, "rb") as f:
-            yield from f
-
     safe_filename = pf.filename.replace('"', '').replace('\\', '')
-    return StreamingResponse(
-        iterfile(),
+    from urllib.parse import quote
+    return FileResponse(
+        filepath,
         media_type=media_type,
-        headers={
-            "Content-Disposition": f"attachment; filename*=UTF-8''{safe_filename}",
-            "Content-Length": str(pf.file_size or os.path.getsize(filepath)),
-        },
+        filename=safe_filename,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(safe_filename)}"},
     )
 
 
