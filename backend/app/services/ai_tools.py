@@ -151,7 +151,7 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
 
         synonym_map = {
             "漏水": "水浸", "漏水检测": "水浸", "液位检测": "水浸", "液位": "水浸",
-            "感应器": "传感器", "探测器": "传感器",
+            "感应器": "传感器", "探测器": "传感器", "检测仪": "传感器",
             "空开": "智能空开", "烟雾": "烟感", "烟感": "烟雾", "无线": "WiFi",
             "PM2.5": "PM2.5", "PM10": "PM", "空气质量": "空气质量检测",
             "二氧化碳": "CO2", "CO2": "CO2",
@@ -174,6 +174,14 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
                     if old in alt: alt = alt.replace(old, new)
                 if alt != kw:
                     products = _search_kw(alt, base_q, limit)
+            # Fallback: strip compound suffixes and retry with base word
+            if not products and keywords:
+                for suffix in ['传感器','检测仪','感应器','探测器','控制器','网关','模块','路由器']:
+                    for kw in list(keywords):
+                        if kw.endswith(suffix) and len(kw) > len(suffix):
+                            retry = _search_kw(kw[:-len(suffix)], base_q, limit)
+                            if retry: products = retry; break
+                    if products: break
             # Keyword failed but filters active → return filtered results
             if not products and has_filters:
                 products = base_q.options(
