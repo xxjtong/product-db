@@ -80,7 +80,7 @@ async function onDrop(e: DragEvent) {
 }
 function isImage(t: string) { return ['jpg','jpeg','png','gif','webp','bmp'].includes(t) }
 
-function previewUrl(fileId: number) { return downloadUrl(fileId) }
+function previewUrl(fileId: number) { return downloadUrl(fileId) + '&inline=1' }
 
 async function preview(f: FileItem) {
   previewFile.value = f
