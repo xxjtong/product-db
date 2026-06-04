@@ -99,6 +99,7 @@ frontend/src/
 │   ├── AiChat.vue            # AI 浮动对话面板 (可拖拽/缩放, 气泡式)
 │   ├── BOMSpreadsheet.vue    # BOM HTML 表格编辑器
 │   ├── DependencyGraph.vue   # Canvas 依赖关系图 (自适应)
+│   ├── ProductFiles.vue      # 产品文件上传/下载/预览
 │   ├── PageHeader, Pagination, SearchInput, Modal, TagBadge, ConfirmDialog
 │   └── GenUI/                # AI 动态组件 (SolutionProductCard, QuoteDraftCard)
 ├── univer-bom-main.js   # Univer 全屏编辑器入口 (实验中)
@@ -291,6 +292,32 @@ API key 存在?
 - 500px 最大高度，超出滚动
 - 保存时将编辑数据转为快照格式写入 `solution_bom_snapshots` 表
 
+## 产品文件 (Product Files)
+
+- `product_files` 表: product_id, filename, file_url, file_size, file_type, label
+- API: GET/POST `/products/{id}/files`, GET/DELETE `/products/files/{id}`
+- 支持格式: pdf/doc/xlsx/zip/txt/csv + 图片, 最大 20MB
+- 上传 → `save_file()` UUID 重命名存到 `app/uploads/`
+- 下载 → `StreamingResponse` + UTF-8 文件名
+- 预览: PDF iframe, 图片 `<img>`, TXT/CSV `<pre>`, 其他下载
+- 前端组件 `ProductFiles.vue`: 文件列表+上传+预览模态框
+
+## 品类系统
+
+- 产品支持**多品类** (`product_categories` 多对多, 1297条, 平均3.1类/产品)
+- `products.category_id` 为遗留单列，逐步废弃中
+- 品类树 31 张表: 9 个固定排前 (会议/工位/信发/门禁访客/能耗/FM 等), 其余按 sort_order
+- 产品列表筛选: 父品类行 + 点击展开子品类行（独立行显示）
+- 后端递归查询子孙品类 ID, 选中父品类覆盖所有后代产品
+- 删除品类自动级联清理 FK: spec_definitions, product_categories, dependencies, products.category_id → fallback, children.parent_id → NULL
+
+## 数据库优化
+
+- 5 个业务索引: ai_messages(conv_id), product_files(product_id), solution_items(solution_id), quotation_items(quotation_id), quotations(solution_id)
+- 报价单下载计数: `quotations.download_count` + `download_logs` 表
+- SQLite 31 张表, ~4000 行, 单文件运行
+- 图片: 90% 远程 URL, 10% 本地 `app/uploads/`
+
 ## 关键约定
 
 - 模型统一 `to_dict()` 方法，Product 支持 map 参数防 N+1
@@ -299,9 +326,14 @@ API key 存在?
 - SECRET_KEY 生产环境必填，否则 sys.exit(1)
 - 前端 CSS 变量定义在 main.css，组件用 scoped 样式
 - API 统一通过 `api.ts` → `api<T>()` 泛型函数
+- API_BASE = `/product-db/api`, Vite proxy 匹配 `/product-db/api` → backend
+- `window.open()` 下载/导出需 `?token=` query param 认证
 - SSE component 事件 → GenUI 组件动态渲染
 - 密码: bcrypt (passlib) + 旧 SHA256 自动升级
 - v-html 全部经 DOMPurify.sanitize() 清洗
-- 字典数据 30s TTL 缓存, AI 上下文 60s TTL 缓存
+- 字典数据 300s TTL 缓存, AI 上下文 300s TTL 缓存
 - 方案列表状态可直接行内下拉修改（草稿/进行中/完成）
 - AI 方案助手使用气泡式对话布局（用户右侧蓝色，AI 左侧灰色）
+- 导航栏排序: 搜索栏 → 产品 → 方案 → 报价单 → 品类 → 字典 → 管理
+- 字典页面: 标签切换（通讯方式/协议/供电/传感器/厂商/供应商）
+- 供应商管理已并入字典页，无独立导航
