@@ -33,9 +33,11 @@ def build_spec_html(p: Product, db: Session) -> str:
     primary_img = next((img for img in p.images if img.is_primary), None)
     if primary_img:
         img_url = primary_img.url
-        if not img_url.startswith("http"):
-            img_url = f"file://{os.path.dirname(__file__)}/../../{img_url.lstrip('/')}"
-        img_html = f'<img src="{html.escape(str(img_url), quote=True)}" class="product-img" />'
+        if img_url.startswith("http://") or img_url.startswith("https://"):
+            pass  # use as-is
+        else:
+            img_url = ""  # skip local/non-http images for security
+        img_html = f'<img src="{html.escape(str(img_url), quote=True)}" class="product-img" />' if img_url else ''
 
     # Comm methods
     comm_rows = ""

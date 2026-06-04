@@ -55,9 +55,9 @@ def build_product_detail(p: Product, db: Session) -> dict:
     result = p.to_dict()
 
     # Add multi-category IDs from junction table
-    from sqlalchemy import text
-    rows = db.execute(text('SELECT category_id FROM product_categories WHERE product_id = :pid'), {'pid': p.id}).fetchall()
-    result['category_ids'] = [r[0] for r in rows] if rows else [p.category_id] if p.category_id else []
+    from app.services.product_category_helper import get_product_category_ids
+    rows = get_product_category_ids(db, p.id)
+    result['category_ids'] = rows if rows else [p.category_id] if p.category_id else []
 
     spec_defs = db.query(CategorySpecDefinition).filter_by(category_id=p.category_id)\
         .order_by(CategorySpecDefinition.sort_order).all()

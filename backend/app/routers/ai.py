@@ -269,21 +269,18 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             products = db.query(Product.id, Product.name, Product.model, Product.description, Product.specs)\
                 .filter(Product.status == 'active').order_by(Product.name).all()
             # Load per-product categories
-            pc_rows = db.execute(sa_text(
-                'SELECT product_id, category_id FROM product_categories'
-            )).fetchall()
+            from app.services.product_category_helper import get_product_category_map
             cat_id_to_name = {c.id: c.name for c in cats}
+            pc_id_map = get_product_category_map(db)
             prod_cats: dict[int, list[str]] = {}
-            for pid, cid in pc_rows:
-                name = cat_id_to_name.get(cid, '')
-                if name and pid not in prod_cats: prod_cats[pid] = []
-                if name: prod_cats[pid].append(name)
+            for pid, cids in pc_id_map.items():
+                prod_cats[pid] = [cat_id_to_name[cid] for cid in cids if cid in cat_id_to_name]
 
             import re as _re
             prod_parts = []
             for p in products:
                 pid = p.id
-                part = p.name
+                part = f"[ID:{pid}] {p.name}"
                 if p.model: part += f"({p.model})"
                 # Add category tags
                 cats_list = prod_cats.get(pid, [])
@@ -312,19 +309,31 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             _db_ctx_cache['ts'] = now
         db_ctx = _db_ctx_cache['value']
 
-        kw_model = _get_ai_setting("ai_keyword_model", "deepseek-v4-flash")
+        kw_model = _get_ai_setting("ai_keyword_model", "deepseek-chat")
         kw_prompt = _get_ai_setting("ai_keyword_prompt",
-            "你是一个产品数据库搜索助手。用户的输入可能包含品牌/厂商名、产品类型、通讯方式、价格等任意组合。\n"
-            "请根据数据库的实际情况，将用户输入解析为搜索参数，返回JSON。\n\n"
-            "JSON字段:\n"
-            "- keywords: string[] — 从用户输入中提取的产品关键词（品牌名除外）\n"
-            "- brand: string | null — 用户提到的厂商/品牌名（必须能在数据库厂商列表中找到，否则null）\n"
-            "- category: string | null — 品类名\n"
-            "- comm_method: string | null — 通讯方式\n"
-            "- protocol: string | null — 协议\n"
-            "- power: string | null — 供电方式\n"
-            "- min_price: number | null, max_price: number | null — 价格区间\n"
-            "- sort_by: \"price_asc\" | \"price_desc\" | null\n\n"
+            "你是一个产品数据库搜索助手。完成两个任务：\n"
+            "1. 提取搜索关键词（最多4个）\n"
+            "2. 从产品列表中为每个关键词匹配最合适的产品（返回产品ID）\n\n"
+            "【核心规则】\n"
+            "查看数据库中的产品名称/型号/描述/品类标签，提取真实存在的关键词。\n"
+            "category字段: 仅当用户明确说出品类名时才填，不要从产品名推测。\n"
+            "重要：提取用户实际描述的产品关键词（最多4个），不要自己凭空扩展场景。\n\n"
+            "【产品匹配规则】\n"
+            "- 综合匹配产品类型/功能/通讯方式/供电方式/品牌，找最符合用户需求的产品\n"
+            "- 语义理解：如产品名无精确匹配，匹配功能相近产品\n"
+            "- 每个关键词最多匹配10个产品，按匹配度排序\n"
+            "- 只返回产品列表中真实存在的 [ID:xxx] 编号\n"
+            "- 未找到匹配则返回空数组 []\n\n"
+            "【JSON字段】\n"
+            "- keywords: string[] — 产品关键词(最多4个)\n"
+            "- matches: object — 每个关键词对应的匹配产品ID数组\n"
+            "- brand: string|null — 品牌/厂商名(必须在数据库厂商列表中找到)\n"
+            "- category: string|null — 品类名(仅用户明确说出时填)\n"
+            "- comm_method: string|null — 通讯方式\n"
+            "- protocol: string|null — 协议\n"
+            "- power: string|null — 供电方式\n"
+            "- min_price: number|null, max_price: number|null — 价格区间\n"
+            "- sort_by: \"price_asc\"|\"price_desc\"|null\n\n"
             "同义词: 漏水→水浸, 感应器→传感器, 探测器→传感器, 烟雾→烟感, 空开→智能空开, 无线→WiFi\n\n"
             "只返回JSON，无其他内容。")
         kw_system = f"{kw_prompt}\n\n{db_ctx}"
@@ -332,41 +341,22 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             {"role": "system", "content": kw_system},
             {"role": "user", "content": user_query},
         ]
-        extract_resp = await engine.chat(extract_prompt, model=kw_model, temperature=0, max_tokens=1000)
+        extract_resp = await engine.chat(extract_prompt, model=kw_model, temperature=0, max_tokens=2000)
         usage_ext = extract_resp.get("usage", {})
         total_tokens["in"] += usage_ext.get("prompt_tokens", 0)
         total_tokens["out"] += usage_ext.get("completion_tokens", 0)
         content = extract_resp["choices"][0]["message"].get("content", "")
         json_match = re.search(r'\{.*\}', content, re.DOTALL)
-        if json_match:
-            extracted = json.loads(json_match.group())
-            # Support both "keywords" (array, new) and "keyword" (string, legacy)
-            kw_raw = extracted.get("keywords") or extracted.get("keyword")
-            if isinstance(kw_raw, list):
-                keywords = [k for k in kw_raw if k and str(k).strip()]
-            elif kw_raw and str(kw_raw).strip():
-                keywords = [str(kw_raw).strip()]
-            else:
-                keywords = []
-            brand = extracted.get("brand") or extracted.get("manufacturer")
-            has_filter = bool(extracted.get("category") or extracted.get("comm_method") or extracted.get("protocol") or extracted.get("power") or brand)
-            if keywords or has_filter:
-                if keywords:
-                    yield {"event": "tool", "text": f"搜索 {' + '.join(keywords)}..."}
-                elif brand:
-                    yield {"event": "tool", "text": f"搜索品牌 {brand}..."}
-                else:
-                    yield {"event": "tool", "text": f"筛选产品..."}
-                args = {"keywords": keywords or [], "limit": 5}
-                for f in ("category", "comm_method", "protocol", "power"):
-                    if extracted.get(f): args[f] = extracted[f]
-                if brand: args["manufacturer"] = brand
-                if extracted.get("min_price") is not None: args["min_price"] = extracted["min_price"]
-                if extracted.get("max_price") is not None: args["max_price"] = extracted["max_price"]
-                if extracted.get("sort_by"): args["sort_by"] = extracted["sort_by"]
+        # DSML fallback: deepseek-v4-flash sometimes returns native tool-call format
+        has_dsml = not json_match and ('DSML' in content or 'dsml' in content)
+        if has_dsml:
+            dsml_kws = re.findall(r'name="keyword"[^>]*>([^<]+)<', content)
+            keywords = [k.strip() for k in dsml_kws if k.strip()]
+            if keywords:
+                yield {"event": "tool", "text": f"搜索 {' + '.join(keywords)}..."}
+                args = {"keywords": keywords, "limit": 5}
                 result_str = execute_tool("search_products", args, db)
                 save_message(conv_id, "tool", content=result_str, db=db, commit=False)
-                # Feed tool result into agent context
                 current_messages.append({"role": "assistant", "content": None, "tool_calls": [{
                     "id": "extract_0", "type": "function",
                     "function": {"name": "search_products", "arguments": json.dumps(args)}
@@ -380,7 +370,138 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                         yield {"event": "component", "component": "SolutionProductCard", "props": {"products": tr["products"]}}
                 except Exception:
                     pass
-                max_turns = 1  # Only need 1 more turn for text response
+                max_turns = 1
+        elif json_match:
+            extracted = json.loads(json_match.group())
+            # Support both "keywords" (array, new) and "keyword" (string, legacy)
+            kw_raw = extracted.get("keywords") or extracted.get("keyword")
+            if isinstance(kw_raw, list):
+                keywords = [k for k in kw_raw if k and str(k).strip()]
+            elif kw_raw and str(kw_raw).strip():
+                keywords = [str(kw_raw).strip()]
+            else:
+                keywords = []
+            brand = extracted.get("brand") or extracted.get("manufacturer")
+            has_filter = bool(extracted.get("category") or extracted.get("comm_method") or extracted.get("protocol") or extracted.get("power") or brand)
+            matches = extracted.get("matches", {})  # LLM-matched: {keyword: [id1, id2, ...]}
+
+            if keywords or has_filter:
+                if keywords:
+                    yield {"event": "tool", "text": f"搜索 {' + '.join(keywords)}..."}
+                elif brand:
+                    yield {"event": "tool", "text": f"搜索品牌 {brand}..."}
+                else:
+                    yield {"event": "tool", "text": f"筛选产品..."}
+
+                # Build SQL-level filter args (price/sorting not in db_ctx, applied post-match)
+                filter_args = {}
+                for f in ("category", "comm_method", "protocol", "power"):
+                    if extracted.get(f): filter_args[f] = extracted[f]
+                if brand: filter_args["manufacturer"] = brand
+                if extracted.get("min_price") is not None: filter_args["min_price"] = extracted["min_price"]
+                if extracted.get("max_price") is not None: filter_args["max_price"] = extracted["max_price"]
+                if extracted.get("sort_by"): filter_args["sort_by"] = extracted["sort_by"]
+
+                if matches and any(matches.get(kw) for kw in keywords):
+                    # Hybrid: LLM matched product IDs from db_ctx → validate + dedup + filter
+                    # Per-keyword: top 10 from LLM → cross-keyword dedup → cap 5 per keyword → interleave
+                    from app.models.product import Product as ProductModel
+
+                    seen_ids: set[int] = set()
+                    kw_products: dict[str, list] = {}
+
+                    for kw in keywords:
+                        kw_ids = [int(i) for i in matches.get(kw, [])[:10] if str(i).isdigit()]
+                        matched = []
+                        for pid in kw_ids:
+                            if pid in seen_ids:
+                                continue
+                            seen_ids.add(pid)
+                            p = db.query(ProductModel).filter(
+                                ProductModel.id == pid, ProductModel.status == 'active'
+                            ).first()
+                            if not p:
+                                continue
+                            cat_name = p.category.name if p.category else ""
+                            mfg_name = p.manufacturer.name if p.manufacturer else ""
+                            comms = [cm.method.name for cm in p.comm_methods if cm.method]
+                            powers = [ps.power.name for ps in p.power_supplies if ps.power]
+                            item = {
+                                "id": p.id,
+                                "name": p.name,
+                                "model": p.model or "",
+                                "category": cat_name,
+                                "manufacturer": mfg_name,
+                                "price": float(p.base_price) if p.base_price else 0,
+                                "comm_methods": comms,
+                                "power_supplies": powers,
+                                "description": (p.description or "")[:200],
+                            }
+                            # SQL-level price filter (db_ctx doesn't include price)
+                            if filter_args.get("min_price") is not None and item["price"] < filter_args["min_price"]:
+                                seen_ids.discard(pid)
+                                continue
+                            if filter_args.get("max_price") is not None and item["price"] > filter_args["max_price"]:
+                                seen_ids.discard(pid)
+                                continue
+                            matched.append(item)
+                            if len(matched) >= 5:
+                                break
+                        if matched:
+                            kw_products[kw] = matched
+
+                    # Interleave: take 1 from each keyword in turn
+                    interleaved: list[dict] = []
+                    idx = 0
+                    while True:
+                        added = False
+                        for kw in keywords:
+                            items = kw_products.get(kw, [])
+                            if idx < len(items):
+                                interleaved.append(items[idx])
+                                added = True
+                        idx += 1
+                        if not added:
+                            break
+
+                    # Apply sort if specified
+                    if filter_args.get("sort_by") == "price_asc":
+                        interleaved.sort(key=lambda x: x["price"])
+                    elif filter_args.get("sort_by") == "price_desc":
+                        interleaved.sort(key=lambda x: x["price"], reverse=True)
+
+                    if interleaved:
+                        products_found = True
+                        result_str = json.dumps({"found": len(interleaved), "products": interleaved}, ensure_ascii=False)
+                        save_message(conv_id, "tool", content=result_str, db=db, commit=False)
+                        current_messages.append({"role": "assistant", "content": None, "tool_calls": [{
+                            "id": "extract_0", "type": "function",
+                            "function": {"name": "search_products", "arguments": json.dumps({"keywords": keywords, **filter_args})}
+                        }]})
+                        current_messages.append({"role": "tool", "tool_call_id": "extract_0", "content": result_str})
+                        yield {"event": "products", "data": interleaved}
+                        yield {"event": "component", "component": "SolutionProductCard", "props": {"products": interleaved}}
+                        max_turns = 1
+
+                if not products_found:
+                    # Fallback: LLM returned no matches → use SQL LIKE search
+                    args = {"keywords": keywords or [], "limit": 5, **filter_args}
+                    result_str = execute_tool("search_products", args, db)
+                    save_message(conv_id, "tool", content=result_str, db=db, commit=False)
+                    current_messages.append({"role": "assistant", "content": None, "tool_calls": [{
+                        "id": "extract_0", "type": "function",
+                        "function": {"name": "search_products", "arguments": json.dumps(args)}
+                    }]})
+                    current_messages.append({"role": "tool", "tool_call_id": "extract_0", "content": result_str})
+                    try:
+                        tr = json.loads(result_str)
+                        if tr.get("products"):
+                            products_found = True
+                            yield {"event": "products", "data": tr["products"]}
+                            yield {"event": "component", "component": "SolutionProductCard", "props": {"products": tr["products"]}}
+                    except Exception:
+                        pass
+                    max_turns = 1
     except Exception as e:
         import logging
         logging.getLogger("uvicorn").warning(f"Keyword extraction failed: {e}")

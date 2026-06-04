@@ -40,6 +40,7 @@ export interface Product {
   category_id: number
   category_ids?: number[]
   category_name: string
+  all_category_names?: string[]
   manufacturer_id: number | null
   manufacturer_name: string
   supplier_id: number | null
@@ -108,9 +109,11 @@ export interface SolutionItem {
   product_name: string
   product_model: string
   product_sku: string
+  product_description?: string
   quantity: number
   unit_price: number
   discount_rate: number
+  amount?: number
   remark: string
   sort_order: number
 }
@@ -128,6 +131,7 @@ export interface Quotation {
   total_amount: number
   notes: string
   created_by: number | null
+  download_count?: number
   items: QuotationItem[]
   created_at: string
   updated_at: string

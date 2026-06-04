@@ -10,8 +10,9 @@ export function escapeHtml(str: string): string {
 }
 
 /** Strip tool call XML blocks from AI response. */
-function stripToolCalls(text: string): string {
+export function stripToolCalls(text: string): string {
   return text.replace(/<｜｜DSML｜｜tool_calls>[\s\S]*?<\/｜｜DSML｜｜tool_calls>/g, '')
+    .replace(/<.DSML.[\s\S]*?<.\/.DSML.[^>]*>/g, '')
 }
 
 /** Convert basic markdown to safe HTML (input already escaped). */

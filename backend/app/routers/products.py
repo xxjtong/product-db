@@ -28,7 +28,7 @@ from app.services.product_helpers import (
     build_pinyin, get_name_maps, product_eager_loads, build_product_detail,
     write_mappings, rewrite_mappings,
 )
-from app.auth import get_current_user
+from app.auth import get_current_user, filter_by_ownership, check_ownership
 from app.config import settings
 from app.models.user import User
 from app.utils.escape import escape_like
@@ -43,7 +43,6 @@ import httpx
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from io import BytesIO
-from pypinyin import lazy_pinyin
 from datetime import datetime
 
 router = APIRouter()
@@ -66,6 +65,7 @@ def list_products(
     user=Depends(get_current_user),
 ):
     q = db.query(Product).options(*product_eager_loads())
+    q = filter_by_ownership(q, Product, user)
 
     if category_id:
         # Collect all descendant category IDs recursively
@@ -76,14 +76,12 @@ def list_products(
                 ids.extend(get_descendants(child.id))
             return ids
         cat_ids = get_descendants(category_id)
-        # Filter via many-to-many product_categories table (no ORM model, use subquery)
-        from sqlalchemy import select as sa_select
-        cat_id_list = ','.join(str(cid) for cid in cat_ids)
+        # Filter via many-to-many product_categories table
+        from app.services.product_category_helper import get_products_in_categories
+        m2m_ids = get_products_in_categories(db, cat_ids)
         q = q.filter(
             or_(
-                Product.id.in_(
-                    text(f'SELECT product_id FROM product_categories WHERE category_id IN ({cat_id_list})')
-                ),
+                Product.id.in_(m2m_ids),
                 Product.category_id.in_(cat_ids)  # fallback: old single-category column
             )
         )
@@ -127,15 +125,12 @@ def list_products(
     product_list = [p.to_dict(cats, sups, mfgs) for p in products]
     # Enrich with multi-category names
     from app.models.category import Category as CatModel
+    from app.services.product_category_helper import get_product_category_map
     cat_id_to_name = {c.id: c.name for c in db.query(CatModel).all()}
-    pc_rows = db.execute(text(
-        'SELECT product_id, category_id FROM product_categories WHERE product_id IN (SELECT id FROM products WHERE status=:s)'
-    ), {'s': 'active'}).fetchall()
+    pc_id_map = get_product_category_map(db)
     pc_map: dict[int, list[str]] = {}
-    for pid, cid in pc_rows:
-        name = cat_id_to_name.get(cid, '')
-        if name and pid not in pc_map: pc_map[pid] = []
-        if name: pc_map[pid].append(name)
+    for pid, cids in pc_id_map.items():
+        pc_map[pid] = [cat_id_to_name[cid] for cid in cids if cid in cat_id_to_name]
     for p in product_list:
         pid = p['id']
         extra = pc_map.get(pid, [])
@@ -327,6 +322,7 @@ def create_product(data: ProductCreate, db: Session = Depends(get_db), user=Depe
         specs=data.specs,
         urls=data.urls,
         custom_fields=data.custom_fields,
+        created_by=user.id,
     )
     p.pinyin_search = build_pinyin(f"{p.name} {p.model or ''}")
     p.created_at = datetime.now()
@@ -336,10 +332,8 @@ def create_product(data: ProductCreate, db: Session = Depends(get_db), user=Depe
     db.flush()  # get p.id
 
     # Write multi-category relationships
-    cat_ids = data.category_ids or [data.category_id]
-    for cid in cat_ids:
-        db.execute(text('INSERT OR IGNORE INTO product_categories (product_id, category_id) VALUES (:pid, :cid)'),
-                   {'pid': p.id, 'cid': cid})
+    from app.services.product_category_helper import add_product_categories
+    add_product_categories(db, p.id, data.category_ids or [data.category_id])
 
     # Write mapping tables
     write_mappings(p.id, data.model_dump(exclude_none=True), db)
@@ -354,7 +348,8 @@ def create_product(data: ProductCreate, db: Session = Depends(get_db), user=Depe
 def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     p = db.get(Product, product_id)
     if not p:
-        raise HTTPException(404, "Product not found")
+        raise HTTPException(404)
+    check_ownership(p, user)
 
     # Core fields
     for f in ["model", "name", "sku", "category_id", "manufacturer_id", "supplier_id",
@@ -376,10 +371,8 @@ def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(g
 
     # Update multi-category if provided
     if data.category_ids is not None:
-        db.execute(text('DELETE FROM product_categories WHERE product_id = :pid'), {'pid': product_id})
-        for cid in data.category_ids:
-            db.execute(text('INSERT INTO product_categories (product_id, category_id) VALUES (:pid, :cid)'),
-                       {'pid': product_id, 'cid': cid})
+        from app.services.product_category_helper import add_product_categories
+        add_product_categories(db, product_id, data.category_ids)
         p.category_id = data.category_ids[0] if data.category_ids else None
 
     # Rewrite mapping tables (delete old, insert new) — only for fields in payload
@@ -395,7 +388,8 @@ def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(g
 def delete_product(product_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     p = db.get(Product, product_id)
     if not p:
-        raise HTTPException(404, "Product not found")
+        raise HTTPException(404)
+    check_ownership(p, user)
     db.delete(p)
     db.commit()
     return {"ok": True}

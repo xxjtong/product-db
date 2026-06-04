@@ -63,12 +63,14 @@ class SolutionItem(Base):
         product_name = ""
         product_model = ""
         product_sku = ""
+        product_description = ""
         if self.product_id and product_map:
             product_name = product_map.get(self.product_id, "")
         elif self.product:
             product_name = self.product.name
             product_model = self.product.model or ""
             product_sku = self.product.sku or ""
+            product_description = (self.product.description or "")[:200]
         return {
             "id": self.id,
             "solution_id": self.solution_id,
@@ -76,6 +78,7 @@ class SolutionItem(Base):
             "product_name": product_name,
             "product_model": product_model,
             "product_sku": product_sku,
+            "product_description": product_description,
             "quantity": float(self.quantity) if self.quantity else 0,
             "unit_price": float(self.unit_price) if self.unit_price else 0,
             "discount_rate": float(self.discount_rate) if self.discount_rate else 100,

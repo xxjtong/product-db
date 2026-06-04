@@ -12,7 +12,7 @@ class Product(Base):
     model = Column(String(100), nullable=True, index=True)  # 产品型号: EG71, AM307
     name = Column(String(200), nullable=False, index=True)
     sku = Column(String(100), nullable=True, index=True)  # ERP SKU (optional)
-    category_id = Column(Integer, ForeignKey("device_categories.id", ondelete="SET NULL"), nullable=False, index=True)
+    category_id = Column(Integer, ForeignKey("device_categories.id", ondelete="RESTRICT"), nullable=False, index=True)
     manufacturer_id = Column(Integer, ForeignKey("manufacturers.id", ondelete="SET NULL"), nullable=True)
     supplier_id = Column(Integer, ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True)
 
@@ -24,6 +24,7 @@ class Product(Base):
     product_url = Column(String(500), nullable=True)  # 官方详情页链接
     status = Column(String(20), default="active", index=True)
     parent_id = Column(Integer, ForeignKey("products.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     specs = Column(JSONBType, default=dict)  # 物理特性兜底: 尺寸/重量/IP等级/材质等
     urls = Column(JSONBType, default=dict)

@@ -10,7 +10,7 @@ from app.database import get_db
 from app.models.quotation import Quotation, QuotationItem
 from app.models.product import Product
 from app.models.solution import Solution, SolutionItem
-from app.auth import get_current_user
+from app.auth import get_current_user, filter_by_ownership, check_ownership
 from app.models.user import User
 from app.utils.escape import escape_like
 from app.schemas.quotation import QuotationCreate, QuotationUpdate, QuotationItemCreate, QuotationItemUpdate
@@ -61,6 +61,7 @@ def list_quotations(
     q = db.query(Quotation).options(
         selectinload(Quotation.items),
     )
+    q = filter_by_ownership(q, Quotation, user)
     if status:
         q = q.filter(Quotation.status == status)
     if search:
@@ -172,6 +173,7 @@ def update_quotation(quotation_id: int, data: QuotationUpdate, db: Session = Dep
     qt = db.get(Quotation, quotation_id)
     if not qt:
         raise HTTPException(404, "Quotation not found")
+    check_ownership(qt, user)
     for f in ["title", "client_name", "client_contact", "valid_days", "tax_rate", "status", "notes"]:
         val = getattr(data, f, None)
         if val is not None:
@@ -189,6 +191,7 @@ def delete_quotation(quotation_id: int, db: Session = Depends(get_db), user=Depe
     qt = db.get(Quotation, quotation_id)
     if not qt:
         raise HTTPException(404, "Quotation not found")
+    check_ownership(qt, user)
     db.delete(qt)
     db.commit()
     return {"ok": True}
@@ -280,26 +283,27 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
     ws.append([f"编号: {qt.quote_number or ''}", f"客户: {qt.client_name or ''}"])
     ws.append([f"有效期: {qt.valid_days}天", f"税率: {float(qt.tax_rate or 0)}%"])
     ws.append([])
-    ws.append(["序号", "产品", "SKU", "品牌", "数量", "单价", "金额", "折扣(%)", "备注"])
+    ws.append(["#", "产品名称", "型号/SKU", "功能描述", "数量", "单价", "折扣%", "小计", "备注"])
 
     items = db.query(QuotationItem).filter_by(quotation_id=quotation_id)\
         .order_by(QuotationItem.sort_order).all()
     for idx, item in enumerate(items, 1):
         snap = item.product_snapshot or {}
+        model_sku = (snap.get("model", "") or "") + (" / " + snap.get("sku", "") if snap.get("sku") else "")
         ws.append([
             idx,
             snap.get("name", ""),
-            snap.get("sku", ""),
-            snap.get("brand", ""),
+            model_sku,
+            (snap.get("description", "") or "")[:200],
             float(item.quantity or 0),
             float(item.unit_price or 0),
-            float(item.amount or 0),
             float(item.discount_rate or 100),
+            float(item.amount or 0),
             item.remark or "",
         ])
 
     ws.append([])
-    ws.append(["合计", "", "", "", "", "", float(qt.total_amount or 0)])
+    ws.append(["", "", "", "", "", "", "合计", float(qt.total_amount or 0), ""])
 
     # Log download
     from app.models.download_log import DownloadLog
@@ -318,3 +322,57 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
     )
+
+
+# --- Quotation BOM Editor ---
+
+@router.get("/quotations/{quotation_id}/bom")
+def get_quotation_bom(quotation_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    qt = db.get(Quotation, quotation_id)
+    if not qt:
+        raise HTTPException(404, "Quotation not found")
+    items = db.query(QuotationItem).filter_by(quotation_id=quotation_id)\
+        .order_by(QuotationItem.sort_order).all()
+    rows = []
+    for idx, item in enumerate(items):
+        snap = item.product_snapshot or {}
+        rows.append({
+            "name": snap.get("name", ""),
+            "sku": snap.get("sku", ""),
+            "model": snap.get("model", ""),
+            "description": (snap.get("description", "") or "")[:200],
+            "qty": float(item.quantity or 0),
+            "price": float(item.unit_price or 0),
+            "discount": float(item.discount_rate or 100),
+            "remark": item.remark or "",
+        })
+    return {"rows": rows, "total": float(qt.total_amount or 0)}
+
+
+@router.put("/quotations/{quotation_id}/bom")
+def save_quotation_bom(quotation_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    qt = db.get(Quotation, quotation_id)
+    if not qt:
+        raise HTTPException(404, "Quotation not found")
+    rows = data.get("rows", [])
+    # Remove all existing items, then recreate from BOM rows
+    db.query(QuotationItem).filter_by(quotation_id=quotation_id).delete()
+    for idx, row in enumerate(rows):
+        snap = {"name": row.get("name", ""), "sku": row.get("sku", ""),
+                "model": row.get("model", ""), "description": row.get("description", "")}
+        qi = QuotationItem(
+            quotation_id=quotation_id,
+            product_id=0,
+            product_snapshot=snap,
+            quantity=float(row.get("qty", 1) or 1),
+            unit_price=float(row.get("price", 0) or 0),
+            amount=float(row.get("qty", 1) or 1) * float(row.get("price", 0) or 0) * (float(row.get("discount", 100) or 100) / 100),
+            discount_rate=float(row.get("discount", 100) or 100),
+            remark=str(row.get("remark", "") or ""),
+            sort_order=idx + 1,
+        )
+        db.add(qi)
+    db.flush()
+    _recalc_total(qt, db)
+    db.commit()
+    return {"ok": True, "total": float(qt.total_amount or 0)}

@@ -165,7 +165,7 @@
     <!-- Product files -->
     <ProductFiles :productId="Number(route.params.id)" />
   </div>
-  <div v-else-if="loadError" style="text-align:center;padding:48px;color:var(--color-danger)">{{ loadError }}<br /><button class="btn-primary btn-sm" style="margin-top:12px" @click="load">重试</button></div>
+  <div v-else-if="loadError" style="text-align:center;padding:48px;color:var(--color-danger)">{{ loadError }}<br /><button class="btn-primary btn-sm" style="margin-top:12px" @click="load">重试</button><br /><router-link to="/products" class="btn-secondary btn-sm" style="margin-top:8px;display:inline-block">返回产品列表</router-link></div>
   <div v-else style="text-align:center;padding:48px;color:var(--color-text-secondary)">加载中...</div>
 </template>
 

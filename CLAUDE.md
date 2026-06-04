@@ -2,6 +2,55 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
+## 最新变更 (2026-06-05, R7-R8)
+
+### 权限系统
+- 8 张表加 `created_by` 列: products, categories, manufacturers, suppliers, 4 dict tables
+- `auth.py` 新增 `filter_by_ownership()` 和 `check_ownership()` 辅助函数
+- 规则: admin 看全部; 普通用户看 `NULL`(legacy)/自己/admin(id=1) 的
+- 所有 PUT/DELETE 端点加 `check_ownership()` 403 保护
+- SECRET_KEY 启动时校验 ≥32 字符 (DEV_MODE 除外)
+
+### AI 关键词匹配重构
+- LLM 直接从 db_ctx 匹配产品 ID → 代码验证 → 去重 → 交错展示
+- 每关键词 top 10 → 跨关键词去重 → 每关键词最多 5 条 → 交错合并
+- `deepseek-chat` 替代 `deepseek-v4-flash` (避免 reasoning_content 吃光 max_tokens)
+- DSML fallback: 检测全角 `｜` 格式，提取关键词执行 SQL fallback
+
+### BOM 编辑器
+- 方案页移除 BOM 编辑器 (依赖检查按钮也移除)
+- 报价单页面新增 BOM 编辑器 (数据源: quotation items)
+- 新增 `GET/PUT /quotations/{id}/bom` 端点
+- BOMSpreadsheet 组件支持 `solutionId` 或 `quotationId` prop
+- 添加/删除行 + confirm 确认 + toast 通知
+- 模板保存功能移除
+
+### 列布局统一
+所有表格统一为: `# | 产品名称 | 型号/SKU | 功能描述 | 数量 | 单价 | 折扣% | 小计 | 备注`
+产品清单、BOM 表格、报价单(页面+XLSX导出) 全部一致
+报价单页移除 税率/总金额 信息行，表格加合计行
+
+### 安全修复
+- SQL 注入: `text(f'IN ({cat_id_list})')` → 参数化子查询
+- SSRF path traversal: spec_generator `file://` 禁止，仅允许 http/https
+- 文件下载端点加 auth: `product_files.py` download 加 `Depends(get_current_user)`
+- `api.ts` headers 合并修复: `{...options, headers: {...headers, ...options.headers}}`
+- `product.py` FK 修复: `nullable=False` + `ondelete="SET NULL"` → `ondelete="RESTRICT"`
+- 死代码清理: admin_routes 死 return, App.vue fieldVisibility provide, 未用 imports
+
+### 代码质量
+- raw SQL `product_categories` 统一到 `product_category_helper.py` (6 文件消除)
+- AiChat.vue `formatContent`/`extractProducts` 委托给 `markdown.ts`
+- AiChat.vue resize listener 移入 `onMounted`/`onBeforeUnmount` 生命周期
+- SolutionDetailView `updateItem`/`removeItem` 本地更新不再 `await load()`
+- Picker 产品懒加载 (打开才请求 500 条)
+- 报价单测试数据清理 (7 条重复 → 1 条)
+- 价格 ¥ + 千位分隔 (方案/报价单列表+详情)
+
+### 测试
+- 修复测试套件 (60/78 → 78/78): `DEV_MODE=true` + `SECRET_KEY` 设测试值
+- 后端 78/78, 前端 vitest 38/38, vue-tsc 0 errors
+
 ## 技术栈
 
 | 层 | 技术 |

@@ -23,8 +23,8 @@ class Settings(BaseSettings):
 settings = Settings()
 
 if not settings.SECRET_KEY:
-    if settings.DEV_MODE:
-        settings.SECRET_KEY = "dev-secret-key-change-in-production"
-    else:
-        print("ERROR: SECRET_KEY is not set. Use environment variable or .env file.", file=sys.stderr)
-        sys.exit(1)
+    print("ERROR: SECRET_KEY is not set. Use environment variable or .env file.", file=sys.stderr)
+    sys.exit(1)
+if len(settings.SECRET_KEY) < 32 and not settings.DEV_MODE:
+    print("ERROR: SECRET_KEY must be at least 32 characters.", file=sys.stderr)
+    sys.exit(1)

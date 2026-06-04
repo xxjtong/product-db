@@ -142,10 +142,9 @@ provide('toast', showToast)
 
 // Load session data on mount
 const currentUser = ref<any>(null)
-const fieldVisibility = ref<Record<string, boolean>>({})
 const aiStats = ref<{ total: number; user_count: number; total_tokens_in: number; user_tokens_in: number; user_tokens_out?: number } | null>(null)
 provide('currentUser', currentUser)
-provide('fieldVisibility', fieldVisibility)
+
 
 async function loadAiStats() {
   try {
@@ -175,7 +174,6 @@ async function loadSession() {
     }
     const data = await res.json()
     currentUser.value = data.user
-    fieldVisibility.value = data.field_visibility || {}
   } catch { /* ignore */ }
 }
 

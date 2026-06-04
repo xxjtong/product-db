@@ -1,7 +1,8 @@
 <template>
   <PageHeader :title="quotation ? `报价单 ${quotation.quote_number}` : '报价单详情'" :breadcrumb="[{ label: '报价单', to: '/quotations' }, { label: quotation?.quote_number || '详情', to: '' }]">
-    <button v-if="quotation" class="btn-secondary" @click="openExport">导出 xlsx</button>
     <span v-if="quotation?.download_count" class="text-sm text-muted" style="margin:0 8px">已下载 {{ quotation.download_count }} 次</span>
+    <button v-if="quotation" class="btn-secondary" @click="openExport">导出 xlsx</button>
+    <button v-if="quotation" class="btn-secondary" @click="showBom = !showBom">{{ showBom ? '收起' : '编辑' }} BOM 表格</button>
     <button class="btn-secondary" @click="$router.back()">返回</button>
   </PageHeader>
 
@@ -12,27 +13,37 @@
       <div><span class="text-muted text-sm">编号</span><br class="font-mono">{{ quotation.quote_number }}</div>
       <div><span class="text-muted text-sm">客户</span><br>{{ quotation.client_name || '—' }}</div>
       <div><span class="text-muted text-sm">有效期</span><br>{{ quotation.valid_days }}天</div>
-      <div><span class="text-muted text-sm">税率</span><br>{{ quotation.tax_rate }}%</div>
       <div><span class="text-muted text-sm">状态</span><br>{{ quotation.status }}</div>
-      <div><span class="text-muted text-sm">总金额</span><br class="font-mono">{{ quotation.total_amount }}</div>
     </div>
 
     <table class="data-table" v-if="quotation.items.length">
-      <thead><tr><th>序号</th><th>产品</th><th>SKU</th><th>数量</th><th>单价</th><th>金额</th><th>折扣(%)</th><th>备注</th></tr></thead>
+      <thead><tr><th>#</th><th>产品名称</th><th>型号/SKU</th><th>功能描述</th><th>数量</th><th>单价</th><th>折扣%</th><th>小计</th><th>备注</th></tr></thead>
       <tbody>
         <tr v-for="(item, idx) in quotation.items" :key="item.id">
           <td>{{ idx + 1 }}</td>
           <td>{{ item.product_snapshot?.name || '—' }}</td>
-          <td class="font-mono text-sm">{{ item.product_snapshot?.sku || '' }}</td>
+          <td class="font-mono text-sm">{{ (item.product_snapshot?.model || '') + (item.product_snapshot?.sku ? ' / ' + item.product_snapshot.sku : '') || '—' }}</td>
+          <td class="text-sm text-muted" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="item.product_snapshot?.description">{{ item.product_snapshot?.description || '—' }}</td>
           <td>{{ item.quantity }}</td>
           <td class="font-mono">{{ item.unit_price }}</td>
-          <td class="font-mono">{{ item.amount?.toFixed(2) }}</td>
           <td>{{ item.discount_rate }}</td>
-          <td>{{ item.remark }}</td>
+          <td class="font-mono">{{ item.amount?.toFixed(2) }}</td>
+          <td>{{ item.remark || '—' }}</td>
         </tr>
       </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="7" style="text-align:right;font-weight:600">合计</td>
+          <td class="font-mono" style="font-weight:700">¥{{ quotation.items.reduce((s: number, i: any) => s + (i.amount || 0), 0).toLocaleString(undefined, {minimumFractionDigits:2}) }}</td>
+          <td></td>
+        </tr>
+      </tfoot>
     </table>
     <div v-else class="empty-state" style="padding:24px"><p>暂无项目</p></div>
+  </div>
+
+  <div v-if="showBom" class="card mb-16">
+    <BOMSpreadsheet :quotationId="Number(route.params.id)" />
   </div>
 </template>
 
@@ -40,6 +51,7 @@
 import { ref, onMounted, inject } from 'vue'
 import { useRoute } from 'vue-router'
 import PageHeader from '../components/PageHeader.vue'
+import BOMSpreadsheet from '../components/BOMSpreadsheet.vue'
 import { fetchQuotation, quotationExportUrl } from '../api'
 import type { Quotation } from '../types'
 
@@ -47,6 +59,7 @@ const route = useRoute()
 const quotation = ref<Quotation | null>(null)
 const loading = ref(false)
 const loadError = ref('')
+const showBom = ref(false)
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
 function openExport() { if (quotation.value) window.open(quotationExportUrl(quotation.value.id), '_blank') }

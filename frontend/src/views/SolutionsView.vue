@@ -41,7 +41,7 @@
               <option value="done">完成</option>
             </select>
           </td>
-          <td class="font-mono">{{ s.total_price }}</td>
+          <td class="font-mono">¥{{ Number(s.total_price).toLocaleString() }}</td>
           <td class="text-sm">{{ s.updated_at }}</td>
           <td>
             <button class="btn-icon btn-sm" title="查看" @click="$router.push(`/solutions/${s.id}`)"><EyeIcon style="width:14px;height:14px" /></button>

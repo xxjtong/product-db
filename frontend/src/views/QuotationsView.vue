@@ -35,8 +35,15 @@
           <td class="font-mono text-sm">{{ q.quote_number }}</td>
           <td>{{ q.title || '—' }}</td>
           <td>{{ q.client_name || '—' }}</td>
-          <td><span :class="['tag', `tag-${q.status}`]">{{ q.status }}</span></td>
-          <td class="font-mono">{{ q.total_amount }}</td>
+          <td>
+            <select :value="q.status" @change="changeStatus(q, ($event.target as HTMLSelectElement).value)" style="font-size:12px;padding:2px 6px;width:90px">
+              <option value="draft">草稿</option>
+              <option value="sent">已发送</option>
+              <option value="accepted">已确认</option>
+              <option value="done">已完成</option>
+            </select>
+          </td>
+          <td class="font-mono">¥{{ Number(q.total_amount).toLocaleString() }}</td>
           <td class="text-sm text-muted">{{ q.download_count || 0 }}</td>
           <td class="text-sm">{{ q.created_at }}</td>
           <td>
@@ -60,7 +67,7 @@ import { PlusIcon, Trash2Icon, InboxIcon, EyeIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Pagination from '../components/Pagination.vue'
-import { fetchQuotations, deleteQuotation, batchDeleteQuotations } from '../api'
+import { fetchQuotations, deleteQuotation, batchDeleteQuotations, updateQuotation } from '../api'
 import type { Quotation } from '../types'
 
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
@@ -128,6 +135,14 @@ async function doBatchDelete() {
     selectedIds.value = new Set()
     showBatchConfirm.value = false
     await load()
+  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+}
+
+async function changeStatus(q: Quotation, status: string) {
+  try {
+    await updateQuotation(q.id, { status })
+    q.status = status
+    showToast('状态已更新', 'success')
   } catch (e: any) { showToast(e.detail || e.message, 'error') }
 }
 

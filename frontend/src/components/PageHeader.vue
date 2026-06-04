@@ -8,7 +8,7 @@
     </div>
     <div class="flex items-center justify-between">
       <h1>{{ title }}</h1>
-      <div class="flex gap-8 actions">
+      <div class="flex items-center gap-8 actions">
         <slot />
       </div>
     </div>

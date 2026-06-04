@@ -3,8 +3,8 @@
     <div class="flex gap-8 items-center mb-12">
       <button class="btn-secondary btn-sm" @click="loadSnapshot"><RefreshCwIcon style="width:14px;height:14px" />重新加载</button>
       <button class="btn-primary btn-sm" @click="save"><SaveIcon style="width:14px;height:14px" />保存</button>
+      <button class="btn-secondary btn-sm" @click="addRow"><PlusIcon style="width:14px;height:14px" />添加行</button>
       <button class="btn-secondary btn-sm" @click="exportXlsx"><DownloadIcon style="width:14px;height:14px" />导出 xlsx</button>
-      <button class="btn-secondary btn-sm" @click="saveAsTemplate"><CopyIcon style="width:14px;height:14px" />另存为模板</button>
       <span v-if="dirty" class="text-sm" style="color:var(--color-danger)">未保存</span>
     </div>
 
@@ -17,11 +17,13 @@
             <th style="width:40px">#</th>
             <th style="width:200px">产品名称</th>
             <th style="width:120px">型号/SKU</th>
+            <th style="width:160px">功能描述</th>
             <th style="width:60px">数量</th>
             <th style="width:80px">单价</th>
             <th style="width:60px">折扣%</th>
             <th style="width:80px">小计</th>
             <th style="width:80px">备注</th>
+            <th style="width:30px"></th>
           </tr>
         </thead>
         <tbody>
@@ -29,17 +31,20 @@
             <td class="text-center text-muted">{{ i + 1 }}</td>
             <td><input v-model="row.name" style="width:100%" @input="dirty = true" /></td>
             <td><input v-model="row.sku" style="width:100%" @input="dirty = true" /></td>
+            <td><input v-model="row.description" style="width:100%" @input="dirty = true" /></td>
             <td><input v-model.number="row.qty" type="number" min="0" style="width:100%" @input="dirty = true" /></td>
             <td><input v-model.number="row.price" type="number" min="0" style="width:100%" @input="dirty = true" /></td>
             <td><input v-model.number="row.discount" type="number" min="0" max="100" style="width:100%" @input="dirty = true" /></td>
             <td class="font-mono text-right">{{ subtotal(row) }}</td>
             <td><input v-model="row.remark" style="width:100%" @input="dirty = true" /></td>
+            <td><button class="btn-icon btn-sm" @click="deleteRow(i)" title="删除行"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td>
           </tr>
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="6" class="text-right" style="font-weight:600">合计</td>
+            <td colspan="7" class="text-right" style="font-weight:600">合计</td>
             <td class="font-mono text-right" style="font-weight:700">{{ totalPrice }}</td>
+            <td></td>
             <td></td>
           </tr>
         </tfoot>
@@ -49,19 +54,32 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { RefreshCwIcon, SaveIcon, DownloadIcon, CopyIcon } from 'lucide-vue-next'
-import { fetchBomSnapshot, saveBomSnapshot, bomExportUrl, saveBomAsTemplate } from '../api'
+import { ref, computed, onMounted, inject } from 'vue'
+import { RefreshCwIcon, SaveIcon, DownloadIcon, PlusIcon, Trash2Icon } from 'lucide-vue-next'
+import { fetchBomSnapshot, saveBomSnapshot, bomExportUrl, fetchQuotationBom, saveQuotationBom } from '../api'
 
-const props = defineProps<{ solutionId: number }>()
+const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
-interface BomRow { name: string; sku: string; qty: number; price: number; discount: number; remark: string }
+const props = defineProps<{ solutionId?: number; quotationId?: number }>()
+
+interface BomRow { name: string; sku: string; qty: number; price: number; discount: number; description: string; remark: string }
 const rows = ref<BomRow[]>([])
 const loading = ref(true)
 const dirty = ref(false)
 
 function subtotal(r: BomRow): string {
   return (r.qty * r.price * (r.discount / 100)).toFixed(0)
+}
+
+function addRow() {
+  rows.value.push({ name: '', sku: '', qty: 1, price: 0, discount: 100, description: '', remark: '' })
+  dirty.value = true
+}
+
+function deleteRow(i: number) {
+  if (!confirm('确定删除第 ' + (i + 1) + ' 行？')) return
+  rows.value.splice(i, 1)
+  dirty.value = true
 }
 
 const totalPrice = computed(() => {
@@ -71,81 +89,82 @@ const totalPrice = computed(() => {
 async function loadSnapshot() {
   loading.value = true
   try {
-    const res = await fetchBomSnapshot(props.solutionId)
-    const cells = res.bom_snapshot?.snapshot?.cells || {}
-    // Parse cells into rows
-    const rowMap: Record<number, BomRow> = {}
-    for (const [ref, cell] of Object.entries(cells)) {
-      const c = cell as any
-      const m = ref.match(/^([A-Z])(\d+)$/)
-      if (!m) continue
-      const col = m[1]
-      const rowNum = parseInt(m[2])
-      if (!rowMap[rowNum]) rowMap[rowNum] = { name: '', sku: '', qty: 1, price: 0, discount: 100, remark: '' }
-      const v = c.v ?? ''
-      if (col === 'A') rowMap[rowNum].name = String(v)
-      else if (col === 'B') rowMap[rowNum].name = String(v) // merge B into name if A is sequence number
-      else if (col === 'C') rowMap[rowNum].sku = String(v)
-      else if (col === 'D') rowMap[rowNum].qty = Number(v) || 1
-      else if (col === 'E') rowMap[rowNum].price = Number(v) || 0
-      else if (col === 'F') {/* subtotal, computed */}
-      else if (col === 'G') rowMap[rowNum].discount = Number(v) || 100
-      else if (col === 'H') rowMap[rowNum].remark = String(v)
+    if (props.quotationId) {
+      const res = await fetchQuotationBom(props.quotationId)
+      rows.value = (res.rows || []).map((r: any) => ({
+        name: r.name || '', sku: r.sku || '', qty: Number(r.qty) || 1,
+        price: Number(r.price) || 0, discount: Number(r.discount) || 100,
+        description: r.description || '', remark: r.remark || '',
+      }))
+    } else if (props.solutionId) {
+      const res = await fetchBomSnapshot(props.solutionId)
+      const cells = res.bom_snapshot?.snapshot?.cells || {}
+      const rowMap: Record<number, BomRow> = {}
+      for (const [ref, cell] of Object.entries(cells)) {
+        const c = cell as any
+        const m = ref.match(/^([A-Z])(\d+)$/)
+        if (!m) continue
+        const col = m[1]
+        const rowNum = parseInt(m[2])
+        if (rowNum <= 1) continue
+        if (!rowMap[rowNum]) rowMap[rowNum] = { name: '', sku: '', qty: 1, price: 0, discount: 100, description: '', remark: '' }
+        const v = c.v ?? ''
+        if (col === 'A') {/* row number, skip */}
+        else if (col === 'B') rowMap[rowNum].name = String(v)
+        else if (col === 'C') rowMap[rowNum].sku = String(v)
+        else if (col === 'D') rowMap[rowNum].description = String(v)
+        else if (col === 'E') rowMap[rowNum].qty = Number(v) || 1
+        else if (col === 'F') rowMap[rowNum].price = Number(v) || 0
+        else if (col === 'G') rowMap[rowNum].discount = Number(v) || 100
+        else if (col === 'H') {/* subtotal, computed */}
+        else if (col === 'I') rowMap[rowNum].remark = String(v)
+      }
+      rows.value = Object.keys(rowMap).sort((a,b) => Number(a)-Number(b)).map(k => rowMap[Number(k)])
     }
-    rows.value = Object.keys(rowMap).sort((a,b) => Number(a)-Number(b)).map(k => rowMap[Number(k)])
     dirty.value = false
   } catch (e: any) {
-    console.warn('BOM load failed:', e)
+    showToast('BOM 加载失败: ' + (e.detail || e.message || '未知错误'), 'error')
   }
   loading.value = false
 }
 
 async function save() {
   try {
-    // Convert rows back to snapshot format
-    const cells: Record<string, any> = {}
-    rows.value.forEach((r, i) => {
-      const row = i + 1
-      cells[`A${row}`] = { v: i + 1 }
-      cells[`B${row}`] = { v: r.name }
-      cells[`C${row}`] = { v: r.sku }
-      cells[`D${row}`] = { v: r.qty }
-      cells[`E${row}`] = { v: r.price }
-      cells[`F${row}`] = { v: Number(subtotal(r)) }
-      cells[`G${row}`] = { v: r.discount }
-      cells[`H${row}`] = { v: r.remark }
-    })
-    await saveBomSnapshot(props.solutionId, { snapshot: { cells, sheet_name: 'BOM' } })
+    if (props.quotationId) {
+      const data = rows.value.map(r => ({
+        name: r.name, sku: r.sku, qty: r.qty, price: r.price,
+        discount: r.discount, description: r.description, remark: r.remark,
+      }))
+      await saveQuotationBom(props.quotationId, { rows: data })
+    } else if (props.solutionId) {
+      const cells: Record<string, any> = {}
+      rows.value.forEach((r, i) => {
+        const row = i + 1
+        cells[`A${row}`] = { v: i + 1 }
+        cells[`B${row}`] = { v: r.name }
+        cells[`C${row}`] = { v: r.sku }
+        cells[`D${row}`] = { v: r.description }
+        cells[`E${row}`] = { v: r.qty }
+        cells[`F${row}`] = { v: r.price }
+        cells[`G${row}`] = { v: r.discount }
+        cells[`H${row}`] = { v: Number(subtotal(r)) }
+        cells[`I${row}`] = { v: r.remark }
+      })
+      await saveBomSnapshot(props.solutionId, { snapshot: { cells, sheet_name: 'BOM' } })
+    }
     dirty.value = false
-    alert('BOM 已保存')
+    showToast('BOM 已保存', 'success')
   } catch (e: any) {
-    alert('保存失败: ' + (e.detail || e.message))
+    showToast('保存失败: ' + (e.detail || e.message), 'error')
   }
 }
 
 function exportXlsx() {
-  window.open(bomExportUrl(props.solutionId), '_blank')
-}
-
-async function saveAsTemplate() {
-  const name = prompt('模板名称:')
-  if (!name) return
-  try {
-    const cells: Record<string, any> = {}
-    rows.value.forEach((r, i) => {
-      const row = i + 1
-      cells[`A${row}`] = { v: i + 1 }
-      cells[`B${row}`] = { v: r.name }
-      cells[`C${row}`] = { v: r.sku }
-      cells[`D${row}`] = { v: r.qty }
-      cells[`E${row}`] = { v: r.price }
-      cells[`G${row}`] = { v: r.discount }
-      cells[`H${row}`] = { v: r.remark }
-    })
-    await saveBomAsTemplate(props.solutionId, { name, snapshot: { cells, sheet_name: 'BOM' } })
-    alert('模板已保存')
-  } catch (e: any) {
-    alert('保存模板失败')
+  if (props.quotationId) {
+    const token = localStorage.getItem('token') || ''
+    window.open(`/product-db/api/quotations/${props.quotationId}/export-xlsx?token=${token}`, '_blank')
+  } else if (props.solutionId) {
+    window.open(bomExportUrl(props.solutionId), '_blank')
   }
 }
 

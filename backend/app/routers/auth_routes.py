@@ -12,7 +12,6 @@ from app.schemas.auth import (
     CreateUserRequest, UpdateUserRequest, UpdateProfileRequest,
     RegistrationRequest, ResetPasswordRequest, FieldVisibilityUpdate, AIPromptUpdate,
 )
-from app.utils.escape import escape_like
 from app.config import settings
 import httpx
 

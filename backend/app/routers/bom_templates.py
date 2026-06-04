@@ -10,7 +10,7 @@ from app.database import get_db
 from app.models.bom_template import BOMTemplate, SolutionBOMSnapshot
 from app.models.solution import Solution, SolutionItem
 from app.models.product import Product
-from app.auth import get_current_user
+from app.auth import get_current_user, check_ownership
 from app.models.user import User
 from app.schemas.bom_template import BOMTemplateCreate, BOMTemplateUpdate, SaveAsTemplateRequest
 from app.schemas.solution import BOMSnapshotSave
@@ -57,6 +57,7 @@ def update_template(template_id: int, data: BOMTemplateUpdate, db: Session = Dep
     t = db.get(BOMTemplate, template_id)
     if not t:
         raise HTTPException(404, "Template not found")
+    check_ownership(t, user)
     for f in ["name", "description", "sheet_name", "snapshot", "is_default"]:
         val = getattr(data, f, None)
         if val is not None:
@@ -156,7 +157,7 @@ def _sync_snapshot_to_items(solution_id: int, snapshot: dict, db: Session):
     """Parse BOM snapshot cells and update solution_items with edited values.
 
     Sheet layout: data rows start at row 3 (snapshot) or row 5 (basic bom).
-    Columns: A=seq B=name C=SKU D=qty E=price F=subtotal G=discount H=remark
+    Columns: A=# B=名称 C=型号/SKU D=功能描述 E=数量 F=单价 G=折扣% H=小计 I=备注
     We match by SKU in column C to find the corresponding solution_item.
     """
     cells = snapshot.get("cells", {})
@@ -185,10 +186,10 @@ def _sync_snapshot_to_items(solution_id: int, snapshot: dict, db: Session):
         if not sku or not isinstance(sku, str) or not sku.strip():
             continue
         sku = sku.strip()
-        qty = float(rd.get("D", {}).get("v", 0) or 0)
-        price = float(rd.get("E", {}).get("v", 0) or 0)
+        qty = float(rd.get("E", {}).get("v", 0) or 0)
+        price = float(rd.get("F", {}).get("v", 0) or 0)
         discount = float(rd.get("G", {}).get("v", 100) or 100)
-        remark = str(rd.get("H", {}).get("v", "") or "")
+        remark = str(rd.get("I", {}).get("v", "") or "")
         sku_updates[sku] = {"quantity": qty, "unit_price": price, "discount_rate": discount, "remark": remark}
 
     if not sku_updates:
@@ -379,26 +380,30 @@ def _write_basic_bom(ws, sol, solution_id: int, db: Session):
     ws.append([f"BOM - {sol.name}"])
     ws.append([f"客户: {sol.client_name or ''}", f"项目: {sol.project_name or ''}"])
     ws.append([])
-    ws.append(["序号", "产品", "SKU", "数量", "单价", "金额", "折扣(%)", "备注"])
+    ws.append(["#", "产品名称", "型号/SKU", "功能描述", "数量", "单价", "折扣%", "小计", "备注"])
 
     items = db.query(SolutionItem).filter_by(solution_id=solution_id)\
         .order_by(SolutionItem.sort_order).all()
     product_map = {p.id: p for p in db.query(Product).all()}
     for idx, item in enumerate(items, 1):
         p = product_map.get(item.product_id)
+        qty = float(item.quantity or 0)
+        price = float(item.unit_price or 0)
+        discount = float(item.discount_rate or 100)
         ws.append([
             idx,
             p.name if p else "",
-            p.sku if p else "",
-            float(item.quantity or 0),
-            float(item.unit_price or 0),
-            float(item.quantity or 0) * float(item.unit_price or 0) * (float(item.discount_rate or 100) / 100),
-            float(item.discount_rate or 100),
+            ((p.model or "") + (" / " + p.sku if p and p.sku else "")) if p else "",
+            (p.description or "")[:200] if p else "",
+            qty,
+            price,
+            discount,
+            qty * price * (discount / 100),
             item.remark or "",
         ])
 
     ws.append([])
-    ws.append(["合计", "", "", "", "", float(sol.total_price or 0)])
+    ws.append(["", "", "", "", "", "", "合计", float(sol.total_price or 0), ""])
 
 
 def _generate_snapshot(sol: Solution, template, db: Session) -> dict:
@@ -413,18 +418,36 @@ def _generate_snapshot(sol: Solution, template, db: Session) -> dict:
     product_map = {p.id: p for p in db.query(Product).all()}
 
     cells = snapshot.get("cells", {})
+    # Overlay headers matching BOM editor table layout
+    cells["A1"] = {"v": "#"}
+    cells["B1"] = {"v": "产品名称"}
+    cells["C1"] = {"v": "型号/SKU"}
+    cells["D1"] = {"v": "功能描述"}
+    cells["E1"] = {"v": "数量"}
+    cells["F1"] = {"v": "单价"}
+    cells["G1"] = {"v": "折扣%"}
+    cells["H1"] = {"v": "小计"}
+    cells["I1"] = {"v": "备注"}
     start_row = 3
     for idx, item in enumerate(items):
         row = start_row + idx
         p = product_map.get(item.product_id)
+        qty = float(item.quantity or 0)
+        price = float(item.unit_price or 0)
+        discount = float(item.discount_rate or 100)
         cells[f"A{row}"] = {"v": idx + 1}
         cells[f"B{row}"] = {"v": p.name if p else ""}
         cells[f"C{row}"] = {"v": p.sku if p else ""}
-        cells[f"D{row}"] = {"v": float(item.quantity or 0)}
-        cells[f"E{row}"] = {"v": float(item.unit_price or 0)}
-        cells[f"F{row}"] = {"v": float(item.quantity or 0) * float(item.unit_price or 0) * (float(item.discount_rate or 100) / 100)}
-        cells[f"G{row}"] = {"v": float(item.discount_rate or 100)}
-        cells[f"H{row}"] = {"v": item.remark or ""}
+        cells[f"D{row}"] = {"v": (p.description or "")[:200] if p else ""}
+        cells[f"E{row}"] = {"v": qty}
+        cells[f"F{row}"] = {"v": price}
+        cells[f"G{row}"] = {"v": discount}
+        cells[f"H{row}"] = {"v": qty * price * (discount / 100)}
+        cells[f"I{row}"] = {"v": item.remark or ""}
+
+    # Total row
+    total_row = start_row + len(items) + 1
+    cells[f"H{total_row}"] = {"v": float(sol.total_price or 0)}
 
     snapshot["cells"] = cells
     return snapshot

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.supplier import Supplier
-from app.auth import get_current_user
+from app.auth import get_current_user, filter_by_ownership, filter_by_ownership
 from app.utils.escape import escape_like
 from app.utils.helpers import apply_partial_update
 from app.schemas.supplier import SupplierCreate, SupplierUpdate
@@ -19,7 +19,7 @@ def list_suppliers(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    q = db.query(Supplier)
+    q = filter_by_ownership(db.query(Supplier), Supplier, user)
     if search:
         q = q.filter(Supplier.name.ilike(f"%{escape_like(search)}%"))
     q = q.order_by(Supplier.name)
@@ -48,6 +48,7 @@ def create_supplier(data: SupplierCreate, db: Session = Depends(get_db), user=De
         email=data.email,
         website=data.website,
         notes=data.notes,
+        created_by=user.id,
     )
     db.add(s)
     db.commit()

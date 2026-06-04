@@ -82,14 +82,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, watch, onMounted } from 'vue'
+import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessageCircleIcon, Minimize2Icon } from 'lucide-vue-next'
 import SolutionProductCard from './GenUI/SolutionProductCard.vue'
 import QuoteDraftCard from './GenUI/QuoteDraftCard.vue'
 import { fetchConversations, fetchConversation, deleteConversation, createSolution, addSolutionItem } from '../api'
 import DOMPurify from 'dompurify'
-import { formatAiContent, escapeHtml } from '../utils/markdown'
+import { formatAiContent, escapeHtml, extractProducts } from '../utils/markdown'
 
 function sanitize(html: string): string { return DOMPurify.sanitize(html) as string }
 function stripCalls(text: string): string { return text.replace(/调用.*?\.\.\./g, '').replace(/<｜｜DSML｜｜tool_calls>[\s\S]*?<\/｜｜DSML｜｜tool_calls>/g, '').trim() }
@@ -180,17 +180,18 @@ function stopDragFabTouch() {
   document.removeEventListener('touchend', stopDragFabTouch)
 }
 
-// Reset FAB position on window resize
-window.addEventListener('resize', () => {
-  if (!open.value) fabPos.value = getFabDefaultPos()
-})
-
 watch(open, (val) => {
   if (val) nextTick(() => inputEl.value?.focus())
 })
 
+let _resizeHandler: (() => void) | null = null
 onMounted(() => {
   fabPos.value = getFabDefaultPos()
+  _resizeHandler = () => { if (!open.value) fabPos.value = getFabDefaultPos() }
+  window.addEventListener('resize', _resizeHandler)
+})
+onBeforeUnmount(() => {
+  if (_resizeHandler) window.removeEventListener('resize', _resizeHandler)
 })
 const expanded = ref(false)
 const input = ref('')
@@ -311,36 +312,10 @@ function onCompare(ids: number[]) {
   if (ids.length >= 2) router.push(`/products/compare?ids=${ids.join(',')}`)
 }
 
-function extractProducts(text: string, role: string): any[] {
-  if (role !== 'tool' || !text) return []
-  try {
-    const d = JSON.parse(text)
-    if (d.products) return d.products
-  } catch { console.warn('AiChat: failed to load conversations') }
-  return []
-}
-
-function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
-
 function formatContent(text: string, role: string): string {
-  if (!text) return ''
-  if (role === 'tool') {
-    try {
-      const d = JSON.parse(text)
-      if (d.products) {
-        return d.products.map((p: any) =>
-          `<b>${esc(p.name || '')}</b> <span class="font-mono">${esc(p.model || '')}</span> — ¥${p.price || 0}<br><span class="text-muted" style="font-size:11px">${[p.category, p.manufacturer].filter(Boolean).map(esc).join(' | ')}</span>`
-        ).join('<br>')
-      }
-      if (d.found !== undefined) return `<b>找到 ${d.found} 个产品</b>`
-      if (d.categories) return d.categories.map((c: any) => esc(c.name)).join('、')
-      return `<pre style="font-size:11px;margin:0">${esc(JSON.stringify(d, null, 2))}</pre>`
-    } catch { console.warn('AiChat: failed to load conversations') }
-  }
-  return mdToHtml(text)
+  return sanitize(formatAiContent(text, role))
 }
+
 
 function mdToHtml(text: string): string {
   // Escape HTML entities before markdown conversion to prevent XSS

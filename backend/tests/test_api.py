@@ -7,6 +7,8 @@ import tempfile
 # Force test DB before any app imports
 _test_db_path = tempfile.mktemp(suffix=".db")
 os.environ["DATABASE_URL"] = f"sqlite:///{_test_db_path}"
+os.environ["DEV_MODE"] = "true"
+os.environ["SECRET_KEY"] = "test-secret-key-for-pytest-32charmin"
 
 from fastapi.testclient import TestClient
 from app.database import Base, engine, SessionLocal, get_db
@@ -700,7 +702,11 @@ class TestBOMSnapshots:
         resp = client.get(f"/product-db/api/solutions/{sol_id}/bom-snapshot")
         assert resp.status_code == 200
         assert "bom_snapshot" in resp.json()
-        assert resp.json()["bom_snapshot"]["snapshot"]["cells"]["A1"]["v"] == "BOM"
+        # Header row is now overwritten with unified layout
+        assert resp.json()["bom_snapshot"]["snapshot"]["cells"]["A1"]["v"] == "#"
+        # Data row should have product info
+        cells = resp.json()["bom_snapshot"]["snapshot"]["cells"]
+        assert cells["B3"]["v"] == "测试产品"  # product name in data row
 
     def test_save_bom_snapshot(self, db):
         cat = _seed_category(db)

@@ -47,7 +47,7 @@ async def upload_file(
 
 
 @router.get("/products/files/{file_id}")
-def download_file(file_id: int, inline: bool = False, db: Session = Depends(get_db)):
+def download_file(file_id: int, inline: bool = False, db: Session = Depends(get_db), user=Depends(get_current_user)):
     pf = db.get(ProductFile, file_id)
     if not pf:
         raise HTTPException(404, "File not found")

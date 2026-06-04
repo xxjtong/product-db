@@ -3,7 +3,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.category import Category, CategorySpecDefinition
-from app.auth import get_current_user
+from app.auth import get_current_user, filter_by_ownership, check_ownership
+from app.services.product_category_helper import delete_category_cascade
 from app.schemas.category import CategoryCreate, CategoryUpdate, SpecDefinitionCreate, SpecDefinitionUpdate
 
 router = APIRouter()
@@ -16,7 +17,7 @@ def list_categories(
     page: int = 1,
     per_page: int = 50,
 ):
-    all_cats = db.query(Category).order_by(Category.sort_order, Category.id).all()
+    all_cats = filter_by_ownership(db.query(Category), Category, user).order_by(Category.sort_order, Category.id).all()
     cat_dicts = [c.to_dict() for c in all_cats]
 
     # Flatten tree: parent immediately followed by its children
@@ -70,6 +71,7 @@ def create_category(data: CategoryCreate, db: Session = Depends(get_db), user=De
         parent_id=data.parent_id,
         level=data.level,
         sort_order=data.sort_order,
+        created_by=user.id,
     )
     db.add(cat)
     db.commit()
@@ -82,6 +84,7 @@ def update_category(cat_id: int, data: CategoryUpdate, db: Session = Depends(get
     cat = db.get(Category, cat_id)
     if not cat:
         raise HTTPException(404, "Category not found")
+    check_ownership(cat, user)
     for field in ["name", "slug", "parent_id", "level", "sort_order", "is_active"]:
         val = getattr(data, field, None)
         if val is not None:
@@ -95,6 +98,7 @@ def delete_category(cat_id: int, db: Session = Depends(get_db), user=Depends(get
     cat = db.get(Category, cat_id)
     if not cat:
         raise HTTPException(404, "Category not found")
+    check_ownership(cat, user)
 
     # Cascade-delete child records to avoid FK violations
     from app.models.product import Product
@@ -105,7 +109,7 @@ def delete_category(cat_id: int, db: Session = Depends(get_db), user=Depends(get
     from app.models.solution import SolutionItem
 
     db.execute(text('DELETE FROM category_spec_definitions WHERE category_id = :cid'), {'cid': cat_id})
-    db.execute(text('DELETE FROM product_categories WHERE category_id = :cid'), {'cid': cat_id})
+    delete_category_cascade(db, cat_id)
     db.execute(text('DELETE FROM product_dependencies WHERE depends_on_category_id = :cid'), {'cid': cat_id})
     # Update products using old single-category column (NOT NULL, fallback to first category)
     fallback = db.query(Category).filter(Category.id != cat_id, Category.is_active == True).first()

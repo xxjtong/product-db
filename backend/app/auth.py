@@ -78,3 +78,22 @@ def get_current_user(
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
+
+
+def filter_by_ownership(query, model, user):
+    """Filter query by ownership: admin sees all, others see own + admin + legacy (NULL)."""
+    if user.role == "admin":
+        return query
+    from sqlalchemy import or_
+    admin_id = 1
+    return query.filter(or_(model.created_by == None, model.created_by == user.id, model.created_by == admin_id))
+
+
+def check_ownership(resource, user):
+    """Raise 403 if user doesn't own this resource (admin always passes, NULL=legacy allowed)."""
+    if user.role == "admin":
+        return
+    created_by = getattr(resource, 'created_by', None)
+    if created_by is not None and created_by != user.id and created_by != 1:
+        from fastapi import HTTPException
+        raise HTTPException(403, "Access denied: not your resource")

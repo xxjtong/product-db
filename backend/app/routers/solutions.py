@@ -11,7 +11,7 @@ from app.models.solution import Solution, SolutionItem
 from app.models.product import Product
 from app.models.category import Category
 from app.models.dependency import ProductDependency
-from app.auth import get_current_user
+from app.auth import get_current_user, filter_by_ownership, check_ownership
 from app.utils.escape import escape_like
 from app.models.user import User
 from app.schemas.solution import SolutionCreate, SolutionUpdate, SolutionItemCreate, SolutionItemUpdate, BatchDeleteRequest
@@ -49,6 +49,7 @@ def list_solutions(
     q = db.query(Solution).options(
         selectinload(Solution.items).selectinload(SolutionItem.product),
     )
+    q = filter_by_ownership(q, Solution, user)
     if status:
         q = q.filter(Solution.status == status)
     if search:
@@ -108,6 +109,7 @@ def update_solution(solution_id: int, data: SolutionUpdate, db: Session = Depend
     sol = db.get(Solution, solution_id)
     if not sol:
         raise HTTPException(404, "Solution not found")
+    check_ownership(sol, user)
     for f in ["name", "description", "client_name", "project_name", "status", "notes"]:
         val = getattr(data, f, None)
         if val is not None:
@@ -125,6 +127,7 @@ def delete_solution(solution_id: int, db: Session = Depends(get_db), user=Depend
     sol = db.get(Solution, solution_id)
     if not sol:
         raise HTTPException(404, "Solution not found")
+    check_ownership(sol, user)
     db.delete(sol)
     db.commit()
     return {"ok": True}

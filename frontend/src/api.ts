@@ -17,8 +17,8 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) headers['Authorization'] = `Bearer ${token}`
   const res = await fetch(`${API_BASE}${path}`, {
-    headers,
     ...options,
+    headers: { ...headers, ...(options?.headers as Record<string, string> || {}) },
   })
   if (!res.ok) {
     let message = ''
@@ -134,6 +134,9 @@ export const deleteSolutionItem = (solId: number, itemId: number) =>
 export const checkSolution = (solId: number) => api<{ warnings: any[]; ok: boolean }>(`/solutions/${solId}/check`)
 export const suggestSolution = (solId: number) => api<{ suggestions: any[] }>(`/solutions/${solId}/suggest`)
 export const fetchBomSnapshot = (solId: number) => api<{ bom_snapshot: any }>(`/solutions/${solId}/bom-snapshot`)
+export const fetchQuotationBom = (qid: number) => api<{ rows: any[]; total: number }>(`/quotations/${qid}/bom`)
+export const saveQuotationBom = (qid: number, data: any) =>
+  api(`/quotations/${qid}/bom`, { method: 'PUT', body: JSON.stringify(data) })
 export const saveBomSnapshot = (solId: number, data: any) =>
   api(`/solutions/${solId}/bom-snapshot`, { method: 'PUT', body: JSON.stringify(data) })
 export const bomExportUrl = (solId: number) => {

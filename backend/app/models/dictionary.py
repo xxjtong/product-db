@@ -1,5 +1,5 @@
 from app.database import Base
-from sqlalchemy import Column, Integer, String, DateTime, Text
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey
 from datetime import datetime
 
 
@@ -12,6 +12,7 @@ class Manufacturer(Base):
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     def to_dict(self):
         return {
@@ -28,6 +29,7 @@ class DictCommMethod(Base):
     id = Column(Integer, primary_key=True)
     method_type = Column(String(20), nullable=False)  # "wired" / "wireless"
     name = Column(String(50), nullable=False, unique=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     def to_dict(self):
         return {
@@ -42,6 +44,7 @@ class DictCommProtocol(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String(50), nullable=False, unique=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     def to_dict(self):
         return {
@@ -56,6 +59,7 @@ class DictPowerSupply(Base):
     id = Column(Integer, primary_key=True)
     supply_category = Column(String(50), nullable=False)  # e.g. "内置电池", "外接电源", "PoE"
     name = Column(String(50), nullable=False, unique=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     def to_dict(self):
         return {
@@ -71,6 +75,7 @@ class DictSensorMetric(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(50), nullable=False, unique=True)  # e.g. "温度", "湿度", "CO2"
     unit = Column(String(20), nullable=True)  # e.g. "℃", "%RH", "ppm"
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     def to_dict(self):
         return {

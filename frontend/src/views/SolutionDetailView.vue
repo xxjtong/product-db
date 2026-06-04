@@ -1,8 +1,6 @@
 <template>
   <PageHeader :title="solution ? `方案: ${solution.name}` : '方案详情'" :breadcrumb="[{ label: '方案管理', to: '/solutions' }, { label: solution?.name || '方案详情', to: '' }]">
-    <button class="btn-secondary" @click="checkDeps"><ShieldCheckIcon style="width:14px;height:14px" />依赖检查</button>
     <button class="btn-secondary" @click="doCreateQuotation">生成报价单</button>
-    <button class="btn-secondary" @click="showBom = !showBom">{{ showBom ? '收起' : '编辑' }} BOM 表格</button>
     <button class="btn-secondary" @click="$router.back()">返回</button>
   </PageHeader>
 
@@ -70,11 +68,12 @@
       </div>
 
       <table class="data-table" v-if="solution.items?.length">
-        <thead><tr><th>产品</th><th>型号</th><th style="width:80px">数量</th><th style="width:100px">单价</th><th style="width:80px">折扣%</th><th style="width:100px">小计</th><th style="width:120px">备注</th><th style="width:40px"></th></tr></thead>
+        <thead><tr><th>产品</th><th>型号</th><th style="width:140px">功能描述</th><th style="width:80px">数量</th><th style="width:100px">单价</th><th style="width:80px">折扣%</th><th style="width:100px">小计</th><th style="width:120px">备注</th><th style="width:40px"></th></tr></thead>
         <tbody>
           <tr v-for="item in solution.items" :key="item.id">
             <td><router-link :to="`/products/${item.product_id}`" class="text-sm">{{ item.product_name }}</router-link></td>
             <td class="font-mono text-sm text-muted">{{ item.product_model || '—' }}</td>
+            <td class="text-sm text-muted" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="item.product_description">{{ item.product_description || '—' }}</td>
             <td><input v-model.number="item.quantity" type="number" min="1" style="width:60px" @change="updateItem(item)" /></td>
             <td class="font-mono text-sm">{{ item.unit_price }}</td>
             <td><input v-model.number="item.discount_rate" type="number" style="width:60px" @change="updateItem(item)" /></td>
@@ -88,9 +87,7 @@
     </div>
 
     <!-- BOM Spreadsheet -->
-    <div v-if="showBom" class="card mb-16">
-      <BOMSpreadsheet :solutionId="Number(route.params.id)" />
-    </div>
+
 
   </div>
   <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="load">重试</button></div>
@@ -118,12 +115,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, inject, computed, nextTick, shallowRef } from 'vue'
+import { ref, onMounted, inject, computed, nextTick, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ShieldCheckIcon, Trash2Icon, PlusIcon, InboxIcon } from 'lucide-vue-next'
+import { Trash2Icon, PlusIcon, InboxIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import { defineAsyncComponent } from 'vue'
-const BOMSpreadsheet = defineAsyncComponent(() => import('../components/BOMSpreadsheet.vue'))
+
 import Modal from '../components/Modal.vue'
 import SolutionProductCard from '../components/GenUI/SolutionProductCard.vue'
 import QuoteDraftCard from '../components/GenUI/QuoteDraftCard.vue'
@@ -138,7 +135,6 @@ const componentRegistry: Record<string, any> = { SolutionProductCard, QuoteDraft
 
 const route = useRoute()
 const router = useRouter()
-const showBom = ref(false)
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
 const solution = ref<Solution | null>(null)
@@ -146,7 +142,7 @@ const allProducts = ref<Product[]>([])
 
 // AI chat
 interface ChatMessage {
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'tool'
   content: string
   products: any[]
   components: any[]
@@ -179,17 +175,23 @@ async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    const [solRes, prodRes] = await Promise.all([
-      fetchSolution(Number(route.params.id)),
-      fetchProducts('per_page=500'),
-    ])
+    const solRes = await fetchSolution(Number(route.params.id))
     solution.value = solRes.solution
-    allProducts.value = prodRes.products
   } catch (e: any) {
     loadError.value = e.message || '加载失败'
   }
   loading.value = false
 }
+
+async function loadPickerProducts() {
+  if (allProducts.value.length) return
+  try {
+    const prodRes = await fetchProducts('per_page=500')
+    allProducts.value = prodRes.products
+  } catch { /* picker is non-critical */ }
+}
+
+watch(pickerOpen, (val) => { if (val) loadPickerProducts() })
 
 async function saveInfo() {
   if (!solution.value) return
@@ -236,13 +238,23 @@ async function updateItem(item: any) {
       quantity: item.quantity, unit_price: item.unit_price,
       discount_rate: item.discount_rate, remark: item.remark,
     })
-    await load()
+    // Update amount locally
+    item.amount = (item.quantity || 0) * (item.unit_price || 0) * ((item.discount_rate || 100) / 100)
+    if (solution.value) {
+      solution.value.total_price = solution.value.items.reduce((s: number, i: any) => s + (i.amount || 0), 0)
+    }
   } catch (e: any) { showToast(e.detail || e.message, 'error') }
 }
 
 async function removeItem(itemId: number) {
-  try { await deleteSolutionItem(Number(route.params.id), itemId); showToast('已移除', 'success'); await load() }
-  catch (e: any) { showToast(e.detail || e.message, 'error') }
+  try {
+    await deleteSolutionItem(Number(route.params.id), itemId)
+    if (solution.value) {
+      solution.value.items = solution.value.items.filter((i: any) => i.id !== itemId)
+      solution.value.total_price = solution.value.items.reduce((s: number, i: any) => s + (i.amount || 0), 0)
+    }
+    showToast('已移除', 'success')
+  } catch (e: any) { showToast(e.detail || e.message, 'error') }
 }
 
 async function doCreateQuotation() {
@@ -310,6 +322,9 @@ async function sendChat() {
         continue
       }
       if (typeof text === 'string' && text.startsWith('[TOOL:')) {
+        const toolText = text.slice(6, -1)  // strip [TOOL:...]
+        chatMessages.value.push({ role: 'tool', content: toolText, products: [], components: [] })
+        scrollChat()
         continue
       }
       if (typeof text === 'string' && text.startsWith('[PRODUCTS:')) {
@@ -406,6 +421,11 @@ onMounted(load)
   background: var(--color-hover);
   border-radius: 12px 12px 12px 0;
 }
+.sol-chat-msg.tool {
+  align-self: flex-start; font-size: 11px; color: var(--color-text-secondary);
+  padding: 2px 8px; background: var(--color-hover); border-radius: 10px;
+}
+.sol-chat-msg.tool .sol-chat-bubble { padding: 2px 4px; }
 .sol-chat-bubble {
   padding: 8px 10px; line-height: 1.5; word-break: break-word;
 }

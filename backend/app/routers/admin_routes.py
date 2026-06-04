@@ -223,4 +223,3 @@ def get_download_logs(page: int = 1, per_page: int = 20, db: Session = Depends(g
     total = q.count()
     logs = q.offset((page-1)*per_page).limit(per_page).all()
     return {"logs": [l.to_dict() for l in logs], "total": total, "page": page, "per_page": per_page}
-    return {"logs": [l.to_dict() for l in logs]}
