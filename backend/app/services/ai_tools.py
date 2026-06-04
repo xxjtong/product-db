@@ -161,6 +161,8 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
         base_q = db.query(Product).filter(Product.status == "active")
         base_q = _apply_filters(base_q)
 
+        has_filters = bool(category or manufacturer or comm_method or protocol or power or min_price is not None or max_price is not None)
+
         if len(keywords) <= 1:
             # Single keyword — simple search
             kw = keywords[0] if keywords else ""
@@ -172,6 +174,13 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
                     if old in alt: alt = alt.replace(old, new)
                 if alt != kw:
                     products = _search_kw(alt, base_q, limit)
+            # Keyword failed but filters active → return filtered results
+            if not products and has_filters:
+                products = base_q.options(
+                    selectinload(Product.category), selectinload(Product.manufacturer),
+                    selectinload(Product.comm_methods).selectinload(ProductCommMethod.method),
+                    selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
+                ).limit(limit).all()
         else:
             # Multi-keyword — search each independently, interleave results
             per_kw_limit = 5
@@ -205,6 +214,13 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
                 idx += 1
                 if not added:
                     break
+            # All keywords failed but filters active → return filtered
+            if not products and has_filters:
+                products = base_q.options(
+                    selectinload(Product.category), selectinload(Product.manufacturer),
+                    selectinload(Product.comm_methods).selectinload(ProductCommMethod.method),
+                    selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
+                ).limit(limit).all()
 
         if not products:
             return json.dumps({"found": 0, "message": "未找到匹配产品"}, ensure_ascii=False)
