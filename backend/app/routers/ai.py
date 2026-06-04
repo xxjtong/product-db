@@ -303,15 +303,19 @@ async def run_agent(messages: list, db: Session, conv_id: int):
 
         kw_model = _get_ai_setting("ai_keyword_model", "deepseek-v4-flash")
         kw_prompt = _get_ai_setting("ai_keyword_prompt",
-            "你是一个搜索关键词优化器。根据用户查询和数据库实际情况，找到最匹配的搜索关键词。\n"
-            "规则（按优先级）：\n"
-            "1. keyword必须来自数据库已有词汇。不存在的词必须替换为最接近的已有词\n"
-            "2. 映射表: 漏水→水浸, 漏水检测→水浸, 液位检测→水浸, 烟雾→烟感, 感应器→传感器, 探测器→传感器, 空开→智能空开, 无线→WiFi\n"
-            "3. 如果用户查询含多个产品（如用+连接），keyword中用+连接各产品关键词，不要用空格替代+\n"
-            "4. 品类选最相关的一个，通讯方式/协议/供电/厂商/价格有则填\n"
-            "返回JSON: {\"keyword\":\"关键词\",\"category\":\"品类\",\"comm_method\":\"通讯方式\","
-            "\"protocol\":\"协议\",\"power\":\"供电方式\",\"manufacturer\":\"厂商\","
-            "\"min_price\":null,\"max_price\":null,\"sort_by\":null}，只返回JSON。")
+            "你是一个产品数据库搜索助手。用户的输入可能包含品牌/厂商名、产品类型、通讯方式、价格等任意组合。\n"
+            "请根据数据库的实际情况，将用户输入解析为搜索参数，返回JSON。\n\n"
+            "JSON字段:\n"
+            "- keywords: string[] — 从用户输入中提取的产品关键词（品牌名除外）\n"
+            "- brand: string | null — 用户提到的厂商/品牌名（必须能在数据库厂商列表中找到，否则null）\n"
+            "- category: string | null — 品类名\n"
+            "- comm_method: string | null — 通讯方式\n"
+            "- protocol: string | null — 协议\n"
+            "- power: string | null — 供电方式\n"
+            "- min_price: number | null, max_price: number | null — 价格区间\n"
+            "- sort_by: \"price_asc\" | \"price_desc\" | null\n\n"
+            "同义词: 漏水→水浸, 感应器→传感器, 探测器→传感器, 烟雾→烟感, 空开→智能空开, 无线→WiFi\n\n"
+            "只返回JSON，无其他内容。")
         kw_system = f"{kw_prompt}\n\n{db_ctx}"
         extract_prompt = [
             {"role": "system", "content": kw_system},
