@@ -260,10 +260,13 @@ const aiFetching = ref(false)
 const aiDragOver = ref(false)
 const aiPreview = ref<any>(null)
 
+const pendingAiFile = ref<File | null>(null)
+
 async function onAiDrop(e: DragEvent) {
   aiDragOver.value = false
   const file = e.dataTransfer?.files?.[0]
   if (!file) return
+  pendingAiFile.value = file  // store for later upload
   aiFetching.value = true
   try {
     const fd = new FormData()
@@ -498,7 +501,19 @@ async function save() {
       await updateProduct(Number(route.params.id), payload)
       showToast('产品已更新', 'success')
     } else {
-      await createProduct(payload)
+      const res = await createProduct(payload) as any
+      const newId = res?.product?.id
+      if (newId && pendingAiFile.value) {
+        const fd = new FormData()
+        fd.append('file', pendingAiFile.value)
+        fd.append('label', pendingAiFile.value.name)
+        await fetch(`/product-db/api/products/${newId}/files`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+          body: fd,
+        })
+        pendingAiFile.value = null
+      }
       showToast('产品已创建', 'success')
     }
     router.push('/products')
