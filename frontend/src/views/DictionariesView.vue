@@ -100,13 +100,14 @@
       <button class="btn-primary btn-sm" @click="openAddSup">+ 新增</button>
     </div>
     <table class="data-table">
-      <thead><tr><th>ID</th><th>名称</th><th>联系人</th><th>电话</th><th>操作</th></tr></thead>
+      <thead><tr><th>ID</th><th>名称</th><th>联系人</th><th>电话</th><th>邮箱</th><th style="width:60px">操作</th></tr></thead>
       <tbody>
         <tr v-for="s in suppliers" :key="s.id">
           <td>{{ s.id }}</td>
           <td>{{ s.name }}</td>
-          <td>{{ s.contact || '—' }}</td>
+          <td>{{ s.contact_person || '—' }}</td>
           <td>{{ s.phone || '—' }}</td>
+          <td class="text-sm text-muted">{{ s.email || '—' }}</td>
           <td>
             <button class="btn-icon btn-sm" @click="openEditSup(s)"><PencilIcon style="width:14px;height:14px" /></button>
             <button class="btn-icon btn-sm" @click="showConfirm(() => deleteSup(s.id))"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
@@ -279,7 +280,7 @@ async function loadSuppliers() {
   suppliers.value = res.suppliers; supTotal.value = res.total
 }
 function openAddSup() { editingSup.value = null; supForm.value = { name: '', contact: '', phone: '', email: '', notes: '' }; supModalVisible.value = true }
-function openEditSup(s: Supplier) { editingSup.value = s; supForm.value = { name: s.name, contact: s.contact || '', phone: s.phone || '', email: s.email || '', notes: s.notes || '' }; supModalVisible.value = true }
+function openEditSup(s: Supplier) { editingSup.value = s; supForm.value = { name: s.name, contact: s.contact_person || '', phone: s.phone || '', email: s.email || '', notes: s.notes || '' }; supModalVisible.value = true }
 async function saveSup() {
   try { editingSup.value ? await updateSupplier(editingSup.value.id, supForm.value) : await createSupplier(supForm.value); supModalVisible.value = false; await loadSuppliers(); showToast('已保存', 'success') }
   catch (e: any) { showToast(e.detail || e.message, 'error') }
