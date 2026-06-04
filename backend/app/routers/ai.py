@@ -265,22 +265,37 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             protocols = db.query(DictCommProtocol).order_by(DictCommProtocol.name).all()
             powers = db.query(DictPowerSupply).order_by(DictPowerSupply.name).all()
             metrics = db.query(DictSensorMetric).order_by(DictSensorMetric.name).all()
-            products = db.query(Product.name, Product.model, Product.description, Product.specs)\
+            products = db.query(Product.id, Product.name, Product.model, Product.description, Product.specs)\
                 .filter(Product.status == 'active').order_by(Product.name).all()
+            # Load per-product categories
+            pc_rows = db.execute(text(
+                'SELECT product_id, category_id FROM product_categories'
+            )).fetchall()
+            cat_id_to_name = {c.id: c.name for c in cats}
+            prod_cats: dict[int, list[str]] = {}
+            for pid, cid in pc_rows:
+                name = cat_id_to_name.get(cid, '')
+                if name and pid not in prod_cats: prod_cats[pid] = []
+                if name: prod_cats[pid].append(name)
 
             import re as _re
             prod_parts = []
             for p in products:
+                pid = p.id
                 part = p.name
                 if p.model: part += f"({p.model})"
+                # Add category tags
+                cats_list = prod_cats.get(pid, [])
+                if cats_list:
+                    part += f" [{', '.join(cats_list)}]"
                 if p.description:
                     desc = _re.sub(r'https?://\S+', '', p.description).strip()
                     if desc:
-                        part += f": {desc[:120]}"  # first 120 chars of description
+                        part += f": {desc[:100]}"
                 if p.specs and isinstance(p.specs, dict):
                     spec_kv = [f"{k}={v}" for k, v in p.specs.items() if v]
                     if spec_kv:
-                        part += f" [{', '.join(spec_kv[:8])}]"  # top 8 spec key-values
+                        part += f" [{', '.join(spec_kv[:6])}]"
                 prod_parts.append(part)
             products_text = '\n'.join(prod_parts)
 
@@ -607,7 +622,7 @@ def delete_conversation(conv_id: int, db: Session = Depends(get_db), user=Depend
 def get_ai_stats(db: Session = Depends(get_db), user=Depends(get_current_user)):
     """Return total and current-user AI usage counts with token stats."""
     from app.models.ai_usage_log import AIUsageLog
-    from sqlalchemy import func
+    from sqlalchemy import func, text
     total = db.query(AIUsageLog).count()
     user_count = db.query(AIUsageLog).filter_by(user_id=user.id).count()
     total_tokens_in = db.query(func.sum(AIUsageLog.tokens_in)).scalar() or 0
