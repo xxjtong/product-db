@@ -291,11 +291,11 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                 if p.description:
                     desc = _re.sub(r'https?://\S+', '', p.description).strip()
                     if desc:
-                        part += f": {desc[:100]}"
+                        part += f": {desc}"
                 if p.specs and isinstance(p.specs, dict):
                     spec_kv = [f"{k}={v}" for k, v in p.specs.items() if v]
                     if spec_kv:
-                        part += f" [{', '.join(spec_kv[:6])}]"
+                        part += f" | specs: {', '.join(spec_kv)}"
                 prod_parts.append(part)
             products_text = '\n'.join(prod_parts)
 
