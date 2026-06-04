@@ -369,6 +369,17 @@ async def run_agent(messages: list, db: Session, conv_id: int):
         import logging
         logging.getLogger("uvicorn").warning(f"Keyword extraction failed: {e}")
 
+    # If keyword extraction already found products, skip chat LLM
+    if products_found:
+        text = "查询完成。如需进一步筛选或对比，请告诉我。"
+        save_message(conv_id, "assistant", content=text, db=db, commit=False)
+        db.commit()
+        for char in text:
+            yield {"event": "text", "text": char}
+        yield {"event": "done", "tokens": total_tokens}
+        yield {"event": "quick_replies", "items": ["对比产品", "全部加入方案"]}
+        return
+
     chat_model = _get_ai_setting("ai_chat_model", "deepseek-v4-flash")
     for turn in range(max_turns):
         try:
