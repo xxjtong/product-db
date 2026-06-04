@@ -133,7 +133,7 @@ import PageHeader from '../components/PageHeader.vue'
 import Modal from '../components/Modal.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Pagination from '../components/Pagination.vue'
-import { fetchCommMethods, fetchCommProtocols, fetchPowerSupplies, fetchSensorMetrics, fetchManufacturers, createManufacturer, updateManufacturer, fetchSuppliers, createSupplier, updateSupplier, deleteSupplier } from '../api'
+import { fetchCommMethods, fetchCommProtocols, fetchPowerSupplies, fetchSensorMetrics, fetchManufacturers, createManufacturer, updateManufacturer, fetchSuppliers, fetchSuppliersPaginated, createSupplier, updateSupplier, deleteSupplier } from '../api'
 import type { Manufacturer, Supplier } from '../types'
 
 const activeTab = ref('comm_methods')
@@ -255,7 +255,7 @@ const editingSup = ref<Supplier | null>(null)
 const supForm = ref({ name: '', contact: '', phone: '', email: '', notes: '' })
 
 async function loadSuppliers() {
-  const res = await fetchSuppliers(`page=${supPage.value}&per_page=${perPage.value}`) as any
+  const res = await fetchSuppliersPaginated(`page=${supPage.value}&per_page=${perPage.value}`) as any
   suppliers.value = res.suppliers; supTotal.value = res.total
 }
 function openAddSup() { editingSup.value = null; supForm.value = { name: '', contact: '', phone: '', email: '', notes: '' }; supModalVisible.value = true }
