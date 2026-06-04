@@ -97,14 +97,19 @@
           <td class="font-mono text-sm">{{ p.model || p.sku || '—' }}</td>
           <td>{{ p.manufacturer_name || '—' }}</td>
           <td>
-            <TagBadge v-for="cn in (p.all_category_names?.length ? p.all_category_names : [p.category_name])" :key="cn" :label="cn" />
+            <template v-if="p.all_category_names?.length">
+              <TagBadge v-for="cn in p.all_category_names.slice(0,3)" :key="cn" :label="cn" />
+              <span v-if="p.all_category_names.length > 3" class="text-sm text-muted">+{{ p.all_category_names.length - 3 }}</span>
+            </template>
+            <TagBadge v-else :label="p.category_name" />
           </td>
           <td>
             <TagBadge v-for="cm in p.comm_methods.slice(0,3)" :key="cm.method_id" :label="cm.method_name" />
             <span v-if="p.comm_methods.length > 3" class="text-sm text-muted">+{{ p.comm_methods.length - 3 }}</span>
           </td>
           <td>
-            <TagBadge v-for="ps in p.power_supplies" :key="ps.power_id" :label="ps.power_name" />
+            <TagBadge v-for="ps in p.power_supplies.slice(0,3)" :key="ps.power_id" :label="ps.power_name" />
+            <span v-if="p.power_supplies.length > 3" class="text-sm text-muted">+{{ p.power_supplies.length - 3 }}</span>
           </td>
           <td>
             <button class="btn-icon btn-sm" title="编辑" @click="$router.push(`/products/${p.id}/edit`)"><PencilIcon style="width:14px;height:14px" /></button>
