@@ -54,6 +54,13 @@
           <span v-else>AI 识别</span>
         </button>
       </div>
+      <div
+        class="ai-drop"
+        :class="{ 'ai-drop-active': aiDragOver }"
+        @dragover.prevent="aiDragOver = true"
+        @dragleave="aiDragOver = false"
+        @drop.prevent="onAiDrop"
+      >拖拽规格书文件到此处或粘贴文本</div>
       <textarea v-model="aiTextInput" rows="3" placeholder="或直接粘贴规格书文本...（粘贴后点击AI识别）" style="width:100%;box-sizing:border-box" />
       <div v-if="aiPreview" style="margin-top:12px;padding:12px;background:white;border-radius:4px">
         <strong>提取结果预览：</strong>
@@ -250,7 +257,30 @@ const imageDownloading = ref(false)
 const aiUrlInput = ref('')
 const aiTextInput = ref('')
 const aiFetching = ref(false)
+const aiDragOver = ref(false)
 const aiPreview = ref<any>(null)
+
+async function onAiDrop(e: DragEvent) {
+  aiDragOver.value = false
+  const file = e.dataTransfer?.files?.[0]
+  if (!file) return
+  aiFetching.value = true
+  try {
+    const fd = new FormData()
+    fd.append('file', file)
+    const token = localStorage.getItem('token')
+    const res = await fetch('/product-db/api/products/ai-fetch-file', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: fd,
+    })
+    if (!res.ok) throw new Error((await res.json()).detail || 'Extraction failed')
+    const data = await res.json()
+    aiPreview.value = data.fetched
+    showToast('文件识别完成', 'success')
+  } catch (e: any) { showToast(e.message || '识别失败', 'error') }
+  aiFetching.value = false
+}
 
 async function onAiFetch() {
   const url = aiUrlInput.value.trim()
@@ -526,4 +556,10 @@ onMounted(async () => {
 .category-tags .filter-tag {
   margin: 0;
 }
+.ai-drop {
+  border: 2px dashed var(--color-border); border-radius: 6px;
+  padding: 12px; text-align: center; color: var(--color-text-secondary);
+  font-size: 13px; margin-bottom: 8px; transition: all .2s;
+}
+.ai-drop-active { border-color: var(--color-accent); background: #eff6ff; color: var(--color-accent); }
 </style>

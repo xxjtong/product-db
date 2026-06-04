@@ -447,6 +447,37 @@ def ai_fetch_product(data: AIFetchRequest, db: Session = Depends(get_db), user=D
     return {"fetched": {"url": url, "title": title, **result}}
 
 
+@router.post("/products/ai-fetch-file")
+async def ai_fetch_file(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """AI-assisted product info extraction from uploaded file (PDF/docx/txt)."""
+    content = await file.read()
+    filename = (file.filename or "").lower()
+    text = ""
+
+    if filename.endswith(".pdf"):
+        import io
+        from PyPDF2 import PdfReader
+        reader = PdfReader(io.BytesIO(content))
+        text = "\n".join(p.extract_text() or "" for p in reader.pages)
+    elif filename.endswith(".docx"):
+        import io
+        from docx import Document
+        doc = Document(io.BytesIO(content))
+        text = "\n".join(p.text for p in doc.paragraphs)
+    elif filename.endswith(".txt") or filename.endswith(".csv"):
+        text = content.decode("utf-8", errors="replace")
+    else:
+        raise HTTPException(400, f"Unsupported file type: {filename.split('.')[-1]}")
+
+    text = re.sub(r'\n{3,}', '\n\n', (text or "")[:8000])
+    if not text.strip():
+        raise HTTPException(400, "No text content extracted from file")
+
+    result = call_ai_extract("", filename, text, db) if settings.AI_GATEWAY_KEY \
+        else regex_extract_from_text("", text, db)
+    return {"fetched": {"filename": filename, **result}}
+
+
 @router.get("/products/{product_id}/spec-sheet")
 def spec_sheet(product_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """Generate product spec sheet as PDF download or HTML view."""
