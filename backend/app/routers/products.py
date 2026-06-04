@@ -437,7 +437,7 @@ def ai_fetch_product(data: AIFetchRequest, db: Session = Depends(get_db), user=D
     title = soup.title.string.strip() if soup.title else ""
     body = soup.body
     text = body.get_text(separator="\n", strip=True) if body else resp.text
-    text = re.sub(r'\n{3,}', '\n\n', text)[:8000]
+    text = re.sub(r'\n{3,}', '\n\n', text)[:12000]
 
     if not text:
         raise HTTPException(400, "No text content extracted from URL")

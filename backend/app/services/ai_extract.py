@@ -18,14 +18,14 @@ _prompt_cache: dict = {"ts": 0, "value": ""}
 
 
 def build_extraction_prompt(db: Session) -> str:
-    """Build system prompt for product extraction AI (cached 30s)."""
+    """Build system prompt for product extraction AI (cached 300s)."""
     import time as _time
     now = _time.time()
-    if now - _prompt_cache["ts"] < 30:
+    if now - _prompt_cache["ts"] < 300:
         return _prompt_cache["value"]
 
     cats = db.query(Category).filter_by(is_active=True).order_by(Category.sort_order).all()
-    cat_info = [f"  - slug:{c.slug} name:{c.name}" for c in cats if c.slug]
+    cat_info = [f"{c.slug}({c.name})" for c in cats if c.slug]
 
     methods = db.query(DictCommMethod).all()
     method_names = [m.name for m in methods]
@@ -42,34 +42,37 @@ def build_extraction_prompt(db: Session) -> str:
     metrics = db.query(DictSensorMetric).all()
     metric_names = [f"{m.name}({m.unit})" for m in metrics]
 
-    result = f"""你是一个物联网产品信息提取助手。根据网页内容提取产品结构化信息，输出必须是有效 JSON，不要包含任何其他文本。
+    result = f"""你是一个物联网产品信息提取助手。阅读下方的产品规格文本，提取所有可用信息，输出为严格 JSON 格式。
 
-品类列表 (选择最匹配的 slug):
-{chr(10).join(cat_info)}
+数据库已有数据供参考（提取的值必须来自数据库已有词汇，找不到则用 null）：
+品类: {', '.join(cat_info)}
+通讯方式: {', '.join(method_names)}
+通讯协议: {', '.join(protocol_names)}
+供电方式: {', '.join(power_names)}
+厂商: {', '.join(manufacturer_names)}
+传感器指标: {', '.join(metric_names)}
 
-通讯方式可选值: {json.dumps(method_names, ensure_ascii=False)}
-通讯协议可选值: {json.dumps(protocol_names, ensure_ascii=False)}
-供电方式可选值: {json.dumps(power_names, ensure_ascii=False)}
-厂商可选值: {json.dumps(manufacturer_names, ensure_ascii=False)}
-传感器指标可选值: {json.dumps(metric_names, ensure_ascii=False)}
-
-提取以下信息（未知字段设为 null 或空):
+返回此 JSON 结构（只返回 JSON，无 Markdown 包裹）:
 {{
   "name": "产品名称",
   "model": "产品型号",
-  "category_slug": "匹配的品类slug",
-  "manufacturer_name": "厂商名(必须从可选值匹配,否则null)",
-  "description": "产品描述(1-2句)",
+  "category_slug": "品类slug(从上述列表选)",
+  "manufacturer_name": "厂商(从列表选, 否则null)",
+  "description": "产品描述(保留关键技术参数, 1-3句)",
   "base_price": "价格数字或null",
-  "comm_methods": [{{"name": "Ethernet", "details": "1× 10/100Mbps"}}],
+  "comm_methods": [{{"name": "Ethernet", "details": "端口数和速率"}}],
   "comm_protocols": [{{"name": "MQTT", "direction": "both"}}],
   "power_supplies": [{{"name": "DC", "voltage_range": "9-24V", "battery_life": null}}],
-  "hardware_interfaces": [{{"interface_name": "RS485", "quantity": 1, "description": "Modbus"}}],
-  "sensor_capabilities": [{{"metric_name": "温度", "measure_range": "-20~60", "accuracy": "±0.2"}}],
-  "specs": {{"ip_rating": "IP67", "dimensions_mm": "240×164×90.9"}}
+  "hardware_interfaces": [{{"interface_name": "RS485", "quantity": 1, "description": ""}}],
+  "sensor_capabilities": [{{"metric_name": "温度", "measure_range": "-30~70", "accuracy": "±0.2", "resolution": "0.1"}}],
+  "specs": {{"ip_rating": "IP67", "dimensions_mm": "240×164×90.9", "weight_g": 500}}
 }}
 
-注意: comm_methods/comm_protocols/power_supplies 中的 name 字段必须从可选值中匹配，无法匹配的不要添加。"""
+规则:
+- name/model/description/specs 从文本中提取实际值
+- comm_methods/protocols/power_supplies/sensor_capabilities 的 name 必须来自上述数据库列表
+- 文本没提到的字段设 null 或空数组
+- specs 提取物理参数(IP等级/尺寸/重量/材质/工作温度/安装方式等)"""
 
     _prompt_cache["value"] = result
     _prompt_cache["ts"] = now
@@ -88,13 +91,12 @@ def call_ai_extract(url: str, title: str, text: str, db: Session) -> dict:
         return regex_extract_from_text(title, text, db)
 
     system_prompt = build_extraction_prompt(db)
-    user_msg = f"""网页标题: {title}
-网页URL: {url}
+    user_msg = f"""来源: {title or url or '文件'}
 
-网页内容:
-{text[:6000]}
+规格文本:
+{text[:12000]}
 
-请提取该产品的结构化信息。"""
+请提取产品的结构化信息。"""
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -102,7 +104,7 @@ def call_ai_extract(url: str, title: str, text: str, db: Session) -> dict:
     ]
 
     try:
-        result = asyncio.run(engine.chat(messages, temperature=0.1, max_tokens=2000))
+        result = asyncio.run(engine.chat(messages, temperature=0.1, max_tokens=3000))
         content = result["choices"][0]["message"]["content"]
         json_match = re.search(r'\{.*\}', content, re.DOTALL)
         if json_match:
