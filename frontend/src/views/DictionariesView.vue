@@ -232,7 +232,7 @@ async function loadAll() {
       fetchPowerSupplies(psPage.value, dictPerPage.value),
       fetchSensorMetrics(smPage.value, dictPerPage.value),
       fetchManufacturers(mfgPage.value, perPage.value),
-      fetchSuppliers(`page=1&per_page=${perPage.value}`),
+      fetchSuppliersPaginated(`page=1&per_page=${perPage.value}`),
     ])
     commMethods.value = cm.comm_methods; cmTotal.value = cm.total
     commProtocols.value = cp.comm_protocols; cpTotal.value = cp.total
