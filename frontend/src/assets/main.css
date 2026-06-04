@@ -254,6 +254,21 @@ button {
 .tag-modbus { background: #fef9c3; color: #854d0e; }
 .tag-nfc { background: #cffafe; color: #0e7490; }
 .tag-default { background: #f1f5f9; color: #475569; }
+
+/* Category tags — distinct palette from comm/power */
+.tag-cat-gateway { background: #e0f2fe; color: #0369a1; }
+.tag-cat-sensor { background: #f0fdf4; color: #15803d; }
+.tag-cat-controller { background: #fff7ed; color: #c2410c; }
+.tag-cat-security { background: #fef2f2; color: #b91c1c; }
+.tag-cat-node { background: #f5f3ff; color: #6d28d9; }
+.tag-cat-energy { background: #ecfeff; color: #0e7490; }
+.tag-cat-meeting { background: #fdf4ff; color: #a21caf; }
+.tag-cat-workspace { background: #f0fdf4; color: #166534; }
+.tag-cat-display { background: #eff6ff; color: #1d4ed8; }
+.tag-cat-toilet { background: #fff1f2; color: #be123c; }
+.tag-cat-comm { background: #f8fafc; color: #334155; }
+.tag-cat-env { background: #f7fee7; color: #4d7c0f; }
+.tag-cat-other { background: #faf5ff; color: #7e22ce; }
 .tag-draft { background: #f1f5f9; color: #64748b; }
 .tag-active { background: var(--color-success-light); color: #059669; }
 .tag-done { background: var(--color-accent-light); color: #2563eb; }
