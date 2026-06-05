@@ -10,6 +10,7 @@ class Manufacturer(Base):
     name = Column(String(100), nullable=False, unique=True, index=True)
     website = Column(String(500), nullable=True)
     description = Column(Text, nullable=True)
+    sort_order = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -20,6 +21,7 @@ class Manufacturer(Base):
             "name": self.name,
             "website": self.website or "",
             "description": self.description or "",
+            "sort_order": self.sort_order or 0,
         }
 
 
@@ -29,6 +31,7 @@ class DictCommMethod(Base):
     id = Column(Integer, primary_key=True)
     method_type = Column(String(20), nullable=False)  # "wired" / "wireless"
     name = Column(String(50), nullable=False, unique=True)
+    description = Column(Text, default="")
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     def to_dict(self):
@@ -36,6 +39,7 @@ class DictCommMethod(Base):
             "id": self.id,
             "method_type": self.method_type,
             "name": self.name,
+            "description": self.description or "",
         }
 
 
@@ -44,12 +48,14 @@ class DictCommProtocol(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String(50), nullable=False, unique=True)
+    description = Column(Text, default="")
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     def to_dict(self):
         return {
             "id": self.id,
             "name": self.name,
+            "description": self.description or "",
         }
 
 
@@ -59,6 +65,7 @@ class DictPowerSupply(Base):
     id = Column(Integer, primary_key=True)
     supply_category = Column(String(50), nullable=False)  # e.g. "内置电池", "外接电源", "PoE"
     name = Column(String(50), nullable=False, unique=True)
+    description = Column(Text, default="")
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     def to_dict(self):
@@ -66,6 +73,7 @@ class DictPowerSupply(Base):
             "id": self.id,
             "supply_category": self.supply_category,
             "name": self.name,
+            "description": self.description or "",
         }
 
 
@@ -75,6 +83,7 @@ class DictSensorMetric(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(50), nullable=False, unique=True)  # e.g. "温度", "湿度", "CO2"
     unit = Column(String(20), nullable=True)  # e.g. "℃", "%RH", "ppm"
+    description = Column(Text, default="")
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     def to_dict(self):
@@ -82,4 +91,5 @@ class DictSensorMetric(Base):
             "id": self.id,
             "name": self.name,
             "unit": self.unit or "",
+            "description": self.description or "",
         }

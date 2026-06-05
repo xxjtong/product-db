@@ -115,8 +115,8 @@ def register(data: RegistrationRequest, request: Request, db: Session = Depends(
         raise HTTPException(403, "注册功能未开放")
     username = data.username.strip()
     password = data.password
-    if len(username) < 2 or len(password) < 6:
-        raise HTTPException(400, "用户名至少2位，密码至少6位")
+    if len(username) < 2 or len(password) < 8:
+        raise HTTPException(400, "用户名至少2位，密码至少8位")
     if db.query(User).filter_by(username=username).first():
         raise HTTPException(400, "用户名已存在")
     u = User(username=username, password_hash=hash_password(password),

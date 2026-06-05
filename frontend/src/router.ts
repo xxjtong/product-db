@@ -6,7 +6,7 @@ const router = createRouter({
     { path: '/login', name: 'login', component: () => import('./views/LoginView.vue'), meta: { guest: true } },
     { path: '/admin', name: 'admin', component: () => import('./views/AdminView.vue'), meta: { admin: true } },
     { path: '/', redirect: '/products' },
-    { path: '/categories', name: 'categories', component: () => import('./views/CategoriesView.vue') },
+    { path: '/categories', redirect: '/dictionaries' },
     { path: '/dictionaries', name: 'dictionaries', component: () => import('./views/DictionariesView.vue') },
     { path: '/products', name: 'products', component: () => import('./views/ProductsView.vue') },
     { path: '/products/compare', name: 'product-compare', component: () => import('./views/ProductCompareView.vue') },

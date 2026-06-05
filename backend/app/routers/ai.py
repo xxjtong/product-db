@@ -22,12 +22,10 @@ router = APIRouter()
 MAX_CONTEXT = 20  # max messages to include in context
 
 
-def _get_ai_setting(key: str, default: str) -> str:
+def _get_ai_setting(db: Session, key: str, default: str) -> str:
     """Read AI setting from DB, fall back to default."""
     try:
-        db = next(get_db())
         s = db.query(SystemSetting).filter_by(key=key).first()
-        db.close()
         return s.value if s else default
     except Exception:
         return default
@@ -74,7 +72,7 @@ def build_context(db: Session) -> str:
             f"  {cat_name}: " + ", ".join(f"{k}({v})" for k, v in specs)
         )
 
-    sys_prompt = _get_ai_setting("ai_system_prompt", "你是产品数据库AI助手，帮助用户查询产品、推荐方案。用中文简洁回答。")
+    sys_prompt = _get_ai_setting(db, "ai_system_prompt", "你是产品数据库AI助手，帮助用户查询产品、推荐方案。用中文简洁回答。")
     result = sys_prompt + f"""
 
 当前数据库状态:
@@ -309,8 +307,8 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             _db_ctx_cache['ts'] = now
         db_ctx = _db_ctx_cache['value']
 
-        kw_model = _get_ai_setting("ai_keyword_model", "deepseek-chat")
-        kw_prompt = _get_ai_setting("ai_keyword_prompt",
+        kw_model = _get_ai_setting(db, "ai_keyword_model", "deepseek-chat")
+        kw_prompt = _get_ai_setting(db, "ai_keyword_prompt",
             "你是一个产品数据库搜索助手。完成两个任务：\n"
             "1. 提取搜索关键词（最多4个）\n"
             "2. 从产品列表中为每个关键词匹配最合适的产品（返回产品ID）\n\n"
@@ -369,7 +367,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                         yield {"event": "products", "data": tr["products"]}
                         yield {"event": "component", "component": "SolutionProductCard", "props": {"products": tr["products"]}}
                 except Exception:
-                    pass
+                    import logging; logging.getLogger("uvicorn").warning("JSON parse of tool result failed")
                 max_turns = 1
         elif json_match:
             extracted = json.loads(json_match.group())
@@ -500,7 +498,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                             yield {"event": "products", "data": tr["products"]}
                             yield {"event": "component", "component": "SolutionProductCard", "props": {"products": tr["products"]}}
                     except Exception:
-                        pass
+                        import logging; logging.getLogger("uvicorn").warning("Chat LLM tool parse failed")
                     max_turns = 1
     except Exception as e:
         import logging
@@ -517,7 +515,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
         yield {"event": "quick_replies", "items": ["对比产品", "全部加入方案"]}
         return
 
-    chat_model = _get_ai_setting("ai_chat_model", "deepseek-v4-flash")
+    chat_model = _get_ai_setting(db, "ai_chat_model", "deepseek-v4-flash")
     for turn in range(max_turns):
         try:
             response = await engine.chat(current_messages, model=chat_model, temperature=0.3)

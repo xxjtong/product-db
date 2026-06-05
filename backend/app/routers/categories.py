@@ -85,6 +85,9 @@ def update_category(cat_id: int, data: CategoryUpdate, db: Session = Depends(get
     if not cat:
         raise HTTPException(404, "Category not found")
     check_ownership(cat, user)
+    # Convert empty slug to None to avoid UNIQUE constraint violations
+    if data.slug is not None and data.slug.strip() == '':
+        data.slug = None
     for field in ["name", "slug", "parent_id", "level", "sort_order", "is_active"]:
         val = getattr(data, field, None)
         if val is not None:

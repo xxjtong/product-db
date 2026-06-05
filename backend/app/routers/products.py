@@ -10,7 +10,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse, HTMLResponse, Response
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import select, text
+from sqlalchemy import select, text, case, literal_column
 from sqlalchemy import or_
 from app.database import get_db
 from app.models.product import Product
@@ -94,6 +94,11 @@ def list_products(
                 Product.model.ilike(f"%{escape_like(search)}%"),
                 Product.sku.ilike(f"%{escape_like(search)}%"),
                 Product.pinyin_search.ilike(f"%{escape_like(search_lower)}%"),
+                Product.description.ilike(f"%{escape_like(search)}%"),
+                # Also search by category name via product_categories junction
+                Product.id.in_(
+                    select(text('pc.product_id')).select_from(text('product_categories pc JOIN device_categories c ON pc.category_id = c.id')).where(text('c.name LIKE :s')).params(s=f'%{escape_like(search)}%')
+                ),
             )
         )
 
@@ -118,7 +123,21 @@ def list_products(
         q = q.filter(Product.power_supplies.any(ProductPowerSupply.power_id == power_supply))
 
     total = q.count()
-    products = q.order_by(Product.name).offset((page - 1) * per_page).limit(per_page).all()
+    # Order: priority manufacturers (sort_order < 100) → products with images → others
+    _mfg_sort_map = {m.id: m.sort_order for m in db.query(Manufacturer).filter(Manufacturer.sort_order < 100).all()}
+    _mfg_priority_ids = list(_mfg_sort_map.keys())
+    _sort_key = case(
+        (Product.manufacturer_id.in_(_mfg_priority_ids), 0),
+        (Product.image_url != None, 1),
+        else_=2,
+    )
+    # Within priority group, sort by manufacturer sort_order then name
+    _mfg_cases = [(Product.manufacturer_id == mid, so) for mid, so in _mfg_sort_map.items()]
+    if _mfg_cases:
+        _mfg_detail_key = case(*_mfg_cases, else_=999)
+        products = q.order_by(_sort_key, _mfg_detail_key, Product.name).offset((page - 1) * per_page).limit(per_page).all()
+    else:
+        products = q.order_by(_sort_key, Product.name).offset((page - 1) * per_page).limit(per_page).all()
 
     cats, mfgs, sups = get_name_maps(db)
 
@@ -199,8 +218,17 @@ def export_products(
     if category_id:
         q = q.filter(Product.category_id == category_id)
     if search:
-        q = q.filter(Product.name.ilike(f"%{escape_like(search)}%"))
-    products = q.order_by(Product.name).all()
+        q = q.filter(or_(
+            Product.name.ilike(f"%{escape_like(search)}%"),
+            Product.model.ilike(f"%{escape_like(search)}%"),
+            Product.description.ilike(f"%{escape_like(search)}%"),
+            Product.id.in_(
+                select(text('pc.product_id')).select_from(text('product_categories pc JOIN device_categories c ON pc.category_id = c.id')).where(text('c.name LIKE :s')).params(s=f'%{escape_like(search)}%')
+            ),
+        ))
+    _mfg_pri_ids2 = [m.id for m in db.query(Manufacturer).filter(Manufacturer.sort_order < 100).all()]
+    _sk2 = case((Product.manufacturer_id.in_(_mfg_pri_ids2), 0), (Product.image_url != None, 1), else_=2)
+    products = q.order_by(_sk2, Product.name).all()
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -371,9 +399,11 @@ def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(g
 
     # Update multi-category if provided
     if data.category_ids is not None:
+        if not data.category_ids or not any(data.category_ids):
+            raise HTTPException(400, '品类不能为空')
         from app.services.product_category_helper import add_product_categories
         add_product_categories(db, product_id, data.category_ids)
-        p.category_id = data.category_ids[0] if data.category_ids else None
+        p.category_id = data.category_ids[0]
 
     # Rewrite mapping tables (delete old, insert new) — only for fields in payload
     payload = data.model_dump(exclude_none=True)
@@ -516,9 +546,9 @@ def spec_sheet(product_id: int, db: Session = Depends(get_db), user=Depends(get_
     html = build_spec_html(p, db)
     filename = re.sub(r'[^\w\-_.]', '_', p.name or 'product')
 
-    # Try CLI weasyprint for PDF (brew-installed at /opt/homebrew/bin/weasyprint)
+    # Try CLI weasyprint for PDF
     import shutil
-    wp = "/opt/homebrew/bin/weasyprint" if os.path.exists("/opt/homebrew/bin/weasyprint") else shutil.which("weasyprint")
+    wp = settings.WEASYPRINT_PATH or shutil.which("weasyprint")
     if wp:
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as html_f:

@@ -115,11 +115,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, inject, computed, nextTick, shallowRef, watch } from 'vue'
+import { ref, onMounted, inject, computed, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Trash2Icon, PlusIcon, InboxIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
-import { defineAsyncComponent } from 'vue'
 
 import Modal from '../components/Modal.vue'
 import SolutionProductCard from '../components/GenUI/SolutionProductCard.vue'
@@ -127,9 +126,9 @@ import QuoteDraftCard from '../components/GenUI/QuoteDraftCard.vue'
 import { fetchSolution, fetchProducts, addSolutionItem, updateSolutionItem, deleteSolutionItem, createQuotation, updateSolution, streamAiChat, fetchConversations, fetchConversation } from '../api'
 import type { Solution, Product } from '../types'
 import DOMPurify from 'dompurify'
+import { escapeHtml, extractProducts, formatAiContent, stripToolCalls } from '../utils/markdown'
 
 function sanitize(html: string): string { return DOMPurify.sanitize(html) as string }
-function stripToolCalls(text: string): string { return text.replace(/<｜｜DSML｜｜tool_calls>[\s\S]*?<\/｜｜DSML｜｜tool_calls>/g, '') }
 
 const componentRegistry: Record<string, any> = { SolutionProductCard, QuoteDraftCard }
 
@@ -265,10 +264,6 @@ async function doCreateQuotation() {
 }
 
 // AI Chat with GenUI component support
-function escapeHtml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')
-}
-
 function scrollChat() {
   nextTick(() => { if (chatLog.value) chatLog.value.scrollTop = chatLog.value.scrollHeight })
 }
@@ -367,32 +362,7 @@ async function sendChat() {
 }
 
 function formatContent(text: string, role: string): string {
-  if (!text) return ''
-  if (role === 'tool') {
-    try {
-      const d = JSON.parse(text)
-      if (d.products) return d.products.map((p: any) =>
-        `<b>${escapeHtml(p.name || '')}</b> <span class="font-mono">${escapeHtml(p.model || '')}</span> — ¥${p.price || 0}<br><span class="text-muted" style="font-size:11px">${[p.category, p.manufacturer].filter(Boolean).map(escapeHtml).join(' | ')}</span>`
-      ).join('<br>')
-      if (d.found !== undefined) return `<b>找到 ${d.found} 个产品</b>`
-      if (d.categories) return d.categories.map((c: any) => escapeHtml(c.name)).join('、')
-    } catch { /* ignore */ }
-  }
-  // Strip raw tool call XML that LLM may output
-  text = stripToolCalls(text)
-  // Simple markdown-to-HTML for assistant messages
-  return escapeHtml(text)
-    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
-    .replace(/\n/g, '<br>')
-}
-
-function extractProducts(text: string, role: string): any[] {
-  if (role !== 'tool' || !text) return []
-  try {
-    const d = JSON.parse(text)
-    if (d.products) return d.products
-  } catch { /* ignore */ }
-  return []
+  return sanitize(formatAiContent(text, role))
 }
 
 onMounted(load)

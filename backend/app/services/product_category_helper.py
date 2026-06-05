@@ -28,9 +28,11 @@ def get_product_category_map(db: Session, product_ids: list[int] | None = None) 
     if product_ids is not None and not product_ids:
         return {}
     if product_ids is not None:
+        # Build parameterized IN clause
+        placeholders = ','.join(f':pid{i}' for i in range(len(product_ids)))
         rows = db.execute(text(
-            'SELECT product_id, category_id FROM product_categories WHERE product_id IN (SELECT id FROM products WHERE status=:s)'
-        ), {'s': 'active'}).fetchall()
+            f'SELECT product_id, category_id FROM product_categories WHERE product_id IN ({placeholders})'
+        ), {f'pid{i}': pid for i, pid in enumerate(product_ids)}).fetchall()
     else:
         rows = db.execute(text('SELECT product_id, category_id FROM product_categories')).fetchall()
     result: dict[int, list[int]] = {}

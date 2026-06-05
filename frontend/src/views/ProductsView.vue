@@ -4,6 +4,10 @@
     <button v-if="selectedIds.length >= 2" class="btn-primary" style="background:var(--color-accent)" @click="$router.push(`/products/compare?ids=${selectedIds.join(',')}`)">
       对比选中 ({{ selectedIds.length }})
     </button>
+    <button v-if="selectedIds.length" class="btn-danger" @click="confirmBatchDelete">
+      <Trash2Icon style="width:14px;height:14px" />删除选中 ({{ selectedIds.length }})
+    </button>
+    <button v-if="selectedIds.length" class="btn-secondary" @click="selectedIds = []">取消选择</button>
     <button class="btn-secondary" @click="openExport">
       <DownloadIcon style="width:14px;height:14px" />导出
     </button>
@@ -16,58 +20,40 @@
   <!-- Filter panel -->
   <div class="card" style="margin-bottom:16px;padding:12px 16px">
     <div class="filter-panel">
-      <!-- 品类 — two-level, default open -->
-      <div class="filter-group" v-if="categoryTree.length">
-        <div class="filter-group-header" @click="filterOpen.category = !filterOpen.category">
-          <span class="filter-label">品类</span><span class="filter-toggle">{{ filterOpen.category ? '▲' : '▼' }}</span>
-        </div>
-        <div :class="['filter-tags', filterOpen.category ? 'expanded' : 'collapsed']">
-          <!-- Row 1: parent categories -->
-          <div class="filter-row">
-            <span v-for="p in categoryTree" :key="p.id" :class="['filter-tag', { active: filters.category_id === p.id }]" @click="toggleCategory(p.id)">{{ p.name }}</span>
+      <!-- 品类 — inline tags with header -->
+      <!-- 品类 — inline flow -->
+      <div class="filter-group" v-if="categoryTree.length" :style="{ maxHeight: filterOpen.category ? 'none' : '30px', overflow: 'hidden', lineHeight: '2.2', verticalAlign: 'middle', marginBottom: '0' }">
+        <span class="filter-label" @click="filterOpen.category = !filterOpen.category" style="cursor:pointer">品类</span>
+        <span class="filter-toggle" @click="filterOpen.category = !filterOpen.category" style="cursor:pointer;margin:0 8px 0 4px">{{ filterOpen.category ? '▲' : '▼' }}</span>
+        <span v-for="p in categoryTree" :key="p.id" :class="['filter-tag', { active: filters.category_id === p.id }]" @click="toggleCategory(p.id)" style="margin:2px 3px;display:inline-block;white-space:nowrap;line-height:normal">{{ p.name }}</span>
+        <template v-for="p in categoryTree" :key="'sub-'+p.id">
+          <div v-if="filters.category_id === p.id && p.children?.length" style="display:block;width:100%;margin-top:2px">
+            <span v-for="c in p.children" :key="c.id" :class="['filter-tag sub', { active: filters.sub_category_id === c.id }]" @click="toggleSubCategory(c.id)" style="margin:2px 3px;display:inline-block;white-space:nowrap;line-height:normal">{{ c.name }}</span>
           </div>
-          <!-- Sub-categories: show below clicked parent -->
-          <template v-for="p in categoryTree" :key="'sub-'+p.id">
-            <div v-if="filters.category_id === p.id && p.children?.length" class="filter-row sub-row">
-              <span v-for="c in p.children" :key="c.id" :class="['filter-tag sub', { active: filters.sub_category_id === c.id }]" @click="toggleSubCategory(c.id)">{{ c.name }}</span>
-            </div>
-          </template>
-        </div>
+        </template>
       </div>
-      <!-- 厂商 — default open -->
-      <div class="filter-group" v-if="manufacturers.length > 1">
-        <div class="filter-group-header" @click="filterOpen.manufacturer = !filterOpen.manufacturer">
-          <span class="filter-label">厂商</span><span class="filter-toggle">{{ filterOpen.manufacturer ? '▲' : '▼' }}</span>
-        </div>
-        <div :class="['filter-tags', filterOpen.manufacturer ? 'expanded' : 'collapsed']">
-          <span v-for="m in manufacturers" :key="m.id" :class="['filter-tag', { active: filters.manufacturer_id === m.id }]" @click="toggleFilter('manufacturer_id', m.id)">{{ m.name }}</span>
-        </div>
+      <!-- 厂商 — toggleable with CSS collapse -->
+      <div class="filter-group" v-if="manufacturers.length > 1" :style="{ maxHeight: filterOpen.manufacturer ? 'none' : '30px', overflow: 'hidden', lineHeight: '2.2', verticalAlign: 'middle', marginBottom: '0' }">
+        <span class="filter-label" @click="filterOpen.manufacturer = !filterOpen.manufacturer" style="cursor:pointer">厂商</span>
+        <span class="filter-toggle" @click="filterOpen.manufacturer = !filterOpen.manufacturer" style="cursor:pointer;margin:0 8px 0 4px">{{ filterOpen.manufacturer ? '▲' : '▼' }}</span>
+        <span v-for="m in manufacturers" :key="m.id" :class="['filter-tag', { active: filters.manufacturer_id === m.id }]" @click="toggleFilter('manufacturer_id', m.id)" style="margin:2px 3px;display:inline-block;white-space:nowrap;line-height:normal">{{ m.name }}</span>
       </div>
-      <!-- 通讯方式/协议/供电 — same row -->
-      <div style="display:flex;gap:16px;flex-wrap:wrap">
-        <div class="filter-group" style="flex:1;min-width:140px">
-          <div class="filter-group-header" @click="filterOpen.comm_method = !filterOpen.comm_method">
-            <span class="filter-label">通讯方式</span><span class="filter-toggle">{{ filterOpen.comm_method ? '▲' : '▼' }}</span>
-          </div>
-          <div :class="['filter-tags', filterOpen.comm_method ? 'expanded' : 'collapsed']">
-            <span v-for="m in commMethods" :key="m.id" :class="['filter-tag', { active: filters.comm_method === m.id }]" @click="toggleFilter('comm_method', m.id)">{{ m.name }}</span>
-          </div>
+      <!-- 通讯/协议/供电 — shared row -->
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div class="filter-group" style="flex:1;min-width:180px;margin-bottom:0" :style="{ maxHeight: filterOpen.comm_method ? 'none' : '30px', overflow: 'hidden' }">
+          <span class="filter-label" @click="filterOpen.comm_method = !filterOpen.comm_method" style="cursor:pointer">通讯方式</span>
+          <span class="filter-toggle" @click="filterOpen.comm_method = !filterOpen.comm_method" style="cursor:pointer;margin:0 8px 0 4px">{{ filterOpen.comm_method ? '▲' : '▼' }}</span>
+          <span v-for="m in commMethods" :key="m.id" :class="['filter-tag', { active: filters.comm_method === m.id }]" @click="toggleFilter('comm_method', m.id)" style="margin:2px 3px;display:inline-block;white-space:nowrap;line-height:normal">{{ m.name }}</span>
         </div>
-        <div class="filter-group" style="flex:1;min-width:140px">
-          <div class="filter-group-header" @click="filterOpen.comm_protocol = !filterOpen.comm_protocol">
-            <span class="filter-label">协议</span><span class="filter-toggle">{{ filterOpen.comm_protocol ? '▲' : '▼' }}</span>
-          </div>
-          <div :class="['filter-tags', filterOpen.comm_protocol ? 'expanded' : 'collapsed']">
-            <span v-for="p in commProtocols" :key="p.id" :class="['filter-tag', { active: filters.comm_protocol === p.id }]" @click="toggleFilter('comm_protocol', p.id)">{{ p.name }}</span>
-          </div>
+        <div class="filter-group" style="flex:1;min-width:180px;margin-bottom:0" :style="{ maxHeight: filterOpen.comm_protocol ? 'none' : '30px', overflow: 'hidden' }">
+          <span class="filter-label" @click="filterOpen.comm_protocol = !filterOpen.comm_protocol" style="cursor:pointer">协议</span>
+          <span class="filter-toggle" @click="filterOpen.comm_protocol = !filterOpen.comm_protocol" style="cursor:pointer;margin:0 8px 0 4px">{{ filterOpen.comm_protocol ? '▲' : '▼' }}</span>
+          <span v-for="p in commProtocols" :key="p.id" :class="['filter-tag', { active: filters.comm_protocol === p.id }]" @click="toggleFilter('comm_protocol', p.id)" style="margin:2px 3px;display:inline-block;white-space:nowrap;line-height:normal">{{ p.name }}</span>
         </div>
-        <div class="filter-group" style="flex:1;min-width:140px">
-          <div class="filter-group-header" @click="filterOpen.power_supply = !filterOpen.power_supply">
-            <span class="filter-label">供电</span><span class="filter-toggle">{{ filterOpen.power_supply ? '▲' : '▼' }}</span>
-          </div>
-          <div :class="['filter-tags', filterOpen.power_supply ? 'expanded' : 'collapsed']">
-            <span v-for="p in powerSupplies" :key="p.id" :class="['filter-tag', { active: filters.power_supply === p.id }]" @click="toggleFilter('power_supply', p.id)">{{ p.name }}</span>
-          </div>
+        <div class="filter-group" style="flex:1;min-width:180px;margin-bottom:0" :style="{ maxHeight: filterOpen.power_supply ? 'none' : '30px', overflow: 'hidden' }">
+          <span class="filter-label" @click="filterOpen.power_supply = !filterOpen.power_supply" style="cursor:pointer">供电</span>
+          <span class="filter-toggle" @click="filterOpen.power_supply = !filterOpen.power_supply" style="cursor:pointer;margin:0 8px 0 4px">{{ filterOpen.power_supply ? '▲' : '▼' }}</span>
+          <span v-for="p in powerSupplies" :key="p.id" :class="['filter-tag', { active: filters.power_supply === p.id }]" @click="toggleFilter('power_supply', p.id)" style="margin:2px 3px;display:inline-block;white-space:nowrap;line-height:normal">{{ p.name }}</span>
         </div>
       </div>
     </div>
@@ -123,10 +109,11 @@
   </div>
 
   <ConfirmDialog title="删除产品" :message="`确定删除「${deleteTarget?.name}」？`" :visible="!!deleteTarget" @confirm="doDelete" @cancel="deleteTarget = null" />
+  <ConfirmDialog title="批量删除" :message="`确定删除 ${selectedIds.length} 个产品？`" :visible="showBatchConfirm" @confirm="doBatchDelete" @cancel="showBatchConfirm = false" />
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, onMounted } from 'vue'
+import { ref, reactive, watch, onMounted, inject } from 'vue'
 import { PlusIcon, PencilIcon, Trash2Icon, InboxIcon, DownloadIcon } from 'lucide-vue-next'
 import { useRoute } from 'vue-router'
 import PageHeader from '../components/PageHeader.vue'
@@ -138,6 +125,7 @@ import { fetchProducts, deleteProduct, exportProducts, fetchCommMethods, fetchCo
 import type { Product, Manufacturer } from '../types'
 
 const route = useRoute()
+const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
 const products = ref<Product[]>([])
 const total = ref(0)
@@ -146,10 +134,11 @@ const perPage = ref(20)
 const MAX_PER_PAGE = 100
 const search = ref('')
 const deleteTarget = ref<Product | null>(null)
+const showBatchConfirm = ref(false)
 const filterExpanded = ref(true)
 const filterOpen = reactive({
-  category: true,
-  manufacturer: true,
+  category: false,
+  manufacturer: false,
   comm_method: false,
   comm_protocol: false,
   power_supply: false,
@@ -199,7 +188,12 @@ function flattenTree(nodes: any[], result: any[] = []) {
 
 function toggleCategory(id: number) {
   filters.category_id = filters.category_id === id ? null : id
-  filters.sub_category_id = null  // reset sub when parent changes
+  filters.sub_category_id = null
+  // Auto-expand filter if parent has children (to show sub-categories)
+  if (filters.category_id) {
+    const parent = categoryTree.value.find((c: any) => c.id === id)
+    if (parent?.children?.length) filterOpen.category = true
+  }
   page.value = 1
   loadProducts()
 }
@@ -257,7 +251,22 @@ async function doDelete() {
     deleteTarget.value = null
     await loadProducts()
   } catch (e: any) {
-    console.error(e)
+    showToast('操作失败: ' + (e.detail || e.message || '未知错误'), 'error')
+  }
+}
+
+function confirmBatchDelete() { showBatchConfirm.value = true }
+
+async function doBatchDelete() {
+  showBatchConfirm.value = false
+  try {
+    for (const id of selectedIds.value) {
+      await deleteProduct(id)
+    }
+    selectedIds.value = []
+    await loadProducts()
+  } catch (e: any) {
+    showToast('操作失败: ' + (e.detail || e.message || '未知错误'), 'error')
   }
 }
 
@@ -272,7 +281,7 @@ onMounted(async () => {
   commMethods.value = cmRes.comm_methods
   commProtocols.value = cpRes.comm_protocols
   powerSupplies.value = psRes.power_supplies
-  manufacturers.value = mfgRes.manufacturers
+  manufacturers.value = mfgRes.manufacturers as Manufacturer[]
   categoryTree.value = catRes.tree || []
   flatCategories.value = flattenTree(categoryTree.value)
   await loadProducts()

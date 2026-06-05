@@ -79,6 +79,8 @@ def write_mappings(product_id: int, data: dict, db: Session):
     """Write mapping tables from a dict (used by create)."""
     # Comm methods
     for cm in (data.get("comm_methods") or []):
+        mid = cm.get("method_id") if isinstance(cm, dict) else cm
+        if not mid: continue
         db.add(ProductCommMethod(
             product_id=product_id,
             method_id=cm.get("method_id") if isinstance(cm, dict) else cm,
@@ -86,21 +88,26 @@ def write_mappings(product_id: int, data: dict, db: Session):
         ))
     # Comm protocols
     for cp in (data.get("comm_protocols") or []):
+        pid = cp.get("protocol_id") if isinstance(cp, dict) else cp
+        if not pid: continue
         db.add(ProductCommProtocol(
             product_id=product_id,
-            protocol_id=cp.get("protocol_id") if isinstance(cp, dict) else cp,
+            protocol_id=pid,
             direction=cp.get("direction", "both") if isinstance(cp, dict) else "both",
         ))
     # Power supplies
     for ps in (data.get("power_supplies") or []):
+        pid = ps.get("power_id") if isinstance(ps, dict) else ps
+        if not pid: continue
         db.add(ProductPowerSupply(
             product_id=product_id,
-            power_id=ps.get("power_id") if isinstance(ps, dict) else ps,
+            power_id=pid,
             voltage_range=ps.get("voltage_range", "") if isinstance(ps, dict) else "",
             battery_life=ps.get("battery_life", "") if isinstance(ps, dict) else "",
         ))
     # Hardware interfaces
     for hi in (data.get("hardware_interfaces") or []):
+        if isinstance(hi, dict) and not hi.get("interface_name"): continue
         db.add(ProductHardwareInterface(
             product_id=product_id,
             interface_name=hi.get("interface_name", "") if isinstance(hi, dict) else hi,
@@ -109,9 +116,11 @@ def write_mappings(product_id: int, data: dict, db: Session):
         ))
     # Sensor capabilities
     for sc in (data.get("sensor_capabilities") or []):
+        mid = sc.get("metric_id") if isinstance(sc, dict) else sc
+        if not mid: continue
         db.add(ProductSensorCapability(
             product_id=product_id,
-            metric_id=sc.get("metric_id") if isinstance(sc, dict) else sc,
+            metric_id=mid,
             measure_range=sc.get("measure_range") if isinstance(sc, dict) else None,
             accuracy=sc.get("accuracy") if isinstance(sc, dict) else None,
             resolution=sc.get("resolution") if isinstance(sc, dict) else None,

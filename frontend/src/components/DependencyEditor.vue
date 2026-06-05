@@ -1,8 +1,8 @@
 <template>
   <div class="dependency-editor">
-    <div class="flex gap-8 items-center mb-8">
+    <div class="flex justify-between items-center" style="margin-bottom:12px">
       <h3 style="margin:0">依赖关系</h3>
-      <button class="btn-primary btn-sm" @click="showAdd = true">添加</button>
+      <button class="btn-primary btn-sm" @click="showAdd = true">+ 添加</button>
     </div>
 
     <table v-if="deps.length" class="data-table">
@@ -17,8 +17,8 @@
             </select>
           </td>
           <td>
-            <span v-if="d.depends_on_product_id">产品 #{{ d.depends_on_product_id }}</span>
-            <span v-else-if="d.depends_on_category_id">品类 #{{ d.depends_on_category_id }}</span>
+            <span v-if="d.depends_on_product_id">{{ getProductName(d.depends_on_product_id) || '产品 #' + d.depends_on_product_id }}</span>
+            <span v-else-if="d.depends_on_category_id">{{ getCategoryName(d.depends_on_category_id) || '品类 #' + d.depends_on_category_id }}</span>
           </td>
           <td>
             <input v-model="d.description" style="width:200px;font-size:12px" @change="updateDep(d)" />
@@ -95,6 +95,14 @@ const newDep = ref<{
   depends_on_category_id: null,
   description: '',
 })
+
+function getCategoryName(id: number): string {
+  return categories.value.find((c: any) => c.id === id)?.name || ''
+}
+function getProductName(id: number): string {
+  const p = products.value.find((p: any) => p.id === id)
+  return p ? `${p.name} (${p.model || ''})` : ''
+}
 
 const canAdd = computed(() => {
   if (depTargetType.value === 'category') return !!newDep.value.depends_on_category_id

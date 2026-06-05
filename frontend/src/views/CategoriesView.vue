@@ -1,19 +1,23 @@
 <template>
-  <PageHeader title="品类管理">
+  <PageHeader v-if="!embedded" title="品类管理">
     <button class="btn-primary" @click="openAddCategory">
-      <PlusIcon style="width:16px;height:16px" />新增品类
+      <PlusIcon style="width:16px;height:16px" />新增
     </button>
   </PageHeader>
 
   <div class="card">
-    <table class="data-table" v-if="flatList.length">
+    <div v-if="embedded" class="flex justify-between items-center" style="margin-bottom:12px">
+      <h3 style="margin:0">品类</h3>
+      <button class="btn-primary btn-sm" @click="openAddCategory">+ 新增</button>
+    </div>
+    <table class="data-table" v-if="categories.length">
       <thead>
         <tr>
           <th>名称</th><th>层级</th><th>Slug</th><th>排序</th><th>状态</th><th>操作</th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="c in flatList" :key="c.id">
+        <tr v-for="c in categories" :key="c.id">
           <td :style="{ paddingLeft: ((c.level - 1) * 20 + 8) + 'px', fontWeight: c.level === 1 ? '600' : '400' }">
             <span v-if="c.level > 1" style="color:var(--color-text-secondary);margin-right:4px">└</span>{{ c.name }}
           </td>
@@ -34,7 +38,7 @@
   </div>
 
   <!-- Category modal -->
-  <Modal :title="editingCat ? '编辑品类' : '新增品类'" :visible="catModalVisible" @close="catModalVisible = false">
+  <Modal :title="editingCat ? '编辑品类' : '新增'" :visible="catModalVisible" @close="catModalVisible = false">
     <div class="form-grid">
       <div class="form-group"><label>名称 *</label><input v-model="catForm.name" /></div>
       <div class="form-group"><label>Slug</label><input v-model="catForm.slug" /></div>
@@ -106,7 +110,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, inject } from 'vue'
+defineProps<{ embedded?: boolean }>()
+import { ref, reactive, onMounted, inject } from 'vue'
 import { PlusIcon, PencilIcon, Trash2Icon, SettingsIcon, InboxIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import Pagination from '../components/Pagination.vue'
@@ -142,11 +147,6 @@ const specDefFormVisible = ref(false)
 const editingSpecDef = ref<SpecDefinition | null>(null)
 const specDefForm = reactive({ spec_key: '', display_name: '', spec_type: 'string', unit: '', display_group: '', sort_order: 0, is_filterable: true })
 
-const flatList = computed(() => {
-  const cats = categories.value
-  // Sort by parent_id to keep tree structure
-  return cats
-})
 
 async function loadCategories() {
   try {

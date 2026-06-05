@@ -2,9 +2,24 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-06-05, R7-R8)
+## 最新变更 (2026-06-05, R7-R10)
 
-### 权限系统
+### R9-R10: 产品筛选 UI 重构 + 字典增强 + 规格编辑器
+
+- 产品列表筛选全部改为流式标签按钮(品类/厂商/通讯/协议/供电), 收起时只显示第一行
+- 厂商标签按 `sort_order` 排列, 字典页可编辑排序值
+- 品类点击父类自动展开子类, 子类独立换行显示
+- 4个字典表(通讯/协议/供电/传感)加 `description` 列, 含详细功能说明, 编辑弹窗可修改
+- 产品编辑页新增通用 key-value 规格编辑器(品类无 spec_definitions 时显示), 支持添加/编辑/删除
+- 产品编辑页加 `onBeforeRouteLeave` 未保存提示, BOM 加 `beforeunload` 拦截
+- 厂商筛选由下拉改回标签按钮
+- 品类页嵌入字典页第一tab, 导航栏移除品类链接
+- 产品列表批量删除按钮, 厂商默认排序, 字典下拉分页→500全部加载
+- AiChat/SolutionDetailView 重复函数统一到 markdown.ts
+- SolutionDetailView 编辑即时保存不再全量刷新, picker 懒加载
+- 测试 78/78, vue-tsc 0 errors
+
+### R7-R8: 权限系统
 - 8 张表加 `created_by` 列: products, categories, manufacturers, suppliers, 4 dict tables
 - `auth.py` 新增 `filter_by_ownership()` 和 `check_ownership()` 辅助函数
 - 规则: admin 看全部; 普通用户看 `NULL`(legacy)/自己/admin(id=1) 的

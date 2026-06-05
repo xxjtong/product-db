@@ -13,11 +13,15 @@
   </div>
 
   <!-- 通讯方式 -->
+  <div v-show="activeTab === 'categories'">
+    <CategoriesView embedded />
+  </div>
+
   <div class="card" v-show="activeTab === 'comm_methods'">
     <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">通讯方式</h3><button class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
     <table class="data-table">
-      <thead><tr><th>ID</th><th>类型</th><th>名称</th><th style="white-space:nowrap">操作</th></tr></thead>
-      <tbody><tr v-for="m in commMethods" :key="m.id"><td>{{ m.id }}</td><td>{{ m.method_type === 'wired' ? '有线' : '无线' }}</td><td>{{ m.name }}</td><td style="white-space:nowrap">
+      <thead><tr><th>ID</th><th>类型</th><th>名称</th><th>说明</th><th style="white-space:nowrap">操作</th></tr></thead>
+      <tbody><tr v-for="m in commMethods" :key="m.id"><td>{{ m.id }}</td><td>{{ m.method_type === 'wired' ? '有线' : '无线' }}</td><td>{{ m.name }}</td><td class="text-sm text-muted">{{ m.description || '—' }}</td><td style="white-space:nowrap">
         <button class="btn-icon btn-sm" @click="openDictEdit(m)"><PencilIcon style="width:14px;height:14px" /></button>
         <button class="btn-icon btn-sm" @click="doDictDelete(m.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
     </table>
@@ -28,8 +32,8 @@
   <div class="card" v-show="activeTab === 'comm_protocols'">
     <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">通讯协议</h3><button class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
     <table class="data-table">
-      <thead><tr><th>ID</th><th>名称</th><th style="white-space:nowrap">操作</th></tr></thead>
-      <tbody><tr v-for="p in commProtocols" :key="p.id"><td>{{ p.id }}</td><td>{{ p.name }}</td><td style="white-space:nowrap">
+      <thead><tr><th>ID</th><th>名称</th><th>说明</th><th style="white-space:nowrap">操作</th></tr></thead>
+      <tbody><tr v-for="p in commProtocols" :key="p.id"><td>{{ p.id }}</td><td>{{ p.name }}</td><td class="text-sm text-muted">{{ p.description || '—' }}</td><td style="white-space:nowrap">
         <button class="btn-icon btn-sm" @click="openDictEdit(p)"><PencilIcon style="width:14px;height:14px" /></button>
         <button class="btn-icon btn-sm" @click="doDictDelete(p.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
     </table>
@@ -40,8 +44,8 @@
   <div class="card" v-show="activeTab === 'power_supplies'">
     <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">供电方式</h3><button class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
     <table class="data-table">
-      <thead><tr><th>ID</th><th>类别</th><th>名称</th><th style="white-space:nowrap">操作</th></tr></thead>
-      <tbody><tr v-for="p in powerSupplies" :key="p.id"><td>{{ p.id }}</td><td>{{ p.supply_category }}</td><td>{{ p.name }}</td><td style="white-space:nowrap">
+      <thead><tr><th>ID</th><th>类别</th><th>名称</th><th>说明</th><th style="white-space:nowrap">操作</th></tr></thead>
+      <tbody><tr v-for="p in powerSupplies" :key="p.id"><td>{{ p.id }}</td><td>{{ p.supply_category }}</td><td>{{ p.name }}</td><td class="text-sm text-muted">{{ p.description || '—' }}</td><td style="white-space:nowrap">
         <button class="btn-icon btn-sm" @click="openDictEdit(p)"><PencilIcon style="width:14px;height:14px" /></button>
         <button class="btn-icon btn-sm" @click="doDictDelete(p.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
     </table>
@@ -52,8 +56,8 @@
   <div class="card" v-show="activeTab === 'sensor_metrics'">
     <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">传感器指标</h3><button class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
     <table class="data-table">
-      <thead><tr><th>ID</th><th>名称</th><th>单位</th><th style="white-space:nowrap">操作</th></tr></thead>
-      <tbody><tr v-for="m in sensorMetrics" :key="m.id"><td>{{ m.id }}</td><td>{{ m.name }}</td><td>{{ m.unit || '—' }}</td><td style="white-space:nowrap">
+      <thead><tr><th>ID</th><th>名称</th><th>单位</th><th>说明</th><th style="white-space:nowrap">操作</th></tr></thead>
+      <tbody><tr v-for="m in sensorMetrics" :key="m.id"><td>{{ m.id }}</td><td>{{ m.name }}</td><td>{{ m.unit || '—' }}</td><td class="text-sm text-muted">{{ m.description || '—' }}</td><td style="white-space:nowrap">
         <button class="btn-icon btn-sm" @click="openDictEdit(m)"><PencilIcon style="width:14px;height:14px" /></button>
         <button class="btn-icon btn-sm" @click="doDictDelete(m.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
     </table>
@@ -67,12 +71,13 @@
       <button class="btn-primary btn-sm" @click="openAddMfg">+ 新增</button>
     </div>
     <table class="data-table">
-      <thead><tr><th>ID</th><th>名称</th><th>网站</th><th style="white-space:nowrap">操作</th></tr></thead>
+      <thead><tr><th>ID</th><th>名称</th><th>网站</th><th>排序</th><th style="white-space:nowrap">操作</th></tr></thead>
       <tbody>
         <tr v-for="m in manufacturers" :key="m.id">
           <td>{{ m.id }}</td>
           <td>{{ m.name }}</td>
           <td><a v-if="m.website" :href="m.website" target="_blank" class="text-sm">{{ m.website }}</a><span v-else class="text-muted">—</span></td>
+          <td class="font-mono text-sm">{{ m.sort_order ?? 100 }}</td>
           <td style="white-space:nowrap">
             <button class="btn-icon btn-sm" @click="openEditMfg(m)"><PencilIcon style="width:14px;height:14px" /></button>
             <button class="btn-icon btn-sm" @click="doDeleteMfg(m)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
@@ -85,6 +90,7 @@
     <Modal :title="editingMfg ? '编辑厂商' : '新增厂商'" :visible="mfgModalVisible" @close="mfgModalVisible = false">
       <div class="form-grid">
         <div class="form-group"><label>名称 *</label><input v-model="mfgForm.name" /></div>
+        <div class="form-group"><label>排序</label><input v-model.number="mfgForm.sort_order" type="number" /></div>
         <div class="form-group full"><label>网站</label><input v-model="mfgForm.website" /></div>
       </div>
       <template #footer>
@@ -137,6 +143,7 @@
       <div class="form-group" v-if="activeTab === 'comm_methods'"><label>类型</label><select v-model="dictForm.method_type"><option value="wired">有线</option><option value="wireless">无线</option></select></div>
       <div class="form-group" v-if="activeTab === 'power_supplies'"><label>类别</label><input v-model="dictForm.supply_category" /></div>
       <div class="form-group" v-if="activeTab === 'sensor_metrics'"><label>单位</label><input v-model="dictForm.unit" /></div>
+      <div class="form-group full"><label>说明</label><textarea v-model="dictForm.description" rows="2" /></div>
     </div>
     <template #footer>
       <button class="btn-secondary" @click="dictModalVisible = false">取消</button>
@@ -152,13 +159,15 @@ import { ref, onMounted, inject } from 'vue'
 import { PencilIcon, Trash2Icon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import Modal from '../components/Modal.vue'
+import CategoriesView from './CategoriesView.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Pagination from '../components/Pagination.vue'
-import { fetchCommMethods, fetchCommProtocols, fetchPowerSupplies, fetchSensorMetrics, fetchManufacturers, createManufacturer, updateManufacturer, fetchSuppliers, fetchSuppliersPaginated, createSupplier, updateSupplier, deleteSupplier, createCommMethod, updateCommMethod, deleteCommMethod, createCommProtocol, updateCommProtocol, deleteCommProtocol, createPowerSupply, updatePowerSupply, deletePowerSupply, createSensorMetric, updateSensorMetric, deleteSensorMetric } from '../api'
+import { fetchCommMethods, fetchCommProtocols, fetchPowerSupplies, fetchSensorMetrics, fetchManufacturers, createManufacturer, updateManufacturer, deleteManufacturer, fetchSuppliers, fetchSuppliersPaginated, createSupplier, updateSupplier, deleteSupplier, createCommMethod, updateCommMethod, deleteCommMethod, createCommProtocol, updateCommProtocol, deleteCommProtocol, createPowerSupply, updatePowerSupply, deletePowerSupply, createSensorMetric, updateSensorMetric, deleteSensorMetric } from '../api'
 import type { Manufacturer, Supplier } from '../types'
 
-const activeTab = ref('comm_methods')
+const activeTab = ref('categories')
 const tabs = [
+  { key: 'categories', label: '品类' },
   { key: 'comm_methods', label: '通讯方式' },
   { key: 'comm_protocols', label: '通讯协议' },
   { key: 'power_supplies', label: '供电方式' },
@@ -170,7 +179,7 @@ const showToast = inject<(msg: string, type?: string) => void>('toast', () => {}
 const confirmState = ref({ visible: false, action: () => {} })
 function showConfirm(action: () => void) { confirmState.value = { visible: true, action } }
 
-interface DictItem { id: number; name: string; method_type?: string; supply_category?: string; unit?: string }
+interface DictItem { id: number; name: string; method_type?: string; supply_category?: string; unit?: string; description?: string }
 
 const commMethods = ref<DictItem[]>([])
 const commProtocols = ref<DictItem[]>([])
@@ -189,13 +198,13 @@ const mfgForm = ref<any>({ name: '', website: '' })
 
 function openAddMfg() {
   editingMfg.value = null
-  mfgForm.value = { name: '', website: '' }
+  mfgForm.value = { name: '', website: '', sort_order: 100 }
   mfgModalVisible.value = true
 }
 
 function openEditMfg(m: any) {
   editingMfg.value = m
-  mfgForm.value = { name: m.name, website: m.website || '' }
+  mfgForm.value = { name: m.name, website: m.website || '', sort_order: m.sort_order ?? 100 }
   mfgModalVisible.value = true
 }
 
@@ -216,8 +225,9 @@ async function saveMfg() {
 async function doDeleteMfg(m: any) {
   showConfirm(async () => {
     try {
-      // No delete API yet, but would call deleteManufacturer(m.id)
-      showToast('删除功能待实现', 'error')
+      await deleteManufacturer(m.id)
+      showToast('已删除', 'success')
+      await loadManufacturers()
     } catch (e: any) { showToast(e.detail || e.message, 'error') }
   })
 }

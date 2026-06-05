@@ -16,7 +16,7 @@ router = APIRouter()
 def list_manufacturers(page: int = 1, per_page: int = 20, db: Session = Depends(get_db), user=Depends(get_current_user)):
     q = filter_by_ownership(db.query(Manufacturer), Manufacturer, user)
     total = q.count()
-    items = q.order_by(Manufacturer.name).offset((page-1)*per_page).limit(per_page).all()
+    items = q.order_by(Manufacturer.sort_order, Manufacturer.name).offset((page-1)*per_page).limit(per_page).all()
     return {"manufacturers": [m.to_dict() for m in items], "total": total, "page": page, "per_page": per_page}
 
 
@@ -43,7 +43,7 @@ def update_manufacturer(mfg_id: int, data: ManufacturerUpdate, db: Session = Dep
     if not m:
         raise HTTPException(404)
     check_ownership(m, user)
-    for f in ["name", "website", "description"]:
+    for f in ["name", "website", "description", "sort_order"]:
         val = getattr(data, f, None)
         if val is not None:
             setattr(m, f, val)
@@ -160,7 +160,7 @@ def delete_comm_method(item_id: int, db: Session = Depends(get_db), user=Depends
 
 @router.post("/dicts/comm-protocols")
 def create_comm_protocol(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    return {"comm_protocol": _dict_create(DictCommProtocol, data, db)}
+    return {"comm_protocol": _dict_create(DictCommProtocol, data, db, user)}
 
 @router.put("/dicts/comm-protocols/{item_id}")
 def update_comm_protocol(item_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):

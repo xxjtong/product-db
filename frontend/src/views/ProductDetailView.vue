@@ -37,7 +37,7 @@
     <div class="info-bar" style="margin-top:4px">
       <div class="info-item"><label>状态</label><span :class="['tag', `tag-${product.status}`]">{{ product.status }}</span></div>
       <div class="info-item" style="flex:1"><label>品类</label>
-        <span v-for="cid in (product.category_ids || [product.category_id])" :key="cid" class="tag tag-default" style="margin:0 3px">{{ categoryNames[cid] || cid }}</span>
+        <span v-for="cid in (product.category_ids || [product.category_id])" :key="cid" class="tag" :style="{margin:'0 3px', background: catColor(categoryNames[cid] || String(cid)), color:'var(--color-surface)'}" >{{ categoryNames[cid] || cid }}</span>
       </div>
     </div>
 
@@ -162,9 +162,10 @@
       <p class="text-sm" style="white-space:pre-wrap">{{ product.custom_fields.remark }}</p>
     </div>
 
-    <!-- Product files -->
-    <ProductFiles :productId="Number(route.params.id)" />
   </div>
+
+  <ProductFiles v-if="product" :productId="Number(route.params.id)" class="mt-16" />
+
   <div v-else-if="loadError" style="text-align:center;padding:48px;color:var(--color-danger)">{{ loadError }}<br /><button class="btn-primary btn-sm" style="margin-top:12px" @click="load">重试</button><br /><router-link to="/products" class="btn-secondary btn-sm" style="margin-top:8px;display:inline-block">返回产品列表</router-link></div>
   <div v-else style="text-align:center;padding:48px;color:var(--color-text-secondary)">加载中...</div>
 </template>
@@ -216,6 +217,13 @@ const unmatchedSpecs = computed(() => {
 
 function openUrl(url: string) {
   window.open(url, '_blank')
+}
+
+function catColor(name: string): string {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  const h = Math.abs(hash) % 360
+  return `hsl(${h}, 55%, 45%)`
 }
 
 function formatSpec(val: any, sd: any): string {

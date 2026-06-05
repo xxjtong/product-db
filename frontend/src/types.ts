@@ -74,6 +74,7 @@ export interface Manufacturer {
   name: string
   website?: string
   description?: string
+  sort_order?: number
 }
 
 export interface Supplier {

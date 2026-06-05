@@ -54,7 +54,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, inject } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, inject } from 'vue'
 import { RefreshCwIcon, SaveIcon, DownloadIcon, PlusIcon, Trash2Icon } from 'lucide-vue-next'
 import { fetchBomSnapshot, saveBomSnapshot, bomExportUrl, fetchQuotationBom, saveQuotationBom } from '../api'
 
@@ -168,7 +168,9 @@ function exportXlsx() {
   }
 }
 
-onMounted(loadSnapshot)
+const _beforeUnload = (e: BeforeUnloadEvent) => { if (dirty.value) { e.preventDefault(); e.returnValue = '' } }
+onMounted(() => { loadSnapshot(); window.addEventListener('beforeunload', _beforeUnload) })
+onBeforeUnmount(() => { window.removeEventListener('beforeunload', _beforeUnload) })
 </script>
 
 <style scoped>

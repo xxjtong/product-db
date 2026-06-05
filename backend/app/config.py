@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     DISABLE_IP_LOOKUP: bool = False
     LOGIN_RATE_LIMIT: int = 10  # max failed attempts per window
     LOGIN_RATE_WINDOW: int = 300  # window in seconds
+    WEASYPRINT_PATH: str = ""  # custom weasyprint binary path, blank = auto-detect
 
     class Config:
         env_file = ".env"
