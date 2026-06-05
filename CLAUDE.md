@@ -6,7 +6,7 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 
 ### R9-R10: 产品筛选 UI 重构 + 字典增强 + 规格编辑器
 
-- 产品列表筛选全部改为流式标签按钮(品类/厂商/通讯/协议/供电), 收起时只显示第一行
+- 产品列表筛选全部改为流式标签按钮(品类/厂商/通讯/协议/供电), 收起时只显示第一行(CSS max-height)
 - 厂商标签按 `sort_order` 排列, 字典页可编辑排序值
 - 品类点击父类自动展开子类, 子类独立换行显示
 - 4个字典表(通讯/协议/供电/传感)加 `description` 列, 含详细功能说明, 编辑弹窗可修改
@@ -17,6 +17,11 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 - 产品列表批量删除按钮, 厂商默认排序, 字典下拉分页→500全部加载
 - AiChat/SolutionDetailView 重复函数统一到 markdown.ts
 - SolutionDetailView 编辑即时保存不再全量刷新, picker 懒加载
+- CSS 工具类: section-header, input-sm, mb-8/12, mt-8/12/16, m-0, flex-1
+- URL 状态保持: 产品/方案/报价单搜索+筛选+翻页同步到 URL, 后退恢复
+- 产品删除前清理依赖(product_dependencies), 解决 SQLite FK 问题
+- 所有产品 spec key 中文化 (ip_rating→防护等级 等)
+- -P 版产品清理 LoRaWAN 通讯+网关依赖
 - 测试 78/78, vue-tsc 0 errors
 
 ### R7-R8: 权限系统

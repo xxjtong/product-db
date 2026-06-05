@@ -23,7 +23,7 @@ class ProductDependency(Base):
         ),
     )
 
-    product = relationship("Product", foreign_keys=[product_id], backref="dependencies")
+    product = relationship("Product", foreign_keys=[product_id], backref="dependencies", passive_deletes=True)
     target_product = relationship("Product", foreign_keys=[depends_on_product_id])
     target_category = relationship("Category")
 

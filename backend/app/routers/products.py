@@ -420,6 +420,11 @@ def delete_product(product_id: int, db: Session = Depends(get_db), user=Depends(
     if not p:
         raise HTTPException(404)
     check_ownership(p, user)
+    # Delete dependencies before product (SQLite FK cascade not enabled)
+    from app.models.dependency import ProductDependency
+    db.query(ProductDependency).filter(
+        (ProductDependency.product_id == product_id) | (ProductDependency.depends_on_product_id == product_id)
+    ).delete()
     db.delete(p)
     db.commit()
     return {"ok": True}

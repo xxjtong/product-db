@@ -74,7 +74,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, inject, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { PlusIcon, PencilIcon, Trash2Icon, InboxIcon, EyeIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import Modal from '../components/Modal.vue'
@@ -84,6 +84,7 @@ import { fetchSolutions, createSolution, updateSolution, deleteSolution, batchDe
 import type { Solution } from '../types'
 
 const router = useRouter()
+const route = useRoute()
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
 const search = ref('')
@@ -113,6 +114,12 @@ const loadError = ref('')
 async function load() {
   loading.value = true
   loadError.value = ''
+  // Sync to URL
+  const q: Record<string, string> = {}
+  if (search.value) q.search = search.value
+  if (statusFilter.value) q.status = statusFilter.value
+  if (page.value > 1) q.page = String(page.value)
+  router.replace({ path: route.path, query: Object.keys(q).length ? q : {} })
   try {
     let params = `page=${page.value}&per_page=${perPage.value}`
     if (search.value) params += `&search=${encodeURIComponent(search.value)}`
@@ -204,5 +211,11 @@ async function doDelete() {
   } catch (e: any) { showToast(e.detail || e.message, 'error') }
 }
 
-onMounted(load)
+onMounted(() => {
+  const q = route.query
+  if (q.search) search.value = q.search as string
+  if (q.status) statusFilter.value = q.status as string
+  if (q.page) page.value = Number(q.page)
+  load()
+})
 </script>

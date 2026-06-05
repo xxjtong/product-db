@@ -595,8 +595,8 @@ async function save() {
         pendingAiFile.value = null
       }
       showToast('产品已创建', 'success')
+      router.push('/products')
     }
-    router.push('/products')
   } catch (e: any) {
     showToast(e.detail || e.message, 'error')
   }

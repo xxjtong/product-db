@@ -115,7 +115,7 @@
 <script setup lang="ts">
 import { ref, reactive, watch, onMounted, inject } from 'vue'
 import { PlusIcon, PencilIcon, Trash2Icon, InboxIcon, DownloadIcon } from 'lucide-vue-next'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../components/PageHeader.vue'
 import SearchInput from '../components/SearchInput.vue'
 import TagBadge from '../components/TagBadge.vue'
@@ -125,6 +125,7 @@ import { fetchProducts, deleteProduct, exportProducts, fetchCommMethods, fetchCo
 import type { Product, Manufacturer } from '../types'
 
 const route = useRoute()
+const router = useRouter()
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
 const products = ref<Product[]>([])
@@ -230,6 +231,16 @@ const loadError = ref('')
 async function loadProducts() {
   loading.value = true
   loadError.value = ''
+  // Sync filters to URL so back button preserves state
+  const q: Record<string, string> = {}
+  if (search.value) q.search = search.value
+  if (filters.category_id) q.category_id = String(filters.category_id)
+  if (filters.manufacturer_id) q.manufacturer_id = String(filters.manufacturer_id)
+  if (filters.comm_method) q.comm_method = String(filters.comm_method)
+  if (filters.comm_protocol) q.comm_protocol = String(filters.comm_protocol)
+  if (filters.power_supply) q.power_supply = String(filters.power_supply)
+  if (page.value > 1) q.page = String(page.value)
+  router.replace({ path: route.path, query: Object.keys(q).length ? q : {} })
   try {
     const res = await fetchProducts(buildParams())
     products.value = res.products
@@ -273,8 +284,15 @@ async function doBatchDelete() {
 watch(search, () => { page.value = 1; loadProducts() })
 
 onMounted(async () => {
-  const q = (route.query.search as string) || ''
-  if (q) search.value = q
+  // Restore all filter params from URL
+  const q = route.query
+  if (q.search) search.value = q.search as string
+  if (q.category_id) filters.category_id = Number(q.category_id)
+  if (q.manufacturer_id) filters.manufacturer_id = Number(q.manufacturer_id)
+  if (q.comm_method) filters.comm_method = Number(q.comm_method)
+  if (q.comm_protocol) filters.comm_protocol = Number(q.comm_protocol)
+  if (q.power_supply) filters.power_supply = Number(q.power_supply)
+  if (q.page) page.value = Number(q.page)
   const [cmRes, cpRes, psRes, mfgRes, catRes] = await Promise.all([
     fetchCommMethods(), fetchCommProtocols(), fetchPowerSupplies(), fetchManufacturers(1, 200), fetchCategoryTree(),
   ])
