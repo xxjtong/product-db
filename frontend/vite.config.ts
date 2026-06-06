@@ -21,7 +21,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
-        'univer-bom': resolve(__dirname, 'univer-bom.html'),
       },
     },
   },
