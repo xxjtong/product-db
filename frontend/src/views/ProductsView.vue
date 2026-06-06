@@ -25,10 +25,10 @@
       <div class="filter-group" v-if="categoryTree.length" :style="{ maxHeight: filterOpen.category ? 'none' : '30px', overflow: 'hidden', lineHeight: '2.2', verticalAlign: 'middle', marginBottom: '0' }">
         <span class="filter-label" @click="filterOpen.category = !filterOpen.category" style="cursor:pointer">品类</span>
         <span class="filter-toggle" @click="filterOpen.category = !filterOpen.category" style="cursor:pointer;margin:0 8px 0 4px">{{ filterOpen.category ? '▲' : '▼' }}</span>
-        <span v-for="p in categoryTree" :key="p.id" :class="['filter-tag', { active: filters.category_id === p.id }]" @click="toggleCategory(p.id)" style="margin:2px 3px;display:inline-block;white-space:nowrap;line-height:normal">{{ p.name }}</span>
+        <span v-for="p in categoryTree" :key="p.id" :class="['filter-tag', { active: filters.category_id === p.id }]" @click="toggleCategory(p.id)" class="filter-tag filter-tag-inline">{{ p.name }}</span>
         <template v-for="p in categoryTree" :key="'sub-'+p.id">
           <div v-if="filters.category_id === p.id && p.children?.length" style="display:block;width:100%;margin-top:2px">
-            <span v-for="c in p.children" :key="c.id" :class="['filter-tag sub', { active: filters.sub_category_id === c.id }]" @click="toggleSubCategory(c.id)" style="margin:2px 3px;display:inline-block;white-space:nowrap;line-height:normal">{{ c.name }}</span>
+            <span v-for="c in p.children" :key="c.id" :class="['filter-tag sub', { active: filters.sub_category_id === c.id }]" @click="toggleSubCategory(c.id)" class="filter-tag filter-tag-inline">{{ c.name }}</span>
           </div>
         </template>
       </div>
@@ -36,33 +36,32 @@
       <div class="filter-group" v-if="manufacturers.length > 1" :style="{ maxHeight: filterOpen.manufacturer ? 'none' : '30px', overflow: 'hidden', lineHeight: '2.2', verticalAlign: 'middle', marginBottom: '0' }">
         <span class="filter-label" @click="filterOpen.manufacturer = !filterOpen.manufacturer" style="cursor:pointer">厂商</span>
         <span class="filter-toggle" @click="filterOpen.manufacturer = !filterOpen.manufacturer" style="cursor:pointer;margin:0 8px 0 4px">{{ filterOpen.manufacturer ? '▲' : '▼' }}</span>
-        <span v-for="m in manufacturers" :key="m.id" :class="['filter-tag', { active: filters.manufacturer_id === m.id }]" @click="toggleFilter('manufacturer_id', m.id)" style="margin:2px 3px;display:inline-block;white-space:nowrap;line-height:normal">{{ m.name }}</span>
+        <span v-for="m in manufacturers" :key="m.id" :class="['filter-tag', { active: filters.manufacturer_id === m.id }]" @click="toggleFilter('manufacturer_id', m.id)" class="filter-tag filter-tag-inline">{{ m.name }}</span>
       </div>
       <!-- 通讯/协议/供电 — shared row -->
       <div style="display:flex;gap:12px;flex-wrap:wrap">
         <div class="filter-group" style="flex:1;min-width:180px;margin-bottom:0" :style="{ maxHeight: filterOpen.comm_method ? 'none' : '30px', overflow: 'hidden' }">
           <span class="filter-label" @click="filterOpen.comm_method = !filterOpen.comm_method" style="cursor:pointer">通讯方式</span>
           <span class="filter-toggle" @click="filterOpen.comm_method = !filterOpen.comm_method" style="cursor:pointer;margin:0 8px 0 4px">{{ filterOpen.comm_method ? '▲' : '▼' }}</span>
-          <span v-for="m in commMethods" :key="m.id" :class="['filter-tag', { active: filters.comm_method === m.id }]" @click="toggleFilter('comm_method', m.id)" style="margin:2px 3px;display:inline-block;white-space:nowrap;line-height:normal">{{ m.name }}</span>
+          <span v-for="m in commMethods" :key="m.id" :class="['filter-tag', { active: filters.comm_method === m.id }]" @click="toggleFilter('comm_method', m.id)" class="filter-tag filter-tag-inline">{{ m.name }}</span>
         </div>
         <div class="filter-group" style="flex:1;min-width:180px;margin-bottom:0" :style="{ maxHeight: filterOpen.comm_protocol ? 'none' : '30px', overflow: 'hidden' }">
           <span class="filter-label" @click="filterOpen.comm_protocol = !filterOpen.comm_protocol" style="cursor:pointer">协议</span>
           <span class="filter-toggle" @click="filterOpen.comm_protocol = !filterOpen.comm_protocol" style="cursor:pointer;margin:0 8px 0 4px">{{ filterOpen.comm_protocol ? '▲' : '▼' }}</span>
-          <span v-for="p in commProtocols" :key="p.id" :class="['filter-tag', { active: filters.comm_protocol === p.id }]" @click="toggleFilter('comm_protocol', p.id)" style="margin:2px 3px;display:inline-block;white-space:nowrap;line-height:normal">{{ p.name }}</span>
+          <span v-for="p in commProtocols" :key="p.id" :class="['filter-tag', { active: filters.comm_protocol === p.id }]" @click="toggleFilter('comm_protocol', p.id)" class="filter-tag filter-tag-inline">{{ p.name }}</span>
         </div>
         <div class="filter-group" style="flex:1;min-width:180px;margin-bottom:0" :style="{ maxHeight: filterOpen.power_supply ? 'none' : '30px', overflow: 'hidden' }">
           <span class="filter-label" @click="filterOpen.power_supply = !filterOpen.power_supply" style="cursor:pointer">供电</span>
           <span class="filter-toggle" @click="filterOpen.power_supply = !filterOpen.power_supply" style="cursor:pointer;margin:0 8px 0 4px">{{ filterOpen.power_supply ? '▲' : '▼' }}</span>
-          <span v-for="p in powerSupplies" :key="p.id" :class="['filter-tag', { active: filters.power_supply === p.id }]" @click="toggleFilter('power_supply', p.id)" style="margin:2px 3px;display:inline-block;white-space:nowrap;line-height:normal">{{ p.name }}</span>
+          <span v-for="p in powerSupplies" :key="p.id" :class="['filter-tag', { active: filters.power_supply === p.id }]" @click="toggleFilter('power_supply', p.id)" class="filter-tag filter-tag-inline">{{ p.name }}</span>
         </div>
       </div>
     </div>
   </div>
 
   <div class="card">
-    <div v-if="loading" class="empty-state"><p>加载中...</p></div>
-    <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="loadProducts()">重试</button></div>
-    <table v-else-if="products.length" class="data-table">
+    <AsyncContainer :loading="loading" :error="loadError" retry @retry="loadProducts" />
+    <table v-if="!loading && !loadError && products.length" class="data-table">
       <thead>
         <tr>
           <th style="width:32px"><input type="checkbox" :checked="selectedIds.length === products.length" @change="toggleAll($event)" title="全选" /></th>
@@ -121,6 +120,7 @@ import SearchInput from '../components/SearchInput.vue'
 import TagBadge from '../components/TagBadge.vue'
 import Pagination from '../components/Pagination.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import AsyncContainer from '../components/AsyncContainer.vue'
 import { fetchProducts, deleteProduct, exportProducts, fetchCommMethods, fetchCommProtocols, fetchPowerSupplies, fetchManufacturers, fetchCategoryTree } from '../api'
 import type { Product, Manufacturer } from '../types'
 

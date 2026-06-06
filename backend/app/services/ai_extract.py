@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import re
 from sqlalchemy.orm import Session
-from app.config import settings
+
 from app.models.category import Category
 from app.models.dictionary import (
     Manufacturer, DictCommMethod, DictCommProtocol, DictPowerSupply, DictSensorMetric,
@@ -80,15 +80,16 @@ def build_extraction_prompt(db: Session) -> str:
     return result
 
 
-def call_ai_extract(url: str, title: str, text: str, db: Session) -> dict:
+def call_ai_extract(url: str, title: str, text: str, db: Session, _usage: list = None) -> dict:
     """Call AI (DeepSeek) to extract product info from text.
 
     Falls back to regex extraction if no API key or on error.
+    If _usage list is provided, [tokens_in, tokens_out] is appended on success.
     """
-    import asyncio
+    import asyncio, time as _time
     from app.services.ai_engine import engine
 
-    if not settings.AI_GATEWAY_KEY:
+    if not engine.api_key:
         return regex_extract_from_text(title, text, db)
 
     system_prompt = build_extraction_prompt(db)
@@ -105,7 +106,14 @@ def call_ai_extract(url: str, title: str, text: str, db: Session) -> dict:
     ]
 
     try:
+        t0 = _time.time()
         result = asyncio.run(engine.chat(messages, temperature=0.1, max_tokens=3000))
+        elapsed_ms = int((_time.time() - t0) * 1000)
+        usage = result.get("usage", {})
+        if _usage is not None:
+            _usage.append(usage.get("prompt_tokens", 0))
+            _usage.append(usage.get("completion_tokens", 0))
+            _usage.append(elapsed_ms)
         content = result["choices"][0]["message"]["content"]
         json_match = re.search(r'\{.*\}', content, re.DOTALL)
         if json_match:

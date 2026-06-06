@@ -22,9 +22,8 @@
   </div>
 
   <div class="card">
-    <div v-if="loading" class="empty-state"><p>加载中...</p></div>
-    <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="load">重试</button></div>
-    <table v-else-if="quotations.length" class="data-table">
+    <AsyncContainer :loading="loading" :error="loadError" retry @retry="load" />
+    <table v-if="!loading && !loadError && quotations.length" class="data-table">
       <thead><tr>
         <th style="width:32px"><input type="checkbox" :checked="allSelected" @change="toggleAll" /></th>
         <th>编号</th><th>标题</th><th>客户</th><th>状态</th><th>金额</th><th>下载</th><th>创建时间</th><th>操作</th>
@@ -53,7 +52,7 @@
         </tr>
       </tbody>
     </table>
-    <div v-else class="empty-state"><InboxIcon /><p>暂无报价单</p></div>
+    <div v-if="!loading && !loadError && !quotations.length" class="empty-state"><InboxIcon /><p>暂无报价单</p></div>
     <Pagination :total="total" :page="page" :per-page="perPage" @change="p => { page = p; load() }" @update:per-page="s => { perPage = s; page = 1; load() }" />
   </div>
 
@@ -67,6 +66,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { PlusIcon, Trash2Icon, InboxIcon, EyeIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import AsyncContainer from '../components/AsyncContainer.vue'
 import Pagination from '../components/Pagination.vue'
 import { fetchQuotations, deleteQuotation, batchDeleteQuotations, updateQuotation } from '../api'
 import type { Quotation } from '../types'

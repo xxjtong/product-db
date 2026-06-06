@@ -17,6 +17,7 @@ from app.models.ai_usage_log import AIUsageLog
 from app.models.system_setting import SystemSetting
 from app.services.ai_engine import engine, DEFAULT_MODEL
 from app.services.ai_tools import TOOL_DEFINITIONS, execute_tool
+from app.services.product_helpers import product_eager_loads
 
 router = APIRouter()
 
@@ -408,6 +409,20 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                     seen_ids: set[int] = set()
                     kw_products: dict[str, list] = {}
 
+                    # Batch-load all product IDs across all keywords
+                    all_pids: set[int] = set()
+                    for kw in keywords:
+                        for i in matches.get(kw, [])[:10]:
+                            if str(i).isdigit():
+                                all_pids.add(int(i))
+                    # Single batch query
+                    product_map = {}
+                    if all_pids:
+                        products = db.query(ProductModel).options(*product_eager_loads()).filter(
+                            ProductModel.id.in_(all_pids), ProductModel.status == 'active'
+                        ).all()
+                        product_map = {p.id: p for p in products}
+
                     for kw in keywords:
                         kw_ids = [int(i) for i in matches.get(kw, [])[:10] if str(i).isdigit()]
                         matched = []
@@ -415,9 +430,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                             if pid in seen_ids:
                                 continue
                             seen_ids.add(pid)
-                            p = db.query(ProductModel).filter(
-                                ProductModel.id == pid, ProductModel.status == 'active'
-                            ).first()
+                            p = product_map.get(pid)
                             if not p:
                                 continue
                             cat_name = p.category.name if p.category else ""

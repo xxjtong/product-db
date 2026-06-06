@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import select, text, case
 from sqlalchemy import or_
 from app.database import get_db
+from app.utils.helpers import get_or_404, apply_partial_update
 from app.models.product import Product
 from app.models.category import Category, CategorySpecDefinition
 from app.models.dependency import ProductDependency
@@ -69,16 +70,8 @@ def list_products(
     q = filter_by_ownership(q, Product, user)
 
     if category_id:
-        # Collect all descendant category IDs recursively
-        def get_descendants(pid):
-            ids = [pid]
-            children = db.query(Category).filter_by(parent_id=pid).all()
-            for child in children:
-                ids.extend(get_descendants(child.id))
-            return ids
-        cat_ids = get_descendants(category_id)
-        # Filter via many-to-many product_categories table
-        from app.services.product_category_helper import get_products_in_categories
+        from app.services.product_category_helper import get_products_in_categories, get_category_descendants
+        cat_ids = get_category_descendants(db, category_id)
         m2m_ids = get_products_in_categories(db, cat_ids)
         q = q.filter(
             or_(
@@ -217,15 +210,8 @@ def export_products(
         selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
     )
     if category_id:
-        # Use same multi-category filter as list_products
-        def _exp_get_descendants(pid):
-            ids = [pid]
-            children = db.query(Category).filter_by(parent_id=pid).all()
-            for child in children:
-                ids.extend(_exp_get_descendants(child.id))
-            return ids
-        cat_ids = _exp_get_descendants(category_id)
-        from app.services.product_category_helper import get_products_in_categories
+        from app.services.product_category_helper import get_products_in_categories, get_category_descendants
+        cat_ids = get_category_descendants(db, category_id)
         m2m_ids = get_products_in_categories(db, cat_ids)
         q = q.filter(
             or_(
@@ -286,24 +272,17 @@ def upload_image(file: UploadFile = File(...), user=Depends(get_current_user)):
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(400, "Image must be under 5MB")
 
+    from app.services.storage import ALLOWED_EXTENSIONS, VALID_SIGNATURES
     # Validate file extension
     original_name = file.filename or "upload.jpg"
     ext = os.path.splitext(original_name)[1].lower()
-    ALLOWED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}
-    if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(400, f"File extension '{ext}' not allowed. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
+    if ext not in {e for e in ALLOWED_EXTENSIONS if e.startswith('.') and e in ('.jpg','.jpeg','.png','.gif','.webp','.bmp')}:
+        raise HTTPException(400, f"File extension '{ext}' not allowed. Allowed: .jpg, .jpeg, .png, .gif, .webp, .bmp")
 
-    # Magic bytes validation
+    # Magic bytes validation (shared constants from storage.py)
     if len(content) >= 8:
         header = content[:8]
-        valid_signatures = [
-            b'\xff\xd8\xff',       # JPEG
-            b'\x89PNG\r\n\x1a\n',  # PNG
-            b'GIF8',               # GIF
-            b'RIFF',               # WebP (RIFF container)
-            b'BM',                 # BMP
-        ]
-        if not any(header.startswith(sig) for sig in valid_signatures):
+        if not any(header.startswith(sig) for sig in VALID_SIGNATURES):
             raise HTTPException(400, "File content does not match a valid image format")
     else:
         raise HTTPException(400, "File too small to be a valid image")
@@ -393,18 +372,13 @@ def create_product(data: ProductCreate, db: Session = Depends(get_db), user=Depe
 
 @router.put("/products/{product_id}")
 def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    p = db.get(Product, product_id)
-    if not p:
-        raise HTTPException(404)
+    p = get_or_404(db, Product, product_id)
     check_ownership(p, user)
 
-    # Core fields
-    for f in ["model", "name", "sku", "category_id", "manufacturer_id", "supplier_id",
-              "unit", "base_price", "cost_price", "description", "image_url", "product_url",
-              "status", "parent_id"]:
-        val = getattr(data, f, None)
-        if val is not None:
-            setattr(p, f, val)
+    from app.utils.helpers import apply_partial_update
+    apply_partial_update(p, data, ["model", "name", "sku", "category_id", "manufacturer_id",
+        "supplier_id", "unit", "base_price", "cost_price", "description", "image_url",
+        "product_url", "status", "parent_id"])
 
     if data.specs:
         p.specs = data.specs
@@ -435,10 +409,11 @@ def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(g
 
 @router.delete("/products/{product_id}")
 def delete_product(product_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    p = db.get(Product, product_id)
-    if not p:
-        raise HTTPException(404)
+    p = get_or_404(db, Product, product_id)
     check_ownership(p, user)
+    # Delete local image files before removing DB rows
+    from app.services.product_helpers import _cleanup_image_files
+    _cleanup_image_files(product_id, db)
     # Delete dependencies before product (SQLite FK cascade not enabled)
     from app.models.dependency import ProductDependency
     db.query(ProductDependency).filter(
@@ -460,9 +435,13 @@ def ai_fetch_product(data: AIFetchRequest, db: Session = Depends(get_db), user=D
 
     if raw_text:
         # Direct text extraction mode
-        result = call_ai_extract("", "", raw_text, db) if settings.AI_GATEWAY_KEY \
+        from app.services.ai_engine import engine
+        usage: list = []
+        result = call_ai_extract("", "", raw_text, db, usage) if engine.api_key \
             else regex_extract_from_text("", raw_text, db)
-        if settings.AI_GATEWAY_KEY:
+        if usage:
+            _log_ai_usage(user.id, 'ai_fetch_text', usage[0], usage[1], usage[2])
+        elif engine.api_key:
             _log_ai_usage(user.id, 'ai_fetch_text')
         return {"fetched": result}
 
@@ -507,13 +486,17 @@ def ai_fetch_product(data: AIFetchRequest, db: Session = Depends(get_db), user=D
     if not text:
         raise HTTPException(400, "No text content extracted from URL")
 
-    result = call_ai_extract(url, title, text, db)
-    _log_ai_usage(user.id, 'ai_fetch')
+    usage: list = []
+    result = call_ai_extract(url, title, text, db, usage)
+    if usage:
+        _log_ai_usage(user.id, 'ai_fetch', usage[0], usage[1], usage[2])
+    else:
+        _log_ai_usage(user.id, 'ai_fetch')
 
     return {"fetched": {"url": url, "title": title, **result}}
 
 
-def _log_ai_usage(user_id: int, operation: str):
+def _log_ai_usage(user_id: int, operation: str, tokens_in: int = 0, tokens_out: int = 0, duration_ms: int = 0, success: bool = True):
     """Record AI usage for stats sidebar. Uses lazy import to avoid circular deps."""
     _logger = logging.getLogger("uvicorn")
     try:
@@ -521,7 +504,9 @@ def _log_ai_usage(user_id: int, operation: str):
         from app.database import SessionLocal
         db2 = SessionLocal()
         try:
-            db2.add(AIUsageLog(user_id=user_id, operation=operation, tokens_in=0, tokens_out=0, duration_ms=0, success=True))
+            db2.add(AIUsageLog(user_id=user_id, operation=operation,
+                tokens_in=tokens_in, tokens_out=tokens_out,
+                duration_ms=duration_ms, success=success))
             db2.commit()
         finally:
             db2.close()
@@ -531,10 +516,11 @@ def _log_ai_usage(user_id: int, operation: str):
 
 @router.post("/products/ai-fetch-file")
 async def ai_fetch_file(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
-    """AI-assisted product info extraction from uploaded file (PDF/docx/txt)."""
+    """AI-assisted product info extraction from uploaded file (PDF/docx/txt/image)."""
     content = await file.read()
     filename = (file.filename or "").lower()
     text = ""
+    is_image = False
 
     if filename.endswith(".pdf"):
         import io
@@ -548,35 +534,109 @@ async def ai_fetch_file(file: UploadFile = File(...), db: Session = Depends(get_
         text = "\n".join(p.text for p in doc.paragraphs)
     elif filename.endswith(".txt") or filename.endswith(".csv"):
         text = content.decode("utf-8", errors="replace")
+    elif filename.endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif")):
+        is_image = True
     else:
         raise HTTPException(400, f"Unsupported file type: {filename.split('.')[-1]}")
+
+    # Image: OCR via vision model first
+    ocr_usage: list = []
+    if is_image:
+        text = await _ocr_image(content, db, ocr_usage)
 
     text = re.sub(r'\n{3,}', '\n\n', (text or "")[:8000])
     if not text.strip():
         raise HTTPException(400, "No text content extracted from file")
 
-    if settings.AI_GATEWAY_KEY:
-        from app.services.ai_engine import engine
+    usage: list = []
+    result = _extract_product_info(text, filename, db, usage)
+    if usage:
+        _log_ai_usage(user.id, 'ai_fetch_file', usage[0], usage[1], usage[2])
+    if ocr_usage:
+        _log_ai_usage(user.id, 'ai_ocr', ocr_usage[0], ocr_usage[1], ocr_usage[2])
+    return {"fetched": {"filename": filename, **result}}
+
+
+async def _ocr_image(image_bytes: bytes, db: Session, _usage: list = None) -> str:
+    """Send image to vision LLM for OCR text extraction.
+    If _usage list is provided, [tokens_in, tokens_out, duration_ms] is appended.
+    """
+    import asyncio, base64, concurrent.futures, time as _time
+    from app.routers.admin_routes import _load_llm_config
+
+    cfg = _load_llm_config(db).get("vision", {})
+    if not cfg.get("api_key"):
+        raise HTTPException(400, "Vision LLM API key not configured")
+
+    mime_map = {b'\xff\xd8\xff': 'image/jpeg', b'\x89PNG': 'image/png',
+                b'GIF8': 'image/gif', b'RIFF': 'image/webp', b'BM': 'image/bmp'}
+    mime_type = "image/jpeg"
+    for sig, mt in mime_map.items():
+        if image_bytes[:len(sig)] == sig:
+            mime_type = mt; break
+
+    b64 = base64.b64encode(image_bytes).decode()
+    data_url = f"data:{mime_type};base64,{b64}"
+
+    def _sync_call():
+        import requests
+        t0 = _time.time()
+        resp = requests.post(
+            f"{cfg['base_url']}/chat/completions",
+            headers={"Authorization": f"Bearer {cfg['api_key']}", "Content-Type": "application/json"},
+            json={
+                "model": cfg.get("model", "mimo-v2-omni"),
+                "messages": [{"role": "user", "content": [
+                    {"type": "text", "text": "请仔细OCR识别这张产品规格图片中的所有文字内容，包括产品名称、型号、规格参数、技术指标等。直接输出识别到的文字，不要添加额外说明。"},
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ]}],
+                "max_tokens": 2000,
+            },
+            timeout=60,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if _usage is not None:
+            u = data.get("usage", {})
+            _usage.append(u.get("prompt_tokens", 0))
+            _usage.append(u.get("completion_tokens", 0))
+            _usage.append(int((_time.time() - t0) * 1000))
+        return data["choices"][0]["message"]["content"] or ""
+
+    loop = asyncio.get_event_loop()
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        return await loop.run_in_executor(pool, _sync_call)
+
+
+def _extract_product_info(text: str, source: str, db: Session, _usage: list = None) -> dict:
+    """Extract product info from text using AI or regex fallback.
+    If _usage list is provided, [tokens_in, tokens_out, duration_ms] is appended on success.
+    """
+    from app.services.ai_engine import engine
+    if engine.api_key:
         from app.services.ai_extract import build_extraction_prompt
         system_prompt = build_extraction_prompt(db)
-        user_msg = f"来源: {filename}\n\n规格文本:\n{text}\n\n请提取产品的结构化信息。"
-        import asyncio as _asyncio, re as _re
+        user_msg = f"来源: {source}\n\n规格文本:\n{text}\n\n请提取产品的结构化信息。"
+        import asyncio, re as _re, time as _time
         try:
-            result = await engine.chat([
+            t0 = _time.time()
+            result = asyncio.run(engine.chat([
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_msg},
-            ], temperature=0.1, max_tokens=3000)
-            content = result["choices"][0]["message"]["content"]
-            json_match = _re.search(r'\{.*\}', content, re.DOTALL)
+            ], temperature=0.1, max_tokens=3000))
+            elapsed_ms = int((_time.time() - t0) * 1000)
+            u = result.get("usage", {})
+            if _usage is not None:
+                _usage.append(u.get("prompt_tokens", 0))
+                _usage.append(u.get("completion_tokens", 0))
+                _usage.append(elapsed_ms)
+            content_text = result["choices"][0]["message"]["content"]
+            json_match = _re.search(r'\{.*\}', content_text, re.DOTALL)
             if json_match:
-                result = json.loads(json_match.group())
-            else:
-                result = regex_extract_from_text("", text, db)
+                return json.loads(json_match.group())
         except Exception:
-            result = regex_extract_from_text("", text, db)
-    else:
-        result = regex_extract_from_text("", text, db)
-    return {"fetched": {"filename": filename, **result}}
+            pass
+    return regex_extract_from_text("", text, db)
 
 
 @router.get("/products/{product_id}/spec-sheet")
@@ -600,7 +660,11 @@ def spec_sheet(product_id: int, db: Session = Depends(get_db), user=Depends(get_
             pdf_fd, pdf_path = tempfile.mkstemp(suffix=".pdf")
             os.close(pdf_fd)
             env = os.environ.copy()
-            env["DYLD_LIBRARY_PATH"] = "/opt/homebrew/lib"
+            import sys
+            if sys.platform == "darwin":
+                env["DYLD_LIBRARY_PATH"] = "/opt/homebrew/lib"
+            elif sys.platform == "linux":
+                env["LD_LIBRARY_PATH"] = env.get("LD_LIBRARY_PATH", "")
             result = subprocess.run(
                 [wp, html_path, pdf_path, "-e", "utf-8"],
                 env=env, capture_output=True,
@@ -656,10 +720,7 @@ def update_dependency(product_id: int, dep_id: int, data: ProductDependencyUpdat
     dep = db.get(ProductDependency, dep_id)
     if not dep or dep.product_id != product_id:
         raise HTTPException(404)
-    for f in ["depends_on_product_id", "depends_on_category_id", "dependency_type", "description", "sort_order"]:
-        val = getattr(data, f, None)
-        if val is not None:
-            setattr(dep, f, val)
+    apply_partial_update(dep, data, ["depends_on_product_id", "depends_on_category_id", "dependency_type", "description", "sort_order"])
     db.commit()
     return {"dependency": dep.to_dict()}
 

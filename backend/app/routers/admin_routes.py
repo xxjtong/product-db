@@ -1,7 +1,9 @@
 """Admin routes — user management, field visibility, AI prompt, usage stats, logs."""
+import json
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.utils.helpers import get_or_404
 from app.auth import hash_password, get_current_user
 from app.models.user import User
 from app.models.login_log import LoginLog
@@ -64,9 +66,7 @@ def create_user(data: CreateUserRequest, db: Session = Depends(get_db), user=Dep
 def update_user(uid: int, data: UpdateUserRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(403, "Admin only")
-    u = db.get(User, uid)
-    if not u:
-        raise HTTPException(404, "User not found")
+    u = get_or_404(db, User, uid, "User not found")
     apply_partial_update(u, data, ["email", "role", "is_active"])
     if data.password:
         u.password_hash = hash_password(data.password)
@@ -78,9 +78,7 @@ def update_user(uid: int, data: UpdateUserRequest, db: Session = Depends(get_db)
 def reset_user_password(uid: int, data: ResetPasswordRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(403, "Admin only")
-    u = db.get(User, uid)
-    if not u:
-        raise HTTPException(404, "User not found")
+    u = get_or_404(db, User, uid, "User not found")
     if len(data.password) < 8:
         raise HTTPException(400, "密码至少8位")
     u.password_hash = hash_password(data.password)
@@ -92,14 +90,21 @@ def reset_user_password(uid: int, data: ResetPasswordRequest, db: Session = Depe
 def delete_user(uid: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(403, "Admin only")
-    u = db.get(User, uid)
-    if not u:
-        raise HTTPException(404, "User not found")
+    u = get_or_404(db, User, uid, "User not found")
     if u.id == user.id:
         raise HTTPException(400, "不能删除自己")
     db.delete(u)
     db.commit()
     return {"ok": True}
+
+
+def _get_usernames(db: Session, user_ids: set) -> dict:
+    """Build user_id → username map."""
+    if not user_ids:
+        return {}
+    from app.models.user import User
+    users = db.query(User).filter(User.id.in_(user_ids)).all()
+    return {u.id: u.username for u in users}
 
 
 @router.get("/admin/login-logs")
@@ -111,7 +116,8 @@ def list_login_logs(user_id: int = None, page: int = 1, per_page: int = 20, db: 
         q = q.filter_by(user_id=user_id)
     total = q.count()
     logs = q.offset((page-1)*per_page).limit(per_page).all()
-    return {"logs": [l.to_dict() for l in logs], "total": total, "page": page, "per_page": per_page}
+    uid_map = _get_usernames(db, {l.user_id for l in logs if l.user_id})
+    return {"logs": [{**l.to_dict(), "username": uid_map.get(l.user_id, "")} for l in logs], "total": total, "page": page, "per_page": per_page}
 
 
 # --- Field visibility ---
@@ -187,6 +193,133 @@ def update_ai_settings(data: dict, db: Session = Depends(get_db), user=Depends(g
     return {"ok": True}
 
 
+# --- LLM Provider Config ---
+
+_LLM_CONFIG_DEFAULTS = {
+    "primary": {
+        "provider": "deepseek", "name": "DeepSeek",
+        "base_url": "https://api.deepseek.com", "api_key": "",
+        "chat_model": "deepseek-v4-flash", "keyword_model": "deepseek-chat",
+        "extract_model": "deepseek-chat",
+    },
+    "vision": {
+        "provider": "xiaomi", "name": "Xiaomi Mimo",
+        "base_url": "https://api.xiaomimimo.com/v1", "api_key": "",
+        "model": "mimo-v2-omni",
+    },
+}
+
+def _load_llm_config(db: Session) -> dict:
+    """Load LLM config from system_settings, merge with defaults."""
+    from app.models.system_setting import SystemSetting
+    s = db.query(SystemSetting).filter_by(key="llm_config").first()
+    if s and s.value:
+        try:
+            stored = json.loads(s.value)
+            result = {}
+            for k in ("primary", "vision"):
+                result[k] = {**_LLM_CONFIG_DEFAULTS.get(k, {}), **stored.get(k, {})}
+            return result
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return _LLM_CONFIG_DEFAULTS
+
+
+@router.get("/admin/llm-config")
+def get_llm_config(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    return {"config": _load_llm_config(db), "defaults": _LLM_CONFIG_DEFAULTS}
+
+
+@router.put("/admin/llm-config")
+def update_llm_config(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    from app.models.system_setting import SystemSetting
+    s = db.query(SystemSetting).filter_by(key="llm_config").first()
+    if not s:
+        s = SystemSetting(key="llm_config", description="LLM provider configuration")
+        db.add(s)
+    s.value = json.dumps(data.get("config", {}), ensure_ascii=False)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/admin/llm-config/test")
+def test_llm_config(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Test LLM provider connectivity + fetch available models, store to DB."""
+    if user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    cfg = data.get("config", {})
+    provider = data.get("provider", "primary")
+    key = cfg.get("api_key", "")
+    if not key and provider == "primary":
+        from app.services.ai_engine import engine
+        key = engine.api_key  # uses DB fallback chain
+    if not key:
+        raise HTTPException(400, "API Key not configured")
+
+    import requests
+    base = cfg["base_url"]
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    models = []
+
+    # 1) Chat test
+    test_model = cfg.get("model") or cfg.get("chat_model", "gpt-3.5-turbo")
+    try:
+        resp = requests.post(f"{base}/chat/completions", headers=headers,
+            json={"model": test_model, "messages": [{"role":"user","content":"hi"}], "max_tokens":5}, timeout=15)
+        if resp.status_code != 200:
+            detail = resp.json().get("error", {}).get("message", resp.text[:100])
+            raise HTTPException(400, f"API returned {resp.status_code}: {detail}")
+    except requests.exceptions.ConnectionError as e:
+        raise HTTPException(400, f"Connection failed: {str(e)[:100]}")
+    except requests.exceptions.Timeout:
+        raise HTTPException(400, "Connection timed out")
+
+    # 2) Fetch available models
+    try:
+        mr = requests.get(f"{base}/models", headers=headers, timeout=15)
+        if mr.status_code == 200:
+            raw = mr.json().get("data", [])
+            models = sorted([m["id"] for m in raw if m.get("id")], key=lambda x: x.lower())
+    except Exception:
+        pass  # models list is best-effort
+
+    # 3) Store to DB
+    from app.models.system_setting import SystemSetting
+    s = db.query(SystemSetting).filter_by(key="llm_models").first()
+    if not s:
+        s = SystemSetting(key="llm_models", description="Available LLM models by provider")
+        db.add(s)
+    stored = {}
+    if s.value:
+        try: stored = json.loads(s.value)
+        except: pass
+    if models:
+        stored[provider] = models
+    else:
+        stored.pop(provider, None)
+    s.value = json.dumps(stored, ensure_ascii=False)
+    db.commit()
+
+    return {"ok": True, "message": f"{provider} OK ({test_model})", "models": models}
+
+
+@router.get("/admin/llm-models")
+def get_llm_models(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Get cached available LLM models."""
+    if user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    from app.models.system_setting import SystemSetting
+    s = db.query(SystemSetting).filter_by(key="llm_models").first()
+    if s and s.value:
+        try: return {"models": json.loads(s.value)}
+        except: pass
+    return {"models": {}}
+
+
 # --- AI Usage Stats ---
 
 @router.get("/admin/ai-usage")
@@ -222,4 +355,5 @@ def get_download_logs(page: int = 1, per_page: int = 20, db: Session = Depends(g
     q = db.query(DownloadLog).order_by(DownloadLog.created_at.desc())
     total = q.count()
     logs = q.offset((page-1)*per_page).limit(per_page).all()
-    return {"logs": [l.to_dict() for l in logs], "total": total, "page": page, "per_page": per_page}
+    uid_map = _get_usernames(db, {l.user_id for l in logs if l.user_id})
+    return {"logs": [{**l.to_dict(), "username": uid_map.get(l.user_id, "")} for l in logs], "total": total, "page": page, "per_page": per_page}

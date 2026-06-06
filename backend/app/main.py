@@ -78,7 +78,10 @@ def health():
 
 
 # --- SPA frontend serving ---
-_frontend_dist = "/opt/product-db/frontend/dist"
+_frontend_dist = settings.FRONTEND_DIST
+if not os.path.isabs(_frontend_dist):
+    _frontend_dist = os.path.join(os.path.dirname(__file__), "..", "..", _frontend_dist)
+_frontend_dist = os.path.abspath(_frontend_dist)
 import mimetypes
 
 # Nginx no longer strips prefix — backend serves at /product-db/

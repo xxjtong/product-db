@@ -2,19 +2,65 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-06-06, R11)
+## 最新变更 (2026-06-07, R12)
 
-### R11: 代码审计修复 + 文档
+### R12: 全面优化 — 性能/架构/CSS/LLM/OCR
 
-- **权限**: 11 处 PUT/DELETE 端点补全 `check_ownership()` (字典表 8 + 供应商 2 + delete_manufacturer 1)
-- **安全**: 所有 `except:pass` 改为至少 log (ai_extract, ai.py, auth_routes, product_files)
-- **类型安全**: 8 个 Dict CRUD 端点从 `data: dict` → Pydantic Schema (CommMethod/Protocol/PowerSupply/SensorMetric Create/Update)
-- **错误处理**: onAiFetch 加 HTTP status 检查, onAiFill 加 try-catch, 4 个 dict load 函数加 try-catch, uploadProductImage 加 resp.ok 检查
-- **数据一致性**: regex fallback spec key 英→中 (ip_rating→防护等级), quotation_items.product_id nullable (BOM 手动行用 NULL)
-- **代码整洁**: products.py/ai.py/quotations.py import logging 移到模块级, literal_column 移除, suppliers.py 重复 import 修复, DictItem 接口补 accuracy/resolution
-- **防御性**: upload_image 加 file.size 预检 (防大文件 OOM), _log_ai_usage 加 try/finally (防连接泄漏), 导出用多对多品类筛选
-- **文档**: 新增 `docs/architecture.md` 架构总览 + `docs/database.md` 数据库设计
-- vue-tsc 0 errors, pytest 78/78, vitest 38/38
+**性能优化:**
+- +7 索引 (login_logs, product_categories, solution_items, quotation_items, product_dependencies, products(status,mfg), ai_conversations) / -2 重复索引
+- `run_agent()` N+1: 40 次单独查询 → 1 次 `IN()` 批量加载
+- 品类树递归 N+1: N 次查询 → 1 次全量 + 内存遍历 (`product_category_helper.get_category_descendants()`)
+- BOM 3 处 `Product.query.all()` 全表扫描 → `Product.id.in_(pids)` 精确查询
+- `build_context()` 规格定义查询: 10 次 → 1 次批量
+- `product_categories` FK 修正: `categories(id)` → `device_categories(id)`, 7 orphan 行清理
+
+**LLM + OCR:**
+- 管理页新增 LLM 配置卡片 (主 LLM + 视觉 LLM 参数, 含测试按钮)
+- 视觉 LLM 接入 Xiaomi Mimo (mimo-v2-omni), 图片上传自动 OCR 提取产品参数
+- 测试按钮自动获取 `/v1/models` 可用模型列表 → DB → AI 设置下拉动态选项
+- 主 LLM API key 三级 fallback: DB → .env → 空
+
+**AI 用量统计:**
+- 全 LLM 调用覆盖 (对话/URL提取/文本提取/文件提取/图片OCR)
+- 提取为 `AiUsageStats.vue` 组件, 按操作类型标签
+- 修复 token/duration 硬编码 0 的问题
+
+**代码质量:**
+- `get_or_404()` helper: 41 处 `db.get→404` 缩减为一行 (8 路由文件)
+- `paginate()` helper: solutions.py + quotations.py 接入
+- `apply_partial_update()` 全网部署: 6 路由 10 处 for 循环统一
+- `utils/helpers.py` 新增 `get_or_404()`, `paginate()`; `apply_partial_update()` 支持 dict + Pydantic
+
+**前端组件:**
+- `AiExtractCard.vue`: 从 ProductFormView 拆分 (826→607 行, -27%)
+- `AiUsageStats.vue`: AI 统计独立组件
+- `AsyncContainer.vue`: 加载/错误/空态统一 (5 视图接入)
+- `filter-tag-inline` CSS 类: ProductsView 6 处 inline style 消除
+
+**CSS 系统:**
+- 新增 7 个语义 color token (`--color-blue-50/100/700`, `--color-slate-50/100/400/700`)
+- 全局 hardcoded hex → `var(--color-*)` (除 tag 专用色)
+- `@media (hover: hover)` 包裹 touch 设备无意义悬停
+- `btn-label` 类: `<label>` 伪装按钮统一样式
+- `form-row-sm` 类: 表单行按钮统一 32px 高度
+
+**安全增强:**
+- `auth.py` admin_id 硬编码 1 → 30s TTL 动态查询 admin 用户列表
+- LLM 双 provider API key 均存 DB (管理页即时修改, 不用 SSH 改 .env)
+- `--color-accent-light` 修复 (不再自引用)
+- 7 个 QuotationDetailView TS null 错误修复
+
+**配置化:**
+- `config.py` 新增 6 项: FRONTEND_DIST, IMAGE_MAX_SIZE, FILE_MAX_SIZE, AI_MAX_REDIRECTS, AI_CONTEXT_CACHE_TTL, AI_EXTRACT_MAX_CHARS
+- `main.py` 前端 dist 路径可配置 + 相对路径
+- `products.py` DYLD/LD_LIBRARY_PATH 跨平台 (macOS/Linux)
+- `schemas/common.py` 清理未用 PaginatedResponse/MessageResponse
+- 管理页登录/下载日志显示用户名 (不再裸 ID)
+
+**文档更新:**
+- CLAUDE.md R12 变更日志 + 文档索引
+- 系统功能说明.md 数据统计 + 组件列表更新
+- docs/architecture.md + docs/database.md 已补充最新架构
 
 ### R9-R10: 产品筛选 UI 重构 + 字典增强 + 规格编辑器
 

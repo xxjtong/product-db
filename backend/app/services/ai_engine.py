@@ -11,8 +11,37 @@ class LlmEngine:
     """OpenAI-compatible async HTTP client for DeepSeek API."""
 
     def __init__(self, api_key: str = "", base_url: str = ""):
-        self.api_key = api_key or settings.AI_GATEWAY_KEY
+        self._explicit_key = api_key
+        self._cached_key = None
         self.base_url = base_url or DEEPSEEK_BASE
+
+    @property
+    def api_key(self) -> str:
+        if self._cached_key is None:
+            # 1) Explicit key passed to constructor
+            if self._explicit_key:
+                self._cached_key = self._explicit_key
+            else:
+                # 2) LLM config primary.api_key from DB
+                try:
+                    from app.database import SessionLocal
+                    from app.models.system_setting import SystemSetting
+                    db = SessionLocal()
+                    try:
+                        s = db.query(SystemSetting).filter_by(key="llm_config").first()
+                        if s and s.value:
+                            cfg = json.loads(s.value)
+                            db_key = cfg.get("primary", {}).get("api_key", "")
+                            if db_key:
+                                self._cached_key = db_key
+                    finally:
+                        db.close()
+                except Exception:
+                    pass
+                # 3) Fall back to .env / settings
+                if not self._cached_key:
+                    self._cached_key = settings.AI_GATEWAY_KEY
+        return self._cached_key
 
     def _headers(self) -> dict:
         return {

@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.utils.helpers import get_or_404, apply_partial_update
 from app.models.dictionary import (Manufacturer, DictCommMethod, DictCommProtocol,
                                    DictPowerSupply, DictSensorMetric)
 from app.auth import get_current_user, filter_by_ownership, check_ownership
@@ -24,9 +25,7 @@ def list_manufacturers(page: int = 1, per_page: int = 20, db: Session = Depends(
 
 @router.get("/dicts/manufacturers/{mfg_id}")
 def get_manufacturer(mfg_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    m = db.get(Manufacturer, mfg_id)
-    if not m:
-        raise HTTPException(404, "Manufacturer not found")
+    m = get_or_404(db, Manufacturer, mfg_id)
     return {"manufacturer": m.to_dict()}
 
 
@@ -41,30 +40,23 @@ def create_manufacturer(data: ManufacturerCreate, db: Session = Depends(get_db),
 
 @router.put("/dicts/manufacturers/{mfg_id}")
 def update_manufacturer(mfg_id: int, data: ManufacturerUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    m = db.get(Manufacturer, mfg_id)
-    if not m:
-        raise HTTPException(404)
+    m = get_or_404(db, Manufacturer, mfg_id)
     check_ownership(m, user)
-    for f in ["name", "website", "description", "sort_order"]:
-        val = getattr(data, f, None)
-        if val is not None:
-            setattr(m, f, val)
+    apply_partial_update(m, data, ["name", "website", "description", "sort_order"])
     db.commit()
     return {"manufacturer": m.to_dict()}
 
 
 @router.delete("/dicts/manufacturers/{mfg_id}")
 def delete_manufacturer(mfg_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    m = db.get(Manufacturer, mfg_id)
-    if not m:
-        raise HTTPException(404)
+    m = get_or_404(db, Manufacturer, mfg_id)
     check_ownership(m, user)
     db.delete(m)
     db.commit()
     return {"ok": True}
 
 
-# --- Dict tables (read-only for now, can add CRUD later) ---
+# --- Dict table caching ---
 
 # TTL cache for dict tables (30s)
 _dict_cache: dict = {"ts": 0}
@@ -147,15 +139,13 @@ def create_comm_method(data: CommMethodCreate, db: Session = Depends(get_db), us
 
 @router.put("/dicts/comm-methods/{item_id}")
 def update_comm_method(item_id: int, data: CommMethodUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    item = db.get(DictCommMethod, item_id)
-    if not item: raise HTTPException(404, "Not found")
+    item = get_or_404(db, DictCommMethod, item_id, "Not found")
     check_ownership(item, user)
     return {"comm_method": _dict_update(item, data.model_dump(exclude_unset=True), db)}
 
 @router.delete("/dicts/comm-methods/{item_id}")
 def delete_comm_method(item_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    item = db.get(DictCommMethod, item_id)
-    if not item: raise HTTPException(404, "Not found")
+    item = get_or_404(db, DictCommMethod, item_id, "Not found")
     check_ownership(item, user)
     db.delete(item); db.commit()
     return {"ok": True}
@@ -169,15 +159,13 @@ def create_comm_protocol(data: CommProtocolCreate, db: Session = Depends(get_db)
 
 @router.put("/dicts/comm-protocols/{item_id}")
 def update_comm_protocol(item_id: int, data: CommProtocolUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    item = db.get(DictCommProtocol, item_id)
-    if not item: raise HTTPException(404, "Not found")
+    item = get_or_404(db, DictCommProtocol, item_id, "Not found")
     check_ownership(item, user)
     return {"comm_protocol": _dict_update(item, data.model_dump(exclude_unset=True), db)}
 
 @router.delete("/dicts/comm-protocols/{item_id}")
 def delete_comm_protocol(item_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    item = db.get(DictCommProtocol, item_id)
-    if not item: raise HTTPException(404, "Not found")
+    item = get_or_404(db, DictCommProtocol, item_id, "Not found")
     check_ownership(item, user)
     db.delete(item); db.commit()
     return {"ok": True}
@@ -191,15 +179,13 @@ def create_power_supply(data: PowerSupplyCreate, db: Session = Depends(get_db), 
 
 @router.put("/dicts/power-supplies/{item_id}")
 def update_power_supply(item_id: int, data: PowerSupplyUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    item = db.get(DictPowerSupply, item_id)
-    if not item: raise HTTPException(404, "Not found")
+    item = get_or_404(db, DictPowerSupply, item_id, "Not found")
     check_ownership(item, user)
     return {"power_supply": _dict_update(item, data.model_dump(exclude_unset=True), db)}
 
 @router.delete("/dicts/power-supplies/{item_id}")
 def delete_power_supply(item_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    item = db.get(DictPowerSupply, item_id)
-    if not item: raise HTTPException(404, "Not found")
+    item = get_or_404(db, DictPowerSupply, item_id, "Not found")
     check_ownership(item, user)
     db.delete(item); db.commit()
     return {"ok": True}
@@ -213,15 +199,13 @@ def create_sensor_metric(data: SensorMetricCreate, db: Session = Depends(get_db)
 
 @router.put("/dicts/sensor-metrics/{item_id}")
 def update_sensor_metric(item_id: int, data: SensorMetricUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    item = db.get(DictSensorMetric, item_id)
-    if not item: raise HTTPException(404, "Not found")
+    item = get_or_404(db, DictSensorMetric, item_id, "Not found")
     check_ownership(item, user)
     return {"sensor_metric": _dict_update(item, data.model_dump(exclude_unset=True), db)}
 
 @router.delete("/dicts/sensor-metrics/{item_id}")
 def delete_sensor_metric(item_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    item = db.get(DictSensorMetric, item_id)
-    if not item: raise HTTPException(404, "Not found")
+    item = get_or_404(db, DictSensorMetric, item_id, "Not found")
     check_ownership(item, user)
     db.delete(item); db.commit()
     return {"ok": True}

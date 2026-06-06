@@ -33,8 +33,7 @@ def delete_file(url: str) -> bool:
     """Delete a file by its URL path."""
     if not url:
         return False
-    # Support both /api/uploads/products/xxx and /product-db/api/uploads/xxx
-    for prefix in ("/api/uploads/products/", "/product-db/api/uploads/"):
+    for prefix in ("/product-db/api/uploads/",):
         if prefix in url:
             filename = url.split(prefix)[-1]
             break

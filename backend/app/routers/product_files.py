@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.utils.helpers import get_or_404
 from app.auth import get_current_user
 from app.models.product_file import ProductFile
 from app.services.storage import save_file, delete_file, UPLOAD_DIR
@@ -49,9 +50,7 @@ async def upload_file(
 
 @router.get("/products/files/{file_id}")
 def download_file(file_id: int, inline: bool = False, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    pf = db.get(ProductFile, file_id)
-    if not pf:
-        raise HTTPException(404, "File not found")
+    pf = get_or_404(db, ProductFile, file_id, "File not found")
 
     fname = pf.file_url.split("/")[-1]
     filepath = os.path.join(UPLOAD_DIR, fname)
@@ -82,9 +81,7 @@ def download_file(file_id: int, inline: bool = False, db: Session = Depends(get_
 
 @router.delete("/products/files/{file_id}")
 def delete_product_file(file_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    pf = db.get(ProductFile, file_id)
-    if not pf:
-        raise HTTPException(404, "File not found")
+    pf = get_or_404(db, ProductFile, file_id, "File not found")
     try:
         delete_file(pf.file_url)
     except Exception:

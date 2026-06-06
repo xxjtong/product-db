@@ -1,6 +1,5 @@
 <template>
   <PageHeader :title="isEdit ? '编辑产品' : '新增产品'" :breadcrumb="[{ label: '产品列表', to: '/products' }, { label: isEdit ? '编辑产品' : '新增产品', to: '' }]">
-    <button class="btn-secondary" @click="scrollToAi">AI 智能录入</button>
     <button class="btn-secondary" @click="$router.back()">取消</button>
     <button class="btn-primary" @click="save">保存</button>
   </PageHeader>
@@ -32,10 +31,7 @@
       </div>
       <div class="form-group full">
         <label>产品URL</label>
-        <div style="display:flex;gap:8px">
-          <input v-model="form.product_url" placeholder="https://..." style="flex:1" />
-          <button v-if="isValidUrl(form.product_url)" class="btn-primary btn-sm" @click="aiFetchFromUrl" :disabled="aiFetching" style="white-space:nowrap">{{ aiFetching ? '识别中...' : 'AI 识别' }}</button>
-        </div>
+        <input v-model="form.product_url" placeholder="https://..." />
       </div>
       <div class="form-group full">
         <label>品类 *</label>
@@ -52,22 +48,24 @@
 
     <!-- Images -->
     <h3>产品图片</h3>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-      <div v-if="form.images.length" style="display:flex;gap:6px;flex-wrap:wrap">
-        <div v-for="(img, idx) in form.images" :key="idx" style="position:relative">
-          <img :src="img.url" style="width:64px;height:64px;object-fit:cover;border-radius:4px;border:1px solid var(--color-border)" />
-          <button class="btn-icon btn-sm" style="position:absolute;top:1px;right:1px;background:var(--color-surface);padding:2px" @click="form.images.splice(idx, 1)"><XIcon style="width:10px;height:10px" /></button>
-        </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+      <div v-for="(img, idx) in form.images" :key="idx" style="position:relative">
+        <img :src="img.url" style="width:64px;height:64px;object-fit:cover;border-radius:4px;border:1px solid var(--color-border)" />
+        <button class="btn-icon btn-sm" style="position:absolute;top:1px;right:1px;background:var(--color-surface);padding:2px" @click="form.images.splice(idx, 1)"><XIcon style="width:10px;height:10px" /></button>
       </div>
-      <div v-else-if="form.image_url" style="display:flex;gap:6px">
-        <img :src="form.image_url" style="width:64px;height:64px;object-fit:cover;border-radius:4px;border:1px solid var(--color-border)" />
+      <!-- Live preview of typed URL -->
+      <div v-if="imagePreviewUrl && !form.images.some((i: any) => i.url === imagePreviewUrl)" style="position:relative;opacity:0.6">
+        <img :src="imagePreviewUrl" style="width:64px;height:64px;object-fit:cover;border-radius:4px;border:1px dashed var(--color-accent)" />
       </div>
-      <label class="btn-secondary btn-sm" style="cursor:pointer">
+    </div>
+    <div class="form-row-sm" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <label class="btn-secondary btn-sm btn-label" style="gap:4px">
         <UploadIcon style="width:14px;height:14px" />上传
         <input type="file" accept="image/*" style="display:none" @change="onFileSelect" />
       </label>
-      <input v-model="imageUrlInput" style="flex:1;min-width:180px;height:32px;font-size:13px" placeholder="粘贴URL或图片" @keyup.enter="onDownloadImage" @paste="onPasteImage" />
-      <button class="btn-secondary btn-sm" @click="onDownloadImage" :disabled="imageDownloading">{{ imageDownloading ? '下载中' : '下载' }}</button>
+      <input v-model="imageUrlInput" style="flex:1;min-width:180px;font-size:13px" placeholder="粘贴图片URL" @keyup.enter="onAddImageUrl" @paste="onPasteImage" />
+      <button class="btn-secondary btn-sm" @click="onAddImageUrl" :disabled="!isValidUrl(imageUrlInput)">添加URL</button>
+      <button class="btn-secondary btn-sm" @click="onDownloadImage" :disabled="imageDownloading || !isValidUrl(imageUrlInput)">下载到本地</button>
     </div>
 
     <hr style="margin:12px 0;border:none;border-top:1px solid var(--color-border)" />
@@ -217,44 +215,7 @@
   </div>
   <ProductFiles v-if="route.params.id" :productId="Number(route.params.id)" class="mt-16" />
 
-  <!-- AI 智能录入卡片 -->
-  <div v-if="loaded" ref="aiCard" class="card mt-16">
-    <h3 style="margin:0 0 8px">AI 智能录入</h3>
-    <p style="margin:0 0 12px;font-size:13px;color:var(--color-text-secondary)">粘贴产品URL或规格文本，AI自动提取产品信息填入表单</p>
-    <div style="display:flex;gap:8px;align-items:flex-start">
-      <textarea v-model="aiTextInput" rows="2" placeholder="粘贴产品URL或规格文本…" style="flex:1;box-sizing:border-box;font-size:13px" @keyup.ctrl.enter="onAiFetch" />
-      <button class="btn-primary btn-sm" @click="onAiFetch" :disabled="aiFetching || !aiTextInput.trim()" style="white-space:nowrap">
-        <span v-if="aiFetching">提取中...</span>
-        <span v-else>AI 识别</span>
-      </button>
-    </div>
-    <div
-      class="ai-drop"
-      :class="{ 'ai-drop-active': aiDragOver }"
-      @dragover.prevent="aiDragOver = true"
-      @dragleave="aiDragOver = false"
-      @drop.prevent="onAiDrop"
-    >拖拽规格书文件到此处</div>
-    <div v-if="aiPreview" style="margin-top:12px;padding:12px;background:white;border-radius:4px">
-      <div class="section-header"><strong style="margin:0">提取结果预览（可编辑）</strong></div>
-      <table class="data-table" style="margin-top:8px">
-        <thead><tr><th>字段</th><th>提取值</th></tr></thead>
-        <tbody>
-          <tr v-for="key in aiDisplayFields" :key="key">
-            <td style="font-weight:500;white-space:nowrap;vertical-align:top" class="text-sm">{{ fieldLabels[key] || key.replace(/_/g,' ') }}</td>
-            <td>
-              <textarea v-if="isSimpleList(aiEditFields[key]) || (key === 'specs' && isComplexVal(aiEditFields[key]))" :value="isSimpleList(aiEditFields[key]) ? fmtAiListDetail(aiEditFields[key]) : fmtAiSpecs(aiEditFields[key])" @change="aiEditFields[key] = parseAiVal(($event.target as HTMLTextAreaElement).value)" :rows="Math.min(12, Math.max(3, (isSimpleList(aiEditFields[key]) ? fmtAiListDetail(aiEditFields[key]) : fmtAiSpecs(aiEditFields[key])).split('\n').length))" style="width:100%;font-size:11px;font-family:monospace;box-sizing:border-box" :placeholder="'未提取'" />
-              <input v-else v-model="aiEditFields[key]" style="width:100%;font-size:12px" :placeholder="'未提取'" />
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div class="flex gap-8" style="margin-top:8px">
-        <button class="btn-primary btn-sm" @click="onAiFill">填入表单</button>
-        <button class="btn-secondary btn-sm" @click="aiPreview = null">清除</button>
-      </div>
-    </div>
-  </div>
+  <AiExtractCard v-if="loaded" @fill="onAiFill" />
   <div v-else style="text-align:center;padding:48px;color:var(--color-text-secondary)">加载中...</div>
 
 
@@ -264,6 +225,7 @@
 import { ref, computed, onMounted, inject, watch, nextTick } from 'vue'
 import ProductFiles from '../components/ProductFiles.vue'
 import DependencyEditor from '../components/DependencyEditor.vue'
+import AiExtractCard from '../components/AiExtractCard.vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { UploadIcon, DownloadIcon, XIcon, Trash2Icon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
@@ -322,142 +284,13 @@ function deleteSpecKey(key: string) { delete form.value.specs[key] }
 
 const imageUrlInput = ref('')
 const imageDownloading = ref(false)
-
-// AI fetch
-const aiCard = ref<HTMLElement | null>(null)
-const aiTextInput = ref('')
-const aiFetching = ref(false)
-function isComplexVal(v: any) { return v !== null && typeof v === 'object' }
-function isSimpleList(v: any) { return Array.isArray(v) && v.length > 0 && typeof v[0] === 'object' }
-function fmtAiSpecs(v: any) { if (!v || typeof v !== 'object') return String(v); return Object.entries(v).map(([k,val]) => k + ': ' + (val ?? '')).join('\n') }
-const aiCategoryIds = computed(() => {
-  const v = aiEditFields.value.category_slug
-  if (!v) return new Set<number>()
-  const ids = Array.isArray(v) ? v : String(v).split(',').map(Number).filter(n => n > 0)
-  return new Set(ids)
-})
-function toggleAiCat(id: number) {
-  const cur = new Set(aiCategoryIds.value)
-  if (cur.has(id)) cur.delete(id)
-  else cur.add(id)
-  aiEditFields.value.category_slug = [...cur].join(',')
-}
-function fmtAiListDetail(v: any): string {
-  if (!Array.isArray(v)) return String(v)
-  return v.map((x: any) => {
-    const name = x.name || x.metric_name || x.interface_name || ''
-    const parts = [name]
-    if (x.details) parts.push(x.details)
-    if (x.voltage_range) parts.push(x.voltage_range)
-    if (x.measure_range) parts.push(x.measure_range)
-    if (x.accuracy) parts.push(x.accuracy)
-    if (x.direction) parts.push(x.direction)
-    if (x.quantity) parts.push('×'+x.quantity)
-    if (x.description) parts.push(x.description)
-    return parts.join(' | ')
-  }).join('\n')
-}
-function parseAiVal(s: string) { try { return JSON.parse(s) } catch { return s } }
-
-function isValidUrl(s: string) { return /^https?:\/\/.+/.test(s.trim()) }
-function scrollToAi() {
-  aiCard.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
-async function aiFetchFromUrl() {
-  const url = form.value.product_url?.trim()
-  if (!url) return
-  aiTextInput.value = url
-  scrollToAi()
-  await onAiFetch()
-}
-const aiDragOver = ref(false)
-const aiPreview = ref<any>(null)
-const aiEditFields = ref<Record<string, any>>({})
-
-// Fields always shown in preview (even if AI didn't extract them)
-const aiDefaultFields: string[] = []
-const aiDisplayFields = computed(() => {
-  const keys = new Set([...aiDefaultFields, ...Object.keys(aiEditFields.value)])
-  return [...keys]
+const imagePreviewUrl = computed(() => {
+  const u = imageUrlInput.value.trim()
+  return /^https?:\/\/.+\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(u) ? u : ''
 })
 
-const fieldLabels: Record<string, string> = {
-  name: '产品名', model: '型号', category_slug: '品类', manufacturer_name: '厂商',
-  base_price: '价格', cost_price: '成本', description: '功能描述', product_url: '产品URL',
-  comm_methods: '通讯方式', comm_protocols: '协议', power_supplies: '供电',
-  sensor_capabilities: '传感能力', specs: '规格参数', sku: 'SKU',
-  dimensions: '尺寸', weight: '重量', ip_rating: '防护等级',
-  operating_temp: '工作温度', operating_temperature: '工作温度', installation: '安装方式', battery_life: '电池续航',
-  power: '供电方式', color: '颜色', material: '材质',
-  filename: '文件名', hardware_interfaces: '硬件接口',
-  category_name: '品类名', unit: '单位', status: '状态',
-  supply_category: '供电类别', method_type: '通讯类型',
-}
-
-const pendingAiFile = ref<File | null>(null)
-
-async function onAiDrop(e: DragEvent) {
-  aiDragOver.value = false
-  const file = e.dataTransfer?.files?.[0]
-  if (!file) return
-  pendingAiFile.value = file  // store for later upload
-  aiFetching.value = true
+function onAiFill(p: Record<string, any>) {
   try {
-    const fd = new FormData()
-    fd.append('file', file)
-    const token = localStorage.getItem('token')
-    const res = await fetch('/product-db/api/products/ai-fetch-file', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}` },
-      body: fd,
-    })
-    if (!res.ok) throw new Error((await res.json()).detail || 'Extraction failed')
-    const data = await res.json()
-    aiPreview.value = data.fetched
-    let raw = JSON.parse(JSON.stringify(data.fetched))
-    // Translate spec keys to Chinese
-    if (raw.specs && typeof raw.specs === 'object') {
-      const keyMap: Record<string,string> = { ip_rating: '防护等级', dimensions_mm: '尺寸', dimensions: '尺寸', weight_g: '重量', weight: '重量', operating_temp: '工作温度', operating_temperature: '工作温度', working_temperature: '工作温度', installation: '安装方式', color: '颜色', material: '材质', battery_life: '电池续航', power_supply: '供电方式', protocol: '通讯协议', communication: '通讯方式' }
-      const translated: Record<string,any> = {}
-      for (const [k, v] of Object.entries(raw.specs)) { translated[keyMap[k] || k] = v }
-      raw.specs = translated
-    }
-    for (const k of aiDefaultFields) { if (!(k in raw)) raw[k] = '' }
-    aiEditFields.value = raw
-    showToast('文件识别完成', 'success')
-  } catch (e: any) { showToast(e.message || '识别失败', 'error') }
-  aiFetching.value = false
-}
-
-async function onAiFetch() {
-  const input = aiTextInput.value.trim()
-  if (!input) { showToast('请输入URL或文本', 'error'); return }
-  const isUrl = /^https?:\/\//.test(input)
-  aiFetching.value = true
-  try {
-    const token = localStorage.getItem('token')
-    const resp = await fetch('/product-db/api/products/ai-fetch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify(isUrl ? { url: input } : { text: input }),
-    })
-    const data = await resp.json()
-    if (!resp.ok) throw new Error(data.detail || 'AI提取失败')
-    if (!data.fetched || typeof data.fetched !== 'object') throw new Error('提取结果为空')
-    aiPreview.value = data.fetched
-    aiEditFields.value = JSON.parse(JSON.stringify(data.fetched))
-    showToast('AI提取完成，请检查并填入表单', 'success')
-    nextTick(() => scrollToAi())
-  } catch (err: any) {
-    showToast(err.message || 'AI提取失败', 'error')
-  } finally {
-    aiFetching.value = false
-  }
-}
-
-function onAiFill() {
-  try {
-  const p = aiEditFields.value
   if (!p || !Object.keys(p).length) return
 
   // Basic fields
@@ -487,9 +320,7 @@ function onAiFill() {
   // Comm methods lookup by name
   if (p.comm_methods?.length) {
     form.value.comm_methods = p.comm_methods.map((cm: any) => {
-      const found = commMethods.value.find((m: any) =>
-        m.name.toLowerCase() === (cm.name || '').toLowerCase()
-      )
+      const found = commMethods.value.find((m: any) => m.name.toLowerCase() === (cm.name || '').toLowerCase())
       return { method_id: found?.id || null, details: cm.details || '' }
     })
   }
@@ -497,9 +328,7 @@ function onAiFill() {
   // Comm protocols lookup by name
   if (p.comm_protocols?.length) {
     form.value.comm_protocols = p.comm_protocols.map((cp: any) => {
-      const found = commProtocols.value.find((pr: any) =>
-        pr.name.toLowerCase() === (cp.name || '').toLowerCase()
-      )
+      const found = commProtocols.value.find((pr: any) => pr.name.toLowerCase() === (cp.name || '').toLowerCase())
       return { protocol_id: found?.id || null, direction: cp.direction || 'both' }
     })
   }
@@ -507,9 +336,7 @@ function onAiFill() {
   // Power supplies lookup by name
   if (p.power_supplies?.length) {
     form.value.power_supplies = p.power_supplies.map((ps: any) => {
-      const found = powerSupplies.value.find((pw: any) =>
-        pw.name.toLowerCase() === (ps.name || '').toLowerCase()
-      )
+      const found = powerSupplies.value.find((pw: any) => pw.name.toLowerCase() === (ps.name || '').toLowerCase())
       return { power_id: found?.id || null, voltage_range: ps.voltage_range || '', battery_life: ps.battery_life || '' }
     })
   }
@@ -524,9 +351,7 @@ function onAiFill() {
   // Sensor capabilities lookup by metric name
   if (p.sensor_capabilities?.length) {
     form.value.sensor_capabilities = p.sensor_capabilities.map((sc: any) => {
-      const found = sensorMetrics.value.find((sm: any) =>
-        sm.name.toLowerCase() === (sc.metric_name || '').toLowerCase()
-      )
+      const found = sensorMetrics.value.find((sm: any) => sm.name.toLowerCase() === (sc.metric_name || '').toLowerCase())
       return { metric_id: found?.id || null, measure_range: sc.measure_range || '', accuracy: sc.accuracy || '', resolution: sc.resolution || '' }
     })
   }
@@ -546,10 +371,7 @@ function onAiFill() {
   }
 
   document.querySelector('.page-header')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  nextTick(() => {
-    aiPreview.value = null
-    showToast('已填入表单，请检查修改后保存', 'success')
-  })
+  showToast('已填入表单，请检查修改后保存', 'success')
   } catch (err: any) {
     showToast(err.message || '填入表单失败', 'error')
   }
@@ -589,6 +411,17 @@ async function onFileSelect(e: Event) {
   ;(e.target as HTMLInputElement).value = ''
 }
 
+function isValidUrl(s: string) { return /^https?:\/\/.+/.test(s.trim()) }
+
+function onAddImageUrl() {
+  const url = imageUrlInput.value.trim()
+  if (!url || !isValidUrl(url)) return
+  // Don't add duplicate
+  if (form.value.images.some((i: any) => i.url === url)) { showToast('URL已存在', 'error'); return }
+  form.value.images.push({ url, is_primary: form.value.images.length === 0, sort_order: form.value.images.length })
+  imageUrlInput.value = ''
+}
+
 async function onDownloadImage() {
   const url = imageUrlInput.value.trim()
   if (!url) return
@@ -624,7 +457,6 @@ async function onPasteImage(e: ClipboardEvent) {
     }
   }
 }
-
 let _catChangeSeq = 0
 
 function selectCategory(id: number) {
@@ -673,17 +505,9 @@ async function save() {
   }
   try {
     const payload = cleaned
-    // Set image_url: explicit URL input → auto-download; else primary uploaded image
-    const urlInput = imageUrlInput.value.trim()
-    if (urlInput && /^https?:\/\//.test(urlInput)) {
-      // Auto-download remote URL to local storage
-      try { const dl = await downloadProductImage(urlInput); if (dl.url) payload.image_url = dl.url } catch { /* keep existing */ }
-      imageUrlInput.value = ''
-    }
-    if (!payload.image_url) {
-      const primaryImg = payload.images?.find((i: any) => i.is_primary)
-      if (primaryImg?.url) payload.image_url = primaryImg.url
-    }
+    // Set image_url from primary image in images array
+    const primaryImg = payload.images?.find((i: any) => i.is_primary)
+    if (primaryImg?.url) payload.image_url = primaryImg.url
     // Store remark in custom_fields
     if (payload.remark) {
       payload.custom_fields = { ...(payload.custom_fields || {}), remark: payload.remark }
@@ -696,17 +520,6 @@ async function save() {
     } else {
       const res = await createProduct(payload) as any
       const newId = res?.product?.id
-      if (newId && pendingAiFile.value) {
-        const fd = new FormData()
-        fd.append('file', pendingAiFile.value)
-        fd.append('label', pendingAiFile.value.name)
-        await fetch(`/product-db/api/products/${newId}/files`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-          body: fd,
-        })
-        pendingAiFile.value = null
-      }
       dirty.value = false
       showToast('产品已创建', 'success')
       router.push('/products')
@@ -743,8 +556,8 @@ onMounted(async () => {
       power_supplies: p.power_supplies || [],
       hardware_interfaces: p.hardware_interfaces || [],
       sensor_capabilities: p.sensor_capabilities || [],
-      images: p.images || [],
-      image_url: p.image_url || '',
+      images: p.images?.length ? p.images : (p.image_url ? [{url: p.image_url, is_primary: true, sort_order: 0}] : []),
+      image_url: '',
       product_url: p.product_url || '',
       remark: (p.custom_fields && p.custom_fields.remark) || '',
       specs: { ...(p.specs || {}) },
@@ -765,11 +578,4 @@ onMounted(async () => {
 .category-tags .filter-tag {
   margin: 0;
 }
-.ai-drop {
-  border: 2px dashed var(--color-border); border-radius: 6px;
-  padding: 12px; text-align: center; color: var(--color-text-secondary);
-  font-size: 13px; margin-bottom: 8px; transition: all .2s;
-}
-.ai-drop-active { border-color: var(--color-accent); background: #eff6ff; color: var(--color-accent); }
-
 </style>

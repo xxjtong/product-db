@@ -80,13 +80,28 @@ def get_current_user(
     return user
 
 
+_admin_ids_cache: tuple = ()
+
+def _get_admin_ids(session) -> list:
+    """Get admin user IDs with 30s TTL cache."""
+    global _admin_ids_cache
+    import time as _time
+    ts, ids = _admin_ids_cache or (0, [])
+    now = _time.time()
+    if now - ts > 30:
+        from app.models.user import User as _AuthUser
+        ids = [u.id for u in session.query(_AuthUser.id).filter(_AuthUser.role == "admin").all()]
+        _admin_ids_cache = (now, ids)
+    return ids or [1]
+
+
 def filter_by_ownership(query, model, user):
     """Filter query by ownership: admin sees all, others see own + admin + legacy (NULL)."""
     if user.role == "admin":
         return query
     from sqlalchemy import or_
-    admin_id = 1
-    return query.filter(or_(model.created_by == None, model.created_by == user.id, model.created_by == admin_id))
+    admin_ids = _get_admin_ids(query.session)
+    return query.filter(or_(model.created_by == None, model.created_by == user.id, model.created_by.in_(admin_ids)))
 
 
 def check_ownership(resource, user):

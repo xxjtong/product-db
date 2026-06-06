@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.utils.helpers import get_or_404
 from app.models.supplier import Supplier
 from app.auth import get_current_user, filter_by_ownership, check_ownership
 from app.utils.escape import escape_like
@@ -33,9 +34,7 @@ def list_suppliers(
 
 @router.get("/suppliers/{supplier_id}")
 def get_supplier(supplier_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    s = db.get(Supplier, supplier_id)
-    if not s:
-        raise HTTPException(404, "Supplier not found")
+    s = get_or_404(db, Supplier, supplier_id, "Supplier not found")
     return {"supplier": s.to_dict()}
 
 
@@ -58,9 +57,7 @@ def create_supplier(data: SupplierCreate, db: Session = Depends(get_db), user=De
 
 @router.put("/suppliers/{supplier_id}")
 def update_supplier(supplier_id: int, data: SupplierUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    s = db.get(Supplier, supplier_id)
-    if not s:
-        raise HTTPException(404, "Supplier not found")
+    s = get_or_404(db, Supplier, supplier_id, "Supplier not found")
     check_ownership(s, user)
     apply_partial_update(s, data, ["name", "contact_person", "phone", "email", "website", "notes"])
     db.commit()
@@ -69,9 +66,7 @@ def update_supplier(supplier_id: int, data: SupplierUpdate, db: Session = Depend
 
 @router.delete("/suppliers/{supplier_id}")
 def delete_supplier(supplier_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    s = db.get(Supplier, supplier_id)
-    if not s:
-        raise HTTPException(404, "Supplier not found")
+    s = get_or_404(db, Supplier, supplier_id, "Supplier not found")
     check_ownership(s, user)
     db.delete(s)
     db.commit()

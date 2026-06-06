@@ -5,8 +5,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
-from sqlalchemy import func
 from app.database import get_db
+from app.utils.helpers import get_or_404, apply_partial_update
 from app.models.solution import Solution, SolutionItem
 from app.models.product import Product
 from app.models.category import Category
@@ -58,8 +58,8 @@ def list_solutions(
             | Solution.client_name.ilike(f"%{escape_like(search)}%")
             | Solution.project_name.ilike(f"%{escape_like(search)}%")
         )
-    total = q.count()
-    solutions = q.order_by(Solution.updated_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
+    from app.utils.helpers import paginate
+    solutions, total = paginate(q.order_by(Solution.updated_at.desc()), page, per_page)
     return {
         "solutions": [s.to_dict() for s in solutions],
         "total": total,
@@ -106,14 +106,9 @@ def get_solution(solution_id: int, db: Session = Depends(get_db), user=Depends(g
 
 @router.put("/solutions/{solution_id}")
 def update_solution(solution_id: int, data: SolutionUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    sol = db.get(Solution, solution_id)
-    if not sol:
-        raise HTTPException(404, "Solution not found")
+    sol = get_or_404(db, Solution, solution_id, "Solution not found")
     check_ownership(sol, user)
-    for f in ["name", "description", "client_name", "project_name", "status", "notes"]:
-        val = getattr(data, f, None)
-        if val is not None:
-            setattr(sol, f, val)
+    apply_partial_update(sol, data, ["name", "description", "client_name", "project_name", "status", "notes"])
     sol.updated_at = datetime.now()
     db.commit()
     sol = db.scalar(select(Solution).options(
@@ -124,9 +119,7 @@ def update_solution(solution_id: int, data: SolutionUpdate, db: Session = Depend
 
 @router.delete("/solutions/{solution_id}")
 def delete_solution(solution_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    sol = db.get(Solution, solution_id)
-    if not sol:
-        raise HTTPException(404, "Solution not found")
+    sol = get_or_404(db, Solution, solution_id, "Solution not found")
     check_ownership(sol, user)
     db.delete(sol)
     db.commit()
@@ -137,9 +130,7 @@ def delete_solution(solution_id: int, db: Session = Depends(get_db), user=Depend
 
 @router.get("/solutions/{solution_id}/items")
 def list_items(solution_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    sol = db.get(Solution, solution_id)
-    if not sol:
-        raise HTTPException(404, "Solution not found")
+    sol = get_or_404(db, Solution, solution_id, "Solution not found")
     items = db.query(SolutionItem).options(
         selectinload(SolutionItem.product),
     ).filter_by(solution_id=solution_id)\
@@ -149,9 +140,7 @@ def list_items(solution_id: int, db: Session = Depends(get_db), user=Depends(get
 
 @router.post("/solutions/{solution_id}/items")
 def add_item(solution_id: int, data: SolutionItemCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    sol = db.get(Solution, solution_id)
-    if not sol:
-        raise HTTPException(404, "Solution not found")
+    sol = get_or_404(db, Solution, solution_id, "Solution not found")
     product = db.get(Product, data.product_id)
     if not product:
         raise HTTPException(400, "Product not found")
@@ -178,10 +167,7 @@ def update_item(solution_id: int, item_id: int, data: SolutionItemUpdate, db: Se
     item = db.get(SolutionItem, item_id)
     if not item or item.solution_id != solution_id:
         raise HTTPException(404, "Item not found")
-    for f in ["product_id", "quantity", "unit_price", "discount_rate", "remark", "sort_order"]:
-        val = getattr(data, f, None)
-        if val is not None:
-            setattr(item, f, val)
+    apply_partial_update(item, data, ["product_id", "quantity", "unit_price", "discount_rate", "remark", "sort_order"])
     db.commit()
     sol = db.get(Solution, solution_id)
     _recalc_totals(sol, db)
@@ -208,9 +194,7 @@ def delete_item(solution_id: int, item_id: int, db: Session = Depends(get_db), u
 @router.get("/solutions/{solution_id}/check")
 def check_solution(solution_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """Check solution completeness: find unmet required dependencies."""
-    sol = db.get(Solution, solution_id)
-    if not sol:
-        raise HTTPException(404, "Solution not found")
+    sol = get_or_404(db, Solution, solution_id, "Solution not found")
 
     items = db.query(SolutionItem).filter_by(solution_id=solution_id).all()
     solution_product_ids = {i.product_id for i in items}
@@ -261,9 +245,7 @@ def check_solution(solution_id: int, db: Session = Depends(get_db), user=Depends
 @router.get("/solutions/{solution_id}/suggest")
 def suggest_solution(solution_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """Suggest products to fulfill unmet dependencies."""
-    sol = db.get(Solution, solution_id)
-    if not sol:
-        raise HTTPException(404, "Solution not found")
+    sol = get_or_404(db, Solution, solution_id, "Solution not found")
 
     items = db.query(SolutionItem).filter_by(solution_id=solution_id).all()
     solution_product_ids = {i.product_id for i in items}

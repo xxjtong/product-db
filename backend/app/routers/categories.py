@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.utils.helpers import get_or_404
 from app.models.category import Category, CategorySpecDefinition
 from app.auth import get_current_user, filter_by_ownership, check_ownership
 from app.services.product_category_helper import delete_category_cascade
@@ -81,9 +82,7 @@ def create_category(data: CategoryCreate, db: Session = Depends(get_db), user=De
 
 @router.put("/categories/{cat_id}")
 def update_category(cat_id: int, data: CategoryUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    cat = db.get(Category, cat_id)
-    if not cat:
-        raise HTTPException(404, "Category not found")
+    cat = get_or_404(db, Category, cat_id, "Category not found")
     check_ownership(cat, user)
     # Convert empty slug to None to avoid UNIQUE constraint violations
     if data.slug is not None and data.slug.strip() == '':
@@ -98,9 +97,7 @@ def update_category(cat_id: int, data: CategoryUpdate, db: Session = Depends(get
 
 @router.delete("/categories/{cat_id}")
 def delete_category(cat_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    cat = db.get(Category, cat_id)
-    if not cat:
-        raise HTTPException(404, "Category not found")
+    cat = get_or_404(db, Category, cat_id, "Category not found")
     check_ownership(cat, user)
 
     # Cascade-delete child records to avoid FK violations
@@ -136,9 +133,7 @@ def list_spec_defs(cat_id: int, db: Session = Depends(get_db), user=Depends(get_
 
 @router.post("/categories/{cat_id}/spec-definitions")
 def create_spec_def(cat_id: int, data: SpecDefinitionCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    cat = db.get(Category, cat_id)
-    if not cat:
-        raise HTTPException(404, "Category not found")
+    cat = get_or_404(db, Category, cat_id, "Category not found")
     sd = CategorySpecDefinition(
         category_id=cat_id,
         spec_key=data.spec_key,

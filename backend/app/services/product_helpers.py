@@ -149,5 +149,24 @@ def rewrite_mappings(product_id: int, data: dict, db: Session):
     if "sensor_capabilities" in data:
         db.query(ProductSensorCapability).filter_by(product_id=product_id).delete()
     if "images" in data:
+        _cleanup_image_files(product_id, db)
         db.query(ProductImage).filter_by(product_id=product_id).delete()
     write_mappings(product_id, data, db)
+
+
+def _cleanup_image_files(product_id: int, db: Session):
+    """Delete local image files for a product before removing DB rows."""
+    import os
+    old_images = db.query(ProductImage).filter_by(product_id=product_id).all()
+    upload_root = os.path.join(os.path.dirname(__file__), "..", "uploads")
+    for img in old_images:
+        url = (img.url or "")
+        if url.startswith("/product-db/api/uploads/"):
+            rel = url[len("/product-db/api/uploads/"):]
+            filepath = os.path.normpath(os.path.join(upload_root, rel))
+            # Safety: only delete within uploads directory
+            if filepath.startswith(upload_root) and os.path.isfile(filepath):
+                try:
+                    os.remove(filepath)
+                except OSError:
+                    pass

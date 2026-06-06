@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     LOGIN_RATE_LIMIT: int = 10  # max failed attempts per window
     LOGIN_RATE_WINDOW: int = 300  # window in seconds
     WEASYPRINT_PATH: str = ""  # custom weasyprint binary path, blank = auto-detect
+    FRONTEND_DIST: str = "frontend/dist"  # relative to backend dir
+    IMAGE_MAX_SIZE: int = 5 * 1024 * 1024  # 5MB
+    FILE_MAX_SIZE: int = 20 * 1024 * 1024  # 20MB
+    AI_MAX_REDIRECTS: int = 3
+    AI_CONTEXT_CACHE_TTL: int = 300  # seconds
+    AI_EXTRACT_MAX_CHARS: int = 12000
 
     class Config:
         env_file = ".env"

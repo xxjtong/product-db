@@ -21,9 +21,8 @@
   </div>
 
   <div class="card">
-    <div v-if="loading" class="empty-state"><p>加载中...</p></div>
-    <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="load">重试</button></div>
-    <table v-else-if="solutions.length" class="data-table">
+    <AsyncContainer :loading="loading" :error="loadError" retry @retry="load" />
+    <table v-if="!loading && !loadError && solutions.length" class="data-table">
       <thead><tr>
         <th style="width:32px"><input type="checkbox" :checked="allSelected" @change="toggleAll" /></th>
         <th>名称</th><th>客户</th><th>项目</th><th>状态</th><th>总价</th><th>更新时间</th><th>操作</th>
@@ -51,7 +50,7 @@
         </tr>
       </tbody>
     </table>
-    <div v-else-if="!loading" class="empty-state"><InboxIcon /><p>暂无方案</p></div>
+    <div v-if="!loading && !loadError && !solutions.length" class="empty-state"><InboxIcon /><p>暂无方案</p></div>
     <Pagination :total="total" :page="page" :per-page="perPage" @change="p => { page = p; load() }" @update:per-page="s => { perPage = s; page = 1; load() }" />
   </div>
 
@@ -79,6 +78,7 @@ import { PlusIcon, PencilIcon, Trash2Icon, InboxIcon, EyeIcon } from 'lucide-vue
 import PageHeader from '../components/PageHeader.vue'
 import Modal from '../components/Modal.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import AsyncContainer from '../components/AsyncContainer.vue'
 import Pagination from '../components/Pagination.vue'
 import { fetchSolutions, createSolution, updateSolution, deleteSolution, batchDeleteSolutions } from '../api'
 import type { Solution } from '../types'

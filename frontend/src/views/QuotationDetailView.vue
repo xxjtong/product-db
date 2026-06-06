@@ -6,14 +6,14 @@
     <button class="btn-secondary" @click="$router.back()">返回</button>
   </PageHeader>
 
-  <div v-if="loading" class="empty-state"><p>加载中...</p></div>
-  <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="load">重试</button></div>
-  <div v-else-if="quotation" class="card mb-16">
+  <AsyncContainer :loading="loading" :error="loadError" retry @retry="load" />
+  <template v-if="!loading && !loadError && quotation">
+  <div class="card mb-16">
     <div class="form-grid" style="margin-bottom:16px">
-      <div><span class="text-muted text-sm">编号</span><br class="font-mono">{{ quotation.quote_number }}</div>
-      <div><span class="text-muted text-sm">客户</span><br>{{ quotation.client_name || '—' }}</div>
-      <div><span class="text-muted text-sm">有效期</span><br>{{ quotation.valid_days }}天</div>
-      <div><span class="text-muted text-sm">状态</span><br>{{ quotation.status }}</div>
+      <div><span class="text-muted text-sm">编号</span><br class="font-mono">{{ quotation!.quote_number }}</div>
+      <div><span class="text-muted text-sm">客户</span><br>{{ quotation!.client_name || '—' }}</div>
+      <div><span class="text-muted text-sm">有效期</span><br>{{ quotation!.valid_days }}天</div>
+      <div><span class="text-muted text-sm">状态</span><br>{{ quotation!.status }}</div>
     </div>
 
     <table class="data-table" v-if="quotation.items.length">
@@ -42,6 +42,8 @@
     <div v-else class="empty-state" style="padding:24px"><p>暂无项目</p></div>
   </div>
 
+  </template>
+
   <div v-if="showBom" class="card mb-16">
     <BOMSpreadsheet :quotationId="Number(route.params.id)" />
   </div>
@@ -50,6 +52,7 @@
 <script setup lang="ts">
 import { ref, onMounted, inject } from 'vue'
 import { useRoute } from 'vue-router'
+import AsyncContainer from '../components/AsyncContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import BOMSpreadsheet from '../components/BOMSpreadsheet.vue'
 import { fetchQuotation, quotationExportUrl } from '../api'

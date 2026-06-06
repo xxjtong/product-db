@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.utils.helpers import get_or_404, apply_partial_update
 from app.models.bom_template import BOMTemplate, SolutionBOMSnapshot
 from app.models.solution import Solution, SolutionItem
 from app.models.product import Product
@@ -46,22 +47,15 @@ def create_template(data: BOMTemplateCreate, db: Session = Depends(get_db), user
 
 @router.get("/bom-templates/{template_id}")
 def get_template(template_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    t = db.get(BOMTemplate, template_id)
-    if not t:
-        raise HTTPException(404, "Template not found")
+    t = get_or_404(db, BOMTemplate, template_id, "Template not found")
     return {"template": t.to_dict()}
 
 
 @router.put("/bom-templates/{template_id}")
 def update_template(template_id: int, data: BOMTemplateUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    t = db.get(BOMTemplate, template_id)
-    if not t:
-        raise HTTPException(404, "Template not found")
+    t = get_or_404(db, BOMTemplate, template_id, "Template not found")
     check_ownership(t, user)
-    for f in ["name", "description", "sheet_name", "snapshot", "is_default"]:
-        val = getattr(data, f, None)
-        if val is not None:
-            setattr(t, f, val)
+    apply_partial_update(t, data, ["name", "description", "sheet_name", "snapshot", "is_default"])
     t.updated_at = datetime.now()
     db.commit()
     return {"template": t.to_dict()}
@@ -69,9 +63,7 @@ def update_template(template_id: int, data: BOMTemplateUpdate, db: Session = Dep
 
 @router.delete("/bom-templates/{template_id}")
 def delete_template(template_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    t = db.get(BOMTemplate, template_id)
-    if not t:
-        raise HTTPException(404, "Template not found")
+    t = get_or_404(db, BOMTemplate, template_id, "Template not found")
     db.delete(t)
     db.commit()
     return {"ok": True}
@@ -79,9 +71,7 @@ def delete_template(template_id: int, db: Session = Depends(get_db), user=Depend
 
 @router.post("/bom-templates/{template_id}/duplicate")
 def duplicate_template(template_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    t = db.get(BOMTemplate, template_id)
-    if not t:
-        raise HTTPException(404, "Template not found")
+    t = get_or_404(db, BOMTemplate, template_id, "Template not found")
     new_t = BOMTemplate(
         name=f"{t.name} (副本)",
         description=t.description,
@@ -100,9 +90,7 @@ def duplicate_template(template_id: int, db: Session = Depends(get_db), user=Dep
 
 @router.get("/solutions/{solution_id}/bom-snapshot")
 def get_bom_snapshot(solution_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    sol = db.get(Solution, solution_id)
-    if not sol:
-        raise HTTPException(404, "Solution not found")
+    sol = get_or_404(db, Solution, solution_id, "Solution not found")
 
     existing = db.query(SolutionBOMSnapshot).filter_by(solution_id=solution_id).first()
     if existing:
@@ -129,9 +117,7 @@ def get_bom_snapshot(solution_id: int, db: Session = Depends(get_db), user=Depen
 
 @router.put("/solutions/{solution_id}/bom-snapshot")
 def save_bom_snapshot(solution_id: int, data: BOMSnapshotSave, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    sol = db.get(Solution, solution_id)
-    if not sol:
-        raise HTTPException(404, "Solution not found")
+    sol = get_or_404(db, Solution, solution_id, "Solution not found")
 
     existing = db.query(SolutionBOMSnapshot).filter_by(solution_id=solution_id).first()
     if existing:
@@ -195,8 +181,11 @@ def _sync_snapshot_to_items(solution_id: int, snapshot: dict, db: Session):
     if not sku_updates:
         return
 
-    # Match by SKU via Product → SolutionItem
-    products = {p.sku: p.id for p in db.query(Product).all() if p.sku}
+    # Match by SKU via Product → SolutionItem (filtered, not full table scan)
+    skus_in_use = {r.get("sku") for r in snapshot_rows if r.get("sku")}
+    products = {}
+    if skus_in_use:
+        products = {p.sku: p.id for p in db.query(Product).filter(Product.sku.in_(skus_in_use)).all() if p.sku}
     items = db.query(SolutionItem).filter_by(solution_id=solution_id).all()
 
     updated = 0
@@ -249,9 +238,7 @@ def export_bom_xlsx(solution_id: int, db: Session = Depends(get_db), user=Depend
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
 
-    sol = db.get(Solution, solution_id)
-    if not sol:
-        raise HTTPException(404, "Solution not found")
+    sol = get_or_404(db, Solution, solution_id, "Solution not found")
 
     snap = db.query(SolutionBOMSnapshot).filter_by(solution_id=solution_id).first()
 
@@ -384,7 +371,8 @@ def _write_basic_bom(ws, sol, solution_id: int, db: Session):
 
     items = db.query(SolutionItem).filter_by(solution_id=solution_id)\
         .order_by(SolutionItem.sort_order).all()
-    product_map = {p.id: p for p in db.query(Product).all()}
+    pids = {it.product_id for it in items if it.product_id}
+    product_map = {p.id: p for p in db.query(Product).filter(Product.id.in_(pids)).all()} if pids else {}
     for idx, item in enumerate(items, 1):
         p = product_map.get(item.product_id)
         qty = float(item.quantity or 0)
@@ -415,7 +403,8 @@ def _generate_snapshot(sol: Solution, template, db: Session) -> dict:
 
     items = db.query(SolutionItem).filter_by(solution_id=sol.id)\
         .order_by(SolutionItem.sort_order).all()
-    product_map = {p.id: p for p in db.query(Product).all()}
+    pids = {it.product_id for it in items if it.product_id}
+    product_map = {p.id: p for p in db.query(Product).filter(Product.id.in_(pids)).all()} if pids else {}
 
     cells = snapshot.get("cells", {})
     # Overlay headers matching BOM editor table layout

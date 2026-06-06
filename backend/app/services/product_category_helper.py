@@ -55,3 +55,19 @@ def get_products_in_categories(db: Session, category_ids: list[int]) -> list[int
         select(pc.c.product_id).where(pc.c.category_id.in_(category_ids)).distinct()
     ).fetchall()
     return [r[0] for r in rows]
+
+
+def get_category_descendants(db: Session, parent_id: int) -> list[int]:
+    """Get all descendant category IDs (batch-loaded, no recursion N+1)."""
+    from app.models.category import Category
+    all_cats = db.query(Category).all()
+    children_map: dict = {}
+    for c in all_cats:
+        children_map.setdefault(c.parent_id, []).append(c.id)
+
+    def _walk(pid):
+        ids = [pid]
+        for child_id in children_map.get(pid, []):
+            ids.extend(_walk(child_id))
+        return ids
+    return _walk(parent_id)

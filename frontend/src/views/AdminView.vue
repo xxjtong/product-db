@@ -1,43 +1,55 @@
 <template>
   <PageHeader title="管理面板" />
 
-  <div v-if="loading" class="empty-state"><p>加载中...</p></div>
-  <div v-else-if="loadError" class="empty-state"><p style="color:var(--color-danger)">{{ loadError }}</p><button class="btn-secondary btn-sm" style="margin-top:8px" @click="load">重试</button></div>
-  <template v-else>
+  <AsyncContainer :loading="loading" :error="loadError" retry @retry="load" />
+  <template v-if="!loading && !loadError">
 
   <!-- AI Usage Stats -->
+  <AiUsageStats :usage="aiUsage" @refresh="load" />
+
+  <!-- LLM Provider Config -->
   <div class="card mb-16">
-    <h3>AI 用量统计</h3>
-    <div class="flex gap-16 mb-8" v-if="aiUsage">
-      <div class="stat"><span class="stat-num">{{ aiUsage.summary?.total || 0 }}</span><span class="stat-label">总次数</span></div>
-      <div class="stat"><span class="stat-num">{{ formatNum(aiUsage.summary?.total_tokens_in || 0) }}</span><span class="stat-label">总输入Token</span></div>
-      <div class="stat"><span class="stat-num">{{ formatNum(aiUsage.summary?.total_tokens_out || 0) }}</span><span class="stat-label">总输出Token</span></div>
-      <div class="stat"><span class="stat-num" style="color:var(--color-success)">{{ aiUsage.summary?.success || 0 }}</span><span class="stat-label">成功</span></div>
-    </div>
-    <div class="text-sm text-muted mb-4">最近使用记录</div>
-    <div v-if="aiUsage?.recent?.length" style="max-height:200px;overflow-y:auto">
-      <table class="data-table">
-        <thead><tr><th>用户</th><th>输入Token</th><th>输出Token</th><th>耗时</th><th>时间</th></tr></thead>
-        <tbody>
-          <tr v-for="r in aiUsage.recent" :key="r.id">
-            <td>{{ r.username || r.user_id }}</td><td>{{ r.tokens_in }}</td><td>{{ r.tokens_out }}</td><td>{{ r.duration_ms }}ms</td><td>{{ r.created_at }}</td>
-          </tr>
-        </tbody>
-      </table>
+    <div class="section-header"><h3>LLM 配置</h3><button class="btn-primary btn-sm" @click="saveLlmConfig" :disabled="llmSaving">{{ llmSaving ? '保存中...' : '保存' }}</button></div>
+    <div style="display:flex;flex-direction:column;gap:16px;margin-top:8px">
+      <div v-for="p in llmConfig" :key="p.key">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <h4 style="margin:0;font-size:14px">{{ p.label }}</h4>
+          <button class="btn-secondary btn-sm" @click="testLlm(p.key)" :disabled="llmTesting[p.key]">
+            {{ llmTesting[p.key] ? '测试中...' : '测试' }}
+          </button>
+          <span v-if="llmResult[p.key]" :style="{fontSize:'12px',color:llmResult[p.key].startsWith('✓')?'var(--color-success)':'var(--color-danger)'}">{{ llmResult[p.key] }}</span>
+        </div>
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:8px">
+          <div class="form-group"><label>Name</label><input v-model="p.data.name" style="font-size:12px" /></div>
+          <div class="form-group"><label>Provider</label><input v-model="p.data.provider" style="font-size:12px" /></div>
+          <div class="form-group"><label>Base URL</label><input v-model="p.data.base_url" style="font-size:12px;font-family:monospace" /></div>
+          <div class="form-group"><label>API Key</label><input v-model="p.data.api_key" type="password" style="font-size:12px" placeholder="sk-..." /></div>
+          <template v-if="p.key === 'vision'">
+            <div class="form-group"><label>Model</label>
+              <select v-model="p.data.model" style="font-size:12px">
+                <option v-for="m in (llmAvailableModels.vision || [])" :key="m" :value="m">{{ m }}</option>
+                <option v-if="!(llmAvailableModels.vision || []).length" :value="p.data.model">{{ p.data.model || 'mimo-v2-omni' }}</option>
+              </select>
+            </div>
+          </template>
+        </div>
+      </div>
     </div>
   </div>
 
   <!-- AI Settings: Prompts + Models -->
   <div class="card mb-16">
-    <h3>AI 设置</h3>
+    <div class="section-header"><h3>AI 设置</h3><button class="btn-primary btn-sm" @click="saveAiSettings" :disabled="aiSaving">{{ aiSaving ? '保存中...' : '保存' }}</button></div>
     <div class="mb-8">
       <h4 style="margin:8px 0 4px">模型选择</h4>
       <div class="form-grid" style="gap:8px">
         <div class="form-group" v-for="(defVal, key) in aiSettings?.model_defaults || {}" :key="key">
           <label style="font-size:12px">{{ modelLabels[key] || key }}</label>
           <select v-model="aiModels[key]" style="font-size:12px">
-            <option value="deepseek-v4-pro">V4 Pro</option>
-            <option value="deepseek-v4-flash">V4 Flash</option>
+            <option v-for="m in llmAvailableModels.primary || []" :key="m" :value="m">{{ m }}</option>
+            <option v-if="!(llmAvailableModels.primary || []).length" value="deepseek-chat">deepseek-chat</option>
+            <option v-if="!(llmAvailableModels.primary || []).length" value="deepseek-v4-flash">deepseek-v4-flash</option>
+            <option v-if="!(llmAvailableModels.primary || []).length" value="deepseek-v4-pro">deepseek-v4-pro</option>
           </select>
         </div>
       </div>
@@ -48,7 +60,6 @@
         <label style="font-size:12px;font-weight:600">{{ promptLabels[key] || key }}</label>
         <textarea v-model="aiPrompts[key]" rows="3" style="width:100%;font-family:monospace;font-size:13px;margin-top:2px"></textarea>
       </div>
-      <button class="btn-primary btn-sm" @click="saveAiSettings" :disabled="aiSaving">{{ aiSaving ? '保存中...' : '保存 AI 设置' }}</button>
     </div>
   </div>
 
@@ -99,10 +110,10 @@
   <div class="card mb-16">
     <h3>下载审计（最近50条）</h3>
     <table class="data-table" v-if="dlogs.length">
-      <thead><tr><th>用户ID</th><th>类型</th><th>实体ID</th><th>IP</th><th>时间</th></tr></thead>
+      <thead><tr><th>用户</th><th>类型</th><th>实体ID</th><th>IP</th><th>时间</th></tr></thead>
       <tbody>
         <tr v-for="l in dlogs" :key="l.id">
-          <td>{{ l.user_id }}</td><td>{{ l.file_type }}</td><td>{{ l.entity_id }}</td><td>{{ l.ip_address || '—' }}</td><td>{{ l.created_at }}</td>
+          <td>{{ l.username || l.user_id }}</td><td>{{ l.file_type }}</td><td>{{ l.entity_id }}</td><td>{{ l.ip_address || '—' }}</td><td>{{ l.created_at }}</td>
         </tr>
       </tbody>
     </table>
@@ -114,10 +125,10 @@
   <div class="card mb-16">
     <h3>登录日志（最近50条）</h3>
     <table class="data-table" v-if="logs.length">
-      <thead><tr><th>用户ID</th><th>IP</th><th>地区</th><th>状态</th><th>时间</th></tr></thead>
+      <thead><tr><th>用户</th><th>IP</th><th>地区</th><th>状态</th><th>时间</th></tr></thead>
       <tbody>
         <tr v-for="l in logs" :key="l.id">
-          <td>{{ l.user_id }}</td><td>{{ l.ip_address }}</td><td>{{ l.region || '—' }}</td>
+          <td>{{ l.username || l.user_id }}</td><td>{{ l.ip_address }}</td><td>{{ l.region || '—' }}</td>
           <td>{{ l.success ? '✓' : '✕' }}</td><td>{{ l.created_at }}</td>
         </tr>
       </tbody>
@@ -156,15 +167,17 @@ import { PencilIcon, Trash2Icon, KeyIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import Modal from '../components/Modal.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import AsyncContainer from '../components/AsyncContainer.vue'
 import Pagination from '../components/Pagination.vue'
+import AiUsageStats from '../components/AiUsageStats.vue'
 
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 const token = () => localStorage.getItem('token') || ''
 const h = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` })
 
 interface AdminUser { id: number; username: string; role: string; email: string; is_active: boolean; created_at: string; last_login: string; ai_count?: number; ai_tokens?: number }
-interface LogEntry { id: number; user_id: number | null; ip_address: string; region: string; success: boolean; created_at: string }
-interface DownloadLog { id: number; user_id: number; file_type: string; entity_id: number; ip_address: string; created_at: string }
+interface LogEntry { id: number; user_id: number | null; username?: string; ip_address: string; region: string; success: boolean; created_at: string }
+interface DownloadLog { id: number; user_id: number; username?: string; file_type: string; entity_id: number; ip_address: string; created_at: string }
 
 const users = ref<AdminUser[]>([])
 const logs = ref<LogEntry[]>([])
@@ -198,6 +211,43 @@ const fieldList = ref([
   { key: 'product_url', label: '产品URL', visible: true },
 ])
 
+// LLM config
+const llmConfig = ref([
+  { key: 'primary', label: '主 LLM (对话/关键词/提取)', data: {} as any },
+  { key: 'vision', label: '视觉 LLM (OCR/图片)', data: {} as any },
+])
+const llmSaving = ref(false)
+const llmTesting = ref<Record<string,boolean>>({})
+const llmResult = ref<Record<string,string>>({})
+const llmAvailableModels = ref<Record<string,string[]>>({})
+
+async function testLlm(key: string) {
+  llmTesting.value[key] = true
+  llmResult.value[key] = ''
+  try {
+    const config: any = {}
+    for (const p of llmConfig.value) config[p.key] = p.data
+    const res = await adminApi('/product-db/api/admin/llm-config/test', { method: 'POST', body: JSON.stringify({ provider: key, config: config[key] }) })
+    llmResult.value[key] = '✓ ' + (res.message || '连接成功')
+    if (res.models?.length) { llmAvailableModels.value[key] = res.models }
+    showToast(res.message || '测试通过', 'success')
+  } catch (e: any) {
+    llmResult.value[key] = '✗ ' + (e.message || '测试失败')
+  }
+  llmTesting.value[key] = false
+}
+
+async function saveLlmConfig() {
+  llmSaving.value = true
+  try {
+    const config: any = {}
+    for (const p of llmConfig.value) config[p.key] = p.data
+    await adminApi('/product-db/api/admin/llm-config', { method: 'PUT', body: JSON.stringify({ config }) })
+    showToast('LLM配置已保存', 'success')
+  } catch (e: any) { showToast(e.message, 'error') }
+  llmSaving.value = false
+}
+
 // AI settings
 const aiSettings = ref<any>(null)
 const aiPrompts = ref<Record<string,string>>({})
@@ -222,11 +272,13 @@ async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    const [uRes, lRes, fRes, pRes, aRes, dRes, rRes] = await Promise.all([
+    const [uRes, lRes, fRes, pRes, llmRes, llmModelsRes, aRes, dRes, rRes] = await Promise.all([
       adminApi('/product-db/api/admin/users'),
       adminApi(`/product-db/api/admin/login-logs?page=${loginLogsPage.value}&per_page=20`),
       adminApi('/product-db/api/admin/fields'),
       adminApi('/product-db/api/admin/ai-settings'),
+      adminApi('/product-db/api/admin/llm-config'),
+      adminApi('/product-db/api/admin/llm-models'),
       adminApi('/product-db/api/admin/ai-usage'),
       adminApi(`/product-db/api/admin/download-logs?page=${dlogsPage.value}&per_page=20`),
       fetch('/product-db/api/auth/registration-status').then(r => r.json()),
@@ -239,6 +291,9 @@ async function load() {
     aiSettings.value = pRes
     aiPrompts.value = { ...(pRes.prompt_defaults || {}), ...(pRes.prompts || {}) }
     aiModels.value = { ...(pRes.model_defaults || {}), ...(pRes.models || {}) }
+    const llm = llmRes.config || {}
+    for (const p of llmConfig.value) p.data = llm[p.key] || {}
+    llmAvailableModels.value = llmModelsRes.models || {}
     aiUsage.value = aRes
     regOpen.value = rRes.open || false
   } catch (e: any) {

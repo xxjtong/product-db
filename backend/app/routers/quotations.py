@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 from app.database import get_db
+from app.utils.helpers import get_or_404, apply_partial_update
 from app.models.quotation import Quotation, QuotationItem
 from app.models.product import Product
 from app.models.solution import Solution, SolutionItem
@@ -15,7 +16,7 @@ from app.models.user import User
 from app.utils.escape import escape_like
 from app.schemas.quotation import QuotationCreate, QuotationUpdate, QuotationItemCreate, QuotationItemUpdate
 from app.schemas.solution import BatchDeleteRequest
-from datetime import datetime, timedelta
+from datetime import datetime
 from io import BytesIO
 
 router = APIRouter()
@@ -70,8 +71,8 @@ def list_quotations(
             | Quotation.title.ilike(f"%{escape_like(search)}%")
             | Quotation.client_name.ilike(f"%{escape_like(search)}%")
         )
-    total = q.count()
-    quotations = q.order_by(Quotation.updated_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
+    from app.utils.helpers import paginate
+    quotations, total = paginate(q.order_by(Quotation.updated_at.desc()), page, per_page)
     return {
         "quotations": [qt.to_dict() for qt in quotations],
         "total": total,
@@ -170,14 +171,9 @@ def get_quotation(quotation_id: int, db: Session = Depends(get_db), user=Depends
 
 @router.put("/quotations/{quotation_id}")
 def update_quotation(quotation_id: int, data: QuotationUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    qt = db.get(Quotation, quotation_id)
-    if not qt:
-        raise HTTPException(404, "Quotation not found")
+    qt = get_or_404(db, Quotation, quotation_id, "Quotation not found")
     check_ownership(qt, user)
-    for f in ["title", "client_name", "client_contact", "valid_days", "tax_rate", "status", "notes"]:
-        val = getattr(data, f, None)
-        if val is not None:
-            setattr(qt, f, val)
+    apply_partial_update(qt, data, ["title", "client_name", "client_contact", "valid_days", "tax_rate", "status", "notes"])
     qt.updated_at = datetime.now()
     db.commit()
     qt = db.scalar(select(Quotation).options(
@@ -188,9 +184,7 @@ def update_quotation(quotation_id: int, data: QuotationUpdate, db: Session = Dep
 
 @router.delete("/quotations/{quotation_id}")
 def delete_quotation(quotation_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    qt = db.get(Quotation, quotation_id)
-    if not qt:
-        raise HTTPException(404, "Quotation not found")
+    qt = get_or_404(db, Quotation, quotation_id, "Quotation not found")
     check_ownership(qt, user)
     db.delete(qt)
     db.commit()
@@ -201,9 +195,7 @@ def delete_quotation(quotation_id: int, db: Session = Depends(get_db), user=Depe
 
 @router.get("/quotations/{quotation_id}/items")
 def list_quotation_items(quotation_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    qt = db.get(Quotation, quotation_id)
-    if not qt:
-        raise HTTPException(404, "Quotation not found")
+    qt = get_or_404(db, Quotation, quotation_id, "Quotation not found")
     items = db.query(QuotationItem).filter_by(quotation_id=quotation_id)\
         .order_by(QuotationItem.sort_order).all()
     return {"items": [i.to_dict() for i in items]}
@@ -211,9 +203,7 @@ def list_quotation_items(quotation_id: int, db: Session = Depends(get_db), user=
 
 @router.post("/quotations/{quotation_id}/items")
 def add_quotation_item(quotation_id: int, data: QuotationItemCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    qt = db.get(Quotation, quotation_id)
-    if not qt:
-        raise HTTPException(404, "Quotation not found")
+    qt = get_or_404(db, Quotation, quotation_id, "Quotation not found")
     prod = db.get(Product, data.product_id)
     snapshot = prod.to_dict() if prod else {}
 
@@ -270,9 +260,7 @@ def delete_quotation_item(quotation_id: int, item_id: int, db: Session = Depends
 
 @router.get("/quotations/{quotation_id}/export-xlsx")
 def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    qt = db.get(Quotation, quotation_id)
-    if not qt:
-        raise HTTPException(404, "Quotation not found")
+    qt = get_or_404(db, Quotation, quotation_id, "Quotation not found")
 
     import openpyxl
     wb = openpyxl.Workbook()
@@ -327,9 +315,7 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
 
 @router.get("/quotations/{quotation_id}/bom")
 def get_quotation_bom(quotation_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    qt = db.get(Quotation, quotation_id)
-    if not qt:
-        raise HTTPException(404, "Quotation not found")
+    qt = get_or_404(db, Quotation, quotation_id, "Quotation not found")
     items = db.query(QuotationItem).filter_by(quotation_id=quotation_id)\
         .order_by(QuotationItem.sort_order).all()
     rows = []
@@ -350,15 +336,19 @@ def get_quotation_bom(quotation_id: int, db: Session = Depends(get_db), user=Dep
 
 @router.put("/quotations/{quotation_id}/bom")
 def save_quotation_bom(quotation_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    qt = db.get(Quotation, quotation_id)
-    if not qt:
-        raise HTTPException(404, "Quotation not found")
+    qt = get_or_404(db, Quotation, quotation_id, "Quotation not found")
     rows = data.get("rows", [])
-    # Remove all existing items, then recreate from BOM rows
+    # Preserve existing specs from old snapshots (BOM rows don't carry specs)
+    old_snaps = {qi.sort_order: qi.product_snapshot for qi in
+                 db.query(QuotationItem).filter_by(quotation_id=quotation_id).all()}
     db.query(QuotationItem).filter_by(quotation_id=quotation_id).delete()
     for idx, row in enumerate(rows):
+        old = old_snaps.get(idx + 1, {}) or {}
         snap = {"name": row.get("name", ""), "sku": row.get("sku", ""),
                 "model": row.get("model", ""), "description": row.get("description", "")}
+        # Preserve specs from previous snapshot if this row position existed before
+        if old.get("specs"):
+            snap["specs"] = old["specs"]
         qi = QuotationItem(
             quotation_id=quotation_id,
             product_id=None,
