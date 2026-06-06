@@ -673,9 +673,17 @@ async function save() {
   }
   try {
     const payload = cleaned
-    // Set primary image URL for list page (only override if new images exist)
-    const primaryImg = payload.images?.find((i: any) => i.is_primary)
-    if (primaryImg?.url) payload.image_url = primaryImg.url
+    // Set image_url: explicit URL input → auto-download; else primary uploaded image
+    const urlInput = imageUrlInput.value.trim()
+    if (urlInput && /^https?:\/\//.test(urlInput)) {
+      // Auto-download remote URL to local storage
+      try { const dl = await downloadProductImage(urlInput); if (dl.url) payload.image_url = dl.url } catch { /* keep existing */ }
+      imageUrlInput.value = ''
+    }
+    if (!payload.image_url) {
+      const primaryImg = payload.images?.find((i: any) => i.is_primary)
+      if (primaryImg?.url) payload.image_url = primaryImg.url
+    }
     // Store remark in custom_fields
     if (payload.remark) {
       payload.custom_fields = { ...(payload.custom_fields || {}), remark: payload.remark }
