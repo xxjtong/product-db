@@ -108,8 +108,8 @@
       </tbody>
     </table>
 
-    <!-- Specs by group -->
-    <h3 v-if="specDefs.length">规格参数</h3>
+    <!-- Specs: structured when category has definitions, generic table otherwise -->
+    <h3 v-if="specDefs.length || (product.specs && Object.keys(product.specs).length)">规格参数</h3>
     <div v-if="specDefs.length">
       <div v-for="group in specGroups" :key="group.name" class="spec-group">
         <div v-if="group.name" class="spec-group-title">{{ group.name }}</div>
@@ -133,6 +133,17 @@
           </tbody>
         </table>
       </div>
+    </div>
+    <!-- Generic specs when no category spec definitions -->
+    <div v-if="!specDefs.length && product.specs && Object.keys(product.specs).length">
+      <table class="data-table">
+        <tbody>
+          <tr v-for="(val, key) in product.specs" :key="key">
+            <td style="width:200px;font-weight:500" class="text-sm">{{ key }}</td>
+            <td>{{ val }}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <!-- Variants -->
@@ -239,7 +250,7 @@ async function loadCategories() {
     for (const c of (res.categories || [])) {
       categoryNames.value[c.id] = c.name
     }
-  } catch { /* ignore */ }
+  } catch { categoryNames.value = {} }
 }
 
 async function load() {

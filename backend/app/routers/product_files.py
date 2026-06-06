@@ -1,4 +1,5 @@
 """Product file upload/download API."""
+import logging
 import os
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
@@ -87,7 +88,7 @@ def delete_product_file(file_id: int, db: Session = Depends(get_db), user=Depend
     try:
         delete_file(pf.file_url)
     except Exception:
-        pass  # file already gone
+        logging.getLogger("uvicorn").debug("File cleanup failed for %s (may already be gone)", pf.file_url)
     db.delete(pf)
     db.commit()
     return {"ok": True}

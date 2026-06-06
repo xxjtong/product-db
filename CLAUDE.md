@@ -2,7 +2,19 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-06-05, R7-R10)
+## 最新变更 (2026-06-06, R11)
+
+### R11: 代码审计修复 + 文档
+
+- **权限**: 11 处 PUT/DELETE 端点补全 `check_ownership()` (字典表 8 + 供应商 2 + delete_manufacturer 1)
+- **安全**: 所有 `except:pass` 改为至少 log (ai_extract, ai.py, auth_routes, product_files)
+- **类型安全**: 8 个 Dict CRUD 端点从 `data: dict` → Pydantic Schema (CommMethod/Protocol/PowerSupply/SensorMetric Create/Update)
+- **错误处理**: onAiFetch 加 HTTP status 检查, onAiFill 加 try-catch, 4 个 dict load 函数加 try-catch, uploadProductImage 加 resp.ok 检查
+- **数据一致性**: regex fallback spec key 英→中 (ip_rating→防护等级), quotation_items.product_id nullable (BOM 手动行用 NULL)
+- **代码整洁**: products.py/ai.py/quotations.py import logging 移到模块级, literal_column 移除, suppliers.py 重复 import 修复, DictItem 接口补 accuracy/resolution
+- **防御性**: upload_image 加 file.size 预检 (防大文件 OOM), _log_ai_usage 加 try/finally (防连接泄漏), 导出用多对多品类筛选
+- **文档**: 新增 `docs/architecture.md` 架构总览 + `docs/database.md` 数据库设计
+- vue-tsc 0 errors, pytest 78/78, vitest 38/38
 
 ### R9-R10: 产品筛选 UI 重构 + 字典增强 + 规格编辑器
 
@@ -449,3 +461,8 @@ API key 存在?
 - 供应商管理已并入字典页，无独立导航
 - 所有表格统一列: `# | 产品名称 | 型号/SKU | 功能描述 | 数量 | 单价 | 折扣% | 小计 | 备注`
 - 价格统一 ¥ + toLocaleString() 千位分隔格式
+
+## 文档
+
+- `docs/architecture.md` — 完整架构总览 (技术栈/分层/路由/组件/AI/安全)
+- `docs/database.md` — 数据库设计 (33 表/ER/索引/JSON 策略/权限模型)

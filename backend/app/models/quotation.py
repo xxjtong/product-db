@@ -54,7 +54,7 @@ class QuotationItem(Base):
     id = Column(Integer, primary_key=True)
     quotation_id = Column(Integer, ForeignKey("quotations.id", ondelete="CASCADE"), nullable=False, index=True)
     solution_item_id = Column(Integer, ForeignKey("solution_items.id", ondelete="SET NULL"), nullable=True)
-    product_id = Column(Integer, ForeignKey("products.id", ondelete="RESTRICT"), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id", ondelete="RESTRICT"), nullable=True)
     product_snapshot = Column(JSONBType, nullable=False)
     quantity = Column(Numeric(10, 2), default=1)
     unit_price = Column(Numeric(12, 2), nullable=True)

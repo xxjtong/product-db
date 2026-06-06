@@ -1,6 +1,7 @@
 """Product API routes — v2 schema with dictionary + mapping tables."""
 from __future__ import annotations
 import json
+import logging
 import os
 import re
 import subprocess
@@ -10,7 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse, HTMLResponse, Response
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import select, text, case, literal_column
+from sqlalchemy import select, text, case
 from sqlalchemy import or_
 from app.database import get_db
 from app.models.product import Product
@@ -216,7 +217,22 @@ def export_products(
         selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
     )
     if category_id:
-        q = q.filter(Product.category_id == category_id)
+        # Use same multi-category filter as list_products
+        def _exp_get_descendants(pid):
+            ids = [pid]
+            children = db.query(Category).filter_by(parent_id=pid).all()
+            for child in children:
+                ids.extend(_exp_get_descendants(child.id))
+            return ids
+        cat_ids = _exp_get_descendants(category_id)
+        from app.services.product_category_helper import get_products_in_categories
+        m2m_ids = get_products_in_categories(db, cat_ids)
+        q = q.filter(
+            or_(
+                Product.id.in_(m2m_ids),
+                Product.category_id.in_(cat_ids)
+            )
+        )
     if search:
         q = q.filter(or_(
             Product.name.ilike(f"%{escape_like(search)}%"),
@@ -263,6 +279,9 @@ def upload_image(file: UploadFile = File(...), user=Depends(get_current_user)):
     """Upload an image file, return URL."""
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(400, "File must be an image")
+    # Check size before reading to avoid memory exhaustion
+    if file.size and file.size > 5 * 1024 * 1024:
+        raise HTTPException(400, "Image must be under 5MB")
     content = file.file.read()
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(400, "Image must be under 5MB")
@@ -443,6 +462,8 @@ def ai_fetch_product(data: AIFetchRequest, db: Session = Depends(get_db), user=D
         # Direct text extraction mode
         result = call_ai_extract("", "", raw_text, db) if settings.AI_GATEWAY_KEY \
             else regex_extract_from_text("", raw_text, db)
+        if settings.AI_GATEWAY_KEY:
+            _log_ai_usage(user.id, 'ai_fetch_text')
         return {"fetched": result}
 
     if not url:
@@ -487,8 +508,25 @@ def ai_fetch_product(data: AIFetchRequest, db: Session = Depends(get_db), user=D
         raise HTTPException(400, "No text content extracted from URL")
 
     result = call_ai_extract(url, title, text, db)
+    _log_ai_usage(user.id, 'ai_fetch')
 
     return {"fetched": {"url": url, "title": title, **result}}
+
+
+def _log_ai_usage(user_id: int, operation: str):
+    """Record AI usage for stats sidebar. Uses lazy import to avoid circular deps."""
+    _logger = logging.getLogger("uvicorn")
+    try:
+        from app.models.ai_usage_log import AIUsageLog
+        from app.database import SessionLocal
+        db2 = SessionLocal()
+        try:
+            db2.add(AIUsageLog(user_id=user_id, operation=operation, tokens_in=0, tokens_out=0, duration_ms=0, success=True))
+            db2.commit()
+        finally:
+            db2.close()
+    except Exception:
+        _logger.warning("Failed to log AI usage for user %d, op %s", user_id, operation)
 
 
 @router.post("/products/ai-fetch-file")
@@ -578,7 +616,6 @@ def spec_sheet(product_id: int, db: Session = Depends(get_db), user=Depends(get_
                     headers={"Content-Disposition": f"attachment; filename={filename}-spec-sheet.pdf"},
                 )
         except Exception as e:
-            import logging
             logging.getLogger("uvicorn").warning(f"PDF generation failed for product {product_id}: {e}")
         finally:
             for path in [html_path, pdf_path]:

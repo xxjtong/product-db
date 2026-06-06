@@ -5,7 +5,9 @@ from app.database import get_db
 from app.models.dictionary import (Manufacturer, DictCommMethod, DictCommProtocol,
                                    DictPowerSupply, DictSensorMetric)
 from app.auth import get_current_user, filter_by_ownership, check_ownership
-from app.schemas.dictionary import ManufacturerCreate, ManufacturerUpdate
+from app.schemas.dictionary import (ManufacturerCreate, ManufacturerUpdate,
+    CommMethodCreate, CommMethodUpdate, CommProtocolCreate, CommProtocolUpdate,
+    PowerSupplyCreate, PowerSupplyUpdate, SensorMetricCreate, SensorMetricUpdate)
 
 router = APIRouter()
 
@@ -56,6 +58,7 @@ def delete_manufacturer(mfg_id: int, db: Session = Depends(get_db), user=Depends
     m = db.get(Manufacturer, mfg_id)
     if not m:
         raise HTTPException(404)
+    check_ownership(m, user)
     db.delete(m)
     db.commit()
     return {"ok": True}
@@ -139,19 +142,21 @@ def _dict_update(item, data: dict, db: Session):
 # --- Comm Methods CRUD ---
 
 @router.post("/dicts/comm-methods")
-def create_comm_method(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    return {"comm_method": _dict_create(DictCommMethod, data, db, user)}
+def create_comm_method(data: CommMethodCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    return {"comm_method": _dict_create(DictCommMethod, data.model_dump(), db, user)}
 
 @router.put("/dicts/comm-methods/{item_id}")
-def update_comm_method(item_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_comm_method(item_id: int, data: CommMethodUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     item = db.get(DictCommMethod, item_id)
     if not item: raise HTTPException(404, "Not found")
-    return {"comm_method": _dict_update(item, data, db)}
+    check_ownership(item, user)
+    return {"comm_method": _dict_update(item, data.model_dump(exclude_unset=True), db)}
 
 @router.delete("/dicts/comm-methods/{item_id}")
 def delete_comm_method(item_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     item = db.get(DictCommMethod, item_id)
     if not item: raise HTTPException(404, "Not found")
+    check_ownership(item, user)
     db.delete(item); db.commit()
     return {"ok": True}
 
@@ -159,19 +164,21 @@ def delete_comm_method(item_id: int, db: Session = Depends(get_db), user=Depends
 # --- Comm Protocols CRUD ---
 
 @router.post("/dicts/comm-protocols")
-def create_comm_protocol(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    return {"comm_protocol": _dict_create(DictCommProtocol, data, db, user)}
+def create_comm_protocol(data: CommProtocolCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    return {"comm_protocol": _dict_create(DictCommProtocol, data.model_dump(), db, user)}
 
 @router.put("/dicts/comm-protocols/{item_id}")
-def update_comm_protocol(item_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_comm_protocol(item_id: int, data: CommProtocolUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     item = db.get(DictCommProtocol, item_id)
     if not item: raise HTTPException(404, "Not found")
-    return {"comm_protocol": _dict_update(item, data, db)}
+    check_ownership(item, user)
+    return {"comm_protocol": _dict_update(item, data.model_dump(exclude_unset=True), db)}
 
 @router.delete("/dicts/comm-protocols/{item_id}")
 def delete_comm_protocol(item_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     item = db.get(DictCommProtocol, item_id)
     if not item: raise HTTPException(404, "Not found")
+    check_ownership(item, user)
     db.delete(item); db.commit()
     return {"ok": True}
 
@@ -179,19 +186,21 @@ def delete_comm_protocol(item_id: int, db: Session = Depends(get_db), user=Depen
 # --- Power Supplies CRUD ---
 
 @router.post("/dicts/power-supplies")
-def create_power_supply(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    return {"power_supply": _dict_create(DictPowerSupply, data, db)}
+def create_power_supply(data: PowerSupplyCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    return {"power_supply": _dict_create(DictPowerSupply, data.model_dump(), db, user)}
 
 @router.put("/dicts/power-supplies/{item_id}")
-def update_power_supply(item_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_power_supply(item_id: int, data: PowerSupplyUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     item = db.get(DictPowerSupply, item_id)
     if not item: raise HTTPException(404, "Not found")
-    return {"power_supply": _dict_update(item, data, db)}
+    check_ownership(item, user)
+    return {"power_supply": _dict_update(item, data.model_dump(exclude_unset=True), db)}
 
 @router.delete("/dicts/power-supplies/{item_id}")
 def delete_power_supply(item_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     item = db.get(DictPowerSupply, item_id)
     if not item: raise HTTPException(404, "Not found")
+    check_ownership(item, user)
     db.delete(item); db.commit()
     return {"ok": True}
 
@@ -199,18 +208,20 @@ def delete_power_supply(item_id: int, db: Session = Depends(get_db), user=Depend
 # --- Sensor Metrics CRUD ---
 
 @router.post("/dicts/sensor-metrics")
-def create_sensor_metric(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    return {"sensor_metric": _dict_create(DictSensorMetric, data, db)}
+def create_sensor_metric(data: SensorMetricCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    return {"sensor_metric": _dict_create(DictSensorMetric, data.model_dump(), db, user)}
 
 @router.put("/dicts/sensor-metrics/{item_id}")
-def update_sensor_metric(item_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_sensor_metric(item_id: int, data: SensorMetricUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     item = db.get(DictSensorMetric, item_id)
     if not item: raise HTTPException(404, "Not found")
-    return {"sensor_metric": _dict_update(item, data, db)}
+    check_ownership(item, user)
+    return {"sensor_metric": _dict_update(item, data.model_dump(exclude_unset=True), db)}
 
 @router.delete("/dicts/sensor-metrics/{item_id}")
 def delete_sensor_metric(item_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     item = db.get(DictSensorMetric, item_id)
     if not item: raise HTTPException(404, "Not found")
+    check_ownership(item, user)
     db.delete(item); db.commit()
     return {"ok": True}

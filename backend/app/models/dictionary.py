@@ -83,6 +83,8 @@ class DictSensorMetric(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(50), nullable=False, unique=True)  # e.g. "温度", "湿度", "CO2"
     unit = Column(String(20), nullable=True)  # e.g. "℃", "%RH", "ppm"
+    accuracy = Column(Text, default="")
+    resolution = Column(Text, default="")
     description = Column(Text, default="")
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
@@ -91,5 +93,7 @@ class DictSensorMetric(Base):
             "id": self.id,
             "name": self.name,
             "unit": self.unit or "",
+            "accuracy": self.accuracy or "",
+            "resolution": self.resolution or "",
             "description": self.description or "",
         }

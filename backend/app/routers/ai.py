@@ -1,6 +1,7 @@
 """AI Product Assistant — SSE chat with direct LLM + tool calling + conversation persistence."""
 from __future__ import annotations
 import json
+import logging
 import re
 import time
 from datetime import datetime
@@ -183,7 +184,6 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int):
             else:
                 response = "没有找到匹配的产品。试试调整搜索条件？"
         except Exception:
-            import logging
             logging.getLogger("uvicorn").warning("Mock agent: failed to parse tool result")
             response = "搜索完成，但结果解析出错。请重试。"
 
@@ -367,7 +367,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                         yield {"event": "products", "data": tr["products"]}
                         yield {"event": "component", "component": "SolutionProductCard", "props": {"products": tr["products"]}}
                 except Exception:
-                    import logging; logging.getLogger("uvicorn").warning("JSON parse of tool result failed")
+                    logging.getLogger("uvicorn").warning("JSON parse of tool result failed")
                 max_turns = 1
         elif json_match:
             extracted = json.loads(json_match.group())
@@ -498,10 +498,9 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                             yield {"event": "products", "data": tr["products"]}
                             yield {"event": "component", "component": "SolutionProductCard", "props": {"products": tr["products"]}}
                     except Exception:
-                        import logging; logging.getLogger("uvicorn").warning("Chat LLM tool parse failed")
+                        logging.getLogger("uvicorn").warning("Chat LLM tool parse failed")
                     max_turns = 1
     except Exception as e:
-        import logging
         logging.getLogger("uvicorn").warning(f"Keyword extraction failed: {e}")
 
     # If keyword extraction already found products, skip chat LLM
@@ -524,7 +523,6 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             total_tokens["in"] += usage.get("prompt_tokens", 0)
             total_tokens["out"] += usage.get("completion_tokens", 0)
         except Exception as e:
-            import logging
             logging.getLogger("uvicorn").warning(f"Chat LLM failed: {e}")
             # If keyword extraction already found products, don't mock-re-search
             if products_found:
@@ -581,7 +579,6 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                         products_found = True
                         yield {"event": "component", "component": "QuoteDraftCard", "props": tr["created_quote"]}
                 except Exception:
-                    import logging
                     logging.getLogger("uvicorn").warning("run_agent: failed to parse tool result JSON")
 
                 current_messages.append({
@@ -613,7 +610,6 @@ async def run_agent(messages: list, db: Session, conv_id: int):
         response = await engine.chat(current_messages, temperature=0.3)
         text = response["choices"][0]["message"].get("content", "抱歉，查询超时，请重新提问。")
     except Exception as e:
-        import logging
         logging.getLogger("uvicorn").warning(f"run_agent: max-turns LLM call failed: {e}")
         if products_found:
             for char in "查询完成，如需进一步了解请告诉我。":
@@ -699,8 +695,9 @@ async def ai_chat(request: Request, db: Session = Depends(get_db), user=Depends(
                 sse_db.add(usage)
                 sse_db.commit()
             except Exception:
-                pass
-            sse_db.close()
+                logging.getLogger("uvicorn").warning("Failed to log AI usage for user %d", uid)
+            finally:
+                sse_db.close()
 
         yield "data: [DONE]\n\n"
 

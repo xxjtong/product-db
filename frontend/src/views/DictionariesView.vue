@@ -56,8 +56,8 @@
   <div class="card" v-show="activeTab === 'sensor_metrics'">
     <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">传感器指标</h3><button class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
     <table class="data-table">
-      <thead><tr><th>ID</th><th>名称</th><th>单位</th><th>说明</th><th style="white-space:nowrap">操作</th></tr></thead>
-      <tbody><tr v-for="m in sensorMetrics" :key="m.id"><td>{{ m.id }}</td><td>{{ m.name }}</td><td>{{ m.unit || '—' }}</td><td class="text-sm text-muted">{{ m.description || '—' }}</td><td style="white-space:nowrap">
+      <thead><tr><th>ID</th><th>名称</th><th>单位</th><th>精度</th><th>分辨率</th><th>说明</th><th style="white-space:nowrap">操作</th></tr></thead>
+      <tbody><tr v-for="m in sensorMetrics" :key="m.id"><td>{{ m.id }}</td><td>{{ m.name }}</td><td>{{ m.unit || '—' }}</td><td>{{ m.accuracy || '—' }}</td><td>{{ m.resolution || '—' }}</td><td class="text-sm text-muted">{{ m.description || '—' }}</td><td style="white-space:nowrap">
         <button class="btn-icon btn-sm" @click="openDictEdit(m)"><PencilIcon style="width:14px;height:14px" /></button>
         <button class="btn-icon btn-sm" @click="doDictDelete(m.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
     </table>
@@ -143,6 +143,8 @@
       <div class="form-group" v-if="activeTab === 'comm_methods'"><label>类型</label><select v-model="dictForm.method_type"><option value="wired">有线</option><option value="wireless">无线</option></select></div>
       <div class="form-group" v-if="activeTab === 'power_supplies'"><label>类别</label><input v-model="dictForm.supply_category" /></div>
       <div class="form-group" v-if="activeTab === 'sensor_metrics'"><label>单位</label><input v-model="dictForm.unit" /></div>
+      <div class="form-group" v-if="activeTab === 'sensor_metrics'"><label>精度</label><input v-model="dictForm.accuracy" placeholder="e.g. ±0.5°C" /></div>
+      <div class="form-group" v-if="activeTab === 'sensor_metrics'"><label>分辨率</label><input v-model="dictForm.resolution" placeholder="e.g. 0.1°C" /></div>
       <div class="form-group full"><label>说明</label><textarea v-model="dictForm.description" rows="2" /></div>
     </div>
     <template #footer>
@@ -179,7 +181,7 @@ const showToast = inject<(msg: string, type?: string) => void>('toast', () => {}
 const confirmState = ref({ visible: false, action: () => {} })
 function showConfirm(action: () => void) { confirmState.value = { visible: true, action } }
 
-interface DictItem { id: number; name: string; method_type?: string; supply_category?: string; unit?: string; description?: string }
+interface DictItem { id: number; name: string; method_type?: string; supply_category?: string; unit?: string; accuracy?: string; resolution?: string; description?: string }
 
 const commMethods = ref<DictItem[]>([])
 const commProtocols = ref<DictItem[]>([])
@@ -248,10 +250,10 @@ async function loadManufacturers() {
   loading.value = false
 }
 
-async function loadCommMethods() { const res = await fetchCommMethods(cmPage.value, dictPerPage.value); commMethods.value = res.comm_methods; cmTotal.value = res.total }
-async function loadCommProtocols() { const res = await fetchCommProtocols(cpPage.value, dictPerPage.value); commProtocols.value = res.comm_protocols; cpTotal.value = res.total }
-async function loadPowerSupplies() { const res = await fetchPowerSupplies(psPage.value, dictPerPage.value); powerSupplies.value = res.power_supplies; psTotal.value = res.total }
-async function loadSensorMetrics() { const res = await fetchSensorMetrics(smPage.value, dictPerPage.value); sensorMetrics.value = res.sensor_metrics; smTotal.value = res.total }
+async function loadCommMethods() { try { const res = await fetchCommMethods(cmPage.value, dictPerPage.value); commMethods.value = res.comm_methods; cmTotal.value = res.total } catch { showToast('通讯方式加载失败', 'error') } }
+async function loadCommProtocols() { try { const res = await fetchCommProtocols(cpPage.value, dictPerPage.value); commProtocols.value = res.comm_protocols; cpTotal.value = res.total } catch { showToast('通讯协议加载失败', 'error') } }
+async function loadPowerSupplies() { try { const res = await fetchPowerSupplies(psPage.value, dictPerPage.value); powerSupplies.value = res.power_supplies; psTotal.value = res.total } catch { showToast('供电方式加载失败', 'error') } }
+async function loadSensorMetrics() { try { const res = await fetchSensorMetrics(smPage.value, dictPerPage.value); sensorMetrics.value = res.sensor_metrics; smTotal.value = res.total } catch { showToast('传感器指标加载失败', 'error') } }
 
 async function loadAll() {
   loading.value = true
@@ -295,7 +297,7 @@ async function saveSup() {
   try { editingSup.value ? await updateSupplier(editingSup.value.id, supForm.value) : await createSupplier(supForm.value); supModalVisible.value = false; await loadSuppliers(); showToast('已保存', 'success') }
   catch (e: any) { showToast(e.detail || e.message, 'error') }
 }
-async function deleteSup(id: number) { await deleteSupplier(id); showToast('已删除', 'success'); await loadSuppliers() }
+async function deleteSup(id: number) { try { await deleteSupplier(id); showToast('已删除', 'success'); await loadSuppliers() } catch (e: any) { showToast(e.detail || e.message || '删除失败', 'error') } }
 
 // Dict CRUD (shared for comm/protocol/power/metric)
 const dictModalVisible = ref(false)

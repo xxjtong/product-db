@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.supplier import Supplier
-from app.auth import get_current_user, filter_by_ownership, filter_by_ownership
+from app.auth import get_current_user, filter_by_ownership, check_ownership
 from app.utils.escape import escape_like
 from app.utils.helpers import apply_partial_update
 from app.schemas.supplier import SupplierCreate, SupplierUpdate
@@ -61,6 +61,7 @@ def update_supplier(supplier_id: int, data: SupplierUpdate, db: Session = Depend
     s = db.get(Supplier, supplier_id)
     if not s:
         raise HTTPException(404, "Supplier not found")
+    check_ownership(s, user)
     apply_partial_update(s, data, ["name", "contact_person", "phone", "email", "website", "notes"])
     db.commit()
     return {"supplier": s.to_dict()}
@@ -71,6 +72,7 @@ def delete_supplier(supplier_id: int, db: Session = Depends(get_db), user=Depend
     s = db.get(Supplier, supplier_id)
     if not s:
         raise HTTPException(404, "Supplier not found")
+    check_ownership(s, user)
     db.delete(s)
     db.commit()
     return {"ok": True}

@@ -65,14 +65,15 @@ def build_extraction_prompt(db: Session) -> str:
   "power_supplies": [{{"name": "DC", "voltage_range": "9-24V", "battery_life": null}}],
   "hardware_interfaces": [{{"interface_name": "RS485", "quantity": 1, "description": ""}}],
   "sensor_capabilities": [{{"metric_name": "温度", "measure_range": "-30~70", "accuracy": "±0.2", "resolution": "0.1"}}],
-  "specs": {{"ip_rating": "IP67", "dimensions_mm": "240×164×90.9", "weight_g": 500}}
+  "specs": {{"防护等级": "IP67", "尺寸": "240×164×90.9mm", "重量": "500g"}}
 }}
 
 规则:
 - name/model/description/specs 从文本中提取实际值
 - comm_methods/protocols/power_supplies/sensor_capabilities 的 name 必须来自上述数据库列表
 - 文本没提到的字段设 null 或空数组
-- specs 提取物理参数(IP等级/尺寸/重量/材质/工作温度/安装方式等)"""
+- specs 内的 key 必须使用中文命名（防护等级/尺寸/重量/材质/工作温度/安装方式等），禁止使用英文 key
+- specs 值带单位(如 "240×164×90.9mm", "500g")"""
 
     _prompt_cache["value"] = result
     _prompt_cache["ts"] = now
@@ -110,7 +111,8 @@ def call_ai_extract(url: str, title: str, text: str, db: Session) -> dict:
         if json_match:
             return json.loads(json_match.group())
         return regex_extract_from_text(title, text, db)
-    except Exception:
+    except Exception as e:
+        import logging; logging.getLogger("uvicorn").warning(f"AI extraction failed, using regex fallback: {e}")
         return regex_extract_from_text(title, text, db)
 
 
@@ -204,16 +206,16 @@ def regex_extract_from_text(title: str, text: str, db: Session) -> dict:
     # Extract IP rating (case-insensitive since text was lowered)
     ip_match = re.search(r'\b(ip\d{2})\b', combined)
     if ip_match:
-        result["specs"]["ip_rating"] = ip_match.group(1).upper()
+        result["specs"]["防护等级"] = ip_match.group(1).upper()
 
     # Extract dimensions
     dim_match = re.search(r'(\d{2,4}\s*[×xX]\s*\d{2,4}\s*[×xX]\s*\d{2,4}\s*(?:mm)?)', combined)
     if dim_match:
-        result["specs"]["dimensions_mm"] = dim_match.group(1).replace(" ", "")
+        result["specs"]["尺寸"] = dim_match.group(1).replace(" ", "")
 
     # Extract weight
     weight_match = re.search(r'(\d{3,5})\s*g', combined)
     if weight_match:
-        result["specs"]["weight_g"] = int(weight_match.group(1))
+        result["specs"]["重量"] = f"{int(weight_match.group(1))}g"
 
     return result

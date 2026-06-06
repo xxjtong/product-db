@@ -38,7 +38,7 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
 export const fetchCommMethods = (page = 1, perPage = 500) => api<{ comm_methods: { id: number; name: string; method_type?: string; description?: string }[]; total: number }>(`/dicts/comm-methods?page=${page}&per_page=${perPage}`)
 export const fetchCommProtocols = (page = 1, perPage = 500) => api<{ comm_protocols: { id: number; name: string; description?: string }[]; total: number }>(`/dicts/comm-protocols?page=${page}&per_page=${perPage}`)
 export const fetchPowerSupplies = (page = 1, perPage = 500) => api<{ power_supplies: { id: number; name: string; supply_category?: string; description?: string }[]; total: number }>(`/dicts/power-supplies?page=${page}&per_page=${perPage}`)
-export const fetchSensorMetrics = (page = 1, perPage = 500) => api<{ sensor_metrics: { id: number; name: string; unit?: string; description?: string }[]; total: number }>(`/dicts/sensor-metrics?page=${page}&per_page=${perPage}`)
+export const fetchSensorMetrics = (page = 1, perPage = 500) => api<{ sensor_metrics: { id: number; name: string; unit?: string; accuracy?: string; resolution?: string; description?: string }[]; total: number }>(`/dicts/sensor-metrics?page=${page}&per_page=${perPage}`)
 
 // Dict CRUD
 export const createCommMethod = (data: any) => api('/dicts/comm-methods', { method: 'POST', body: JSON.stringify(data) })
@@ -99,12 +99,16 @@ export const updateDependency = (productId: number, depId: number, data: Record<
 export const deleteDependency = (productId: number, depId: number) =>
   api(`/products/${productId}/dependencies/${depId}`, { method: 'DELETE' })
 
-export const uploadProductImage = (formData: FormData) =>
-  fetch(`${API_BASE}/products/upload-image`, {
+export const uploadProductImage = async (formData: FormData) => {
+  const res = await fetch(`${API_BASE}/products/upload-image`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
     body: formData,
-  }).then(r => r.json())
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '上传失败')
+  return data
+}
 export const downloadProductImage = (url: string) =>
   api<{ url: string }>('/products/download-image', { method: 'POST', body: JSON.stringify({ url }) })
 

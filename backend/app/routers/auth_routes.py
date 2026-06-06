@@ -1,5 +1,6 @@
 """Authentication routes — login, logout, profile, user management."""
 import json
+import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -32,7 +33,7 @@ def _lookup_ip_region(ip: str) -> str:
             country = data.get("country_name", "")
             return f"{city}, {country}" if city else country
     except Exception:
-        pass
+        logging.getLogger("uvicorn").debug("IP lookup failed for %s", ip)
     return ""
 
 

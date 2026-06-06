@@ -307,7 +307,6 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
 
     # Log download
     from app.models.download_log import DownloadLog
-    import logging
     log = DownloadLog(user_id=user.id, file_type="quotation", entity_id=quotation_id, ip_address="")
     db.add(log)
     qt.download_count = (qt.download_count or 0) + 1
@@ -362,7 +361,7 @@ def save_quotation_bom(quotation_id: int, data: dict, db: Session = Depends(get_
                 "model": row.get("model", ""), "description": row.get("description", "")}
         qi = QuotationItem(
             quotation_id=quotation_id,
-            product_id=0,
+            product_id=None,
             product_snapshot=snap,
             quantity=float(row.get("qty", 1) or 1),
             unit_price=float(row.get("price", 0) or 0),

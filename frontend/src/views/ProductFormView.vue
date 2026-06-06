@@ -1,6 +1,6 @@
 <template>
   <PageHeader :title="isEdit ? '编辑产品' : '新增产品'" :breadcrumb="[{ label: '产品列表', to: '/products' }, { label: isEdit ? '编辑产品' : '新增产品', to: '' }]">
-    <button v-if="!isEdit" class="btn-secondary" @click="scrollToAi">AI 智能录入</button>
+    <button class="btn-secondary" @click="scrollToAi">AI 智能录入</button>
     <button class="btn-secondary" @click="$router.back()">取消</button>
     <button class="btn-primary" @click="save">保存</button>
   </PageHeader>
@@ -30,7 +30,13 @@
       <div class="form-group"><label>状态</label>
         <select v-model="form.status"><option value="active">在售</option><option value="discontinued">停售</option><option value="planned">规划中</option></select>
       </div>
-      <div class="form-group full"><label>产品URL</label><input v-model="form.product_url" placeholder="https://..." /></div>
+      <div class="form-group full">
+        <label>产品URL</label>
+        <div style="display:flex;gap:8px">
+          <input v-model="form.product_url" placeholder="https://..." style="flex:1" />
+          <button v-if="isValidUrl(form.product_url)" class="btn-primary btn-sm" @click="aiFetchFromUrl" :disabled="aiFetching" style="white-space:nowrap">{{ aiFetching ? '识别中...' : 'AI 识别' }}</button>
+        </div>
+      </div>
       <div class="form-group full">
         <label>品类 *</label>
         <div class="category-tags">
@@ -146,9 +152,9 @@
               <option v-for="m in sensorMetrics" :key="m.id" :value="m.id">{{ m.name }}</option>
             </select>
           </td>
-          <td><input v-model="sc.measure_range" placeholder="e.g. -20°C~60°C" style="width:100%" /></td>
-          <td><input v-model="sc.accuracy" placeholder="e.g. ±0.2°C" style="width:100%" /></td>
-          <td><input v-model="sc.resolution" placeholder="e.g. 0.1°C" style="width:100%" /></td>
+          <td><input v-model="sc.measure_range" :placeholder="getMetricPlaceholder(sc.metric_id, 'range')" style="width:100%" /></td>
+          <td><input v-model="sc.accuracy" :placeholder="getMetricPlaceholder(sc.metric_id, 'accuracy')" style="width:100%" /></td>
+          <td><input v-model="sc.resolution" :placeholder="getMetricPlaceholder(sc.metric_id, 'resolution')" style="width:100%" /></td>
           <td><button class="btn-icon btn-sm" @click="form.sensor_capabilities.splice(idx, 1)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td>
         </tr>
       </tbody>
@@ -156,7 +162,7 @@
 
     <!-- Dynamic spec fields -->
     <div v-if="specDefs.length">
-      <h3>品类规格参数</h3>
+      <h3>规格参数</h3>
       <div class="form-grid form-grid-3">
         <div v-for="sd in specDefs" :key="sd.id" class="form-group">
           <label>{{ sd.display_name }} <span v-if="sd.unit" class="text-muted">({{ sd.unit }})</span></label>
@@ -172,9 +178,9 @@
       </div>
     </div>
     <!-- Generic specs editor table -->
-    <div v-if="form.specs && Object.keys(form.specs).length && !specDefs.length">
+    <div v-if="form.specs && !specDefs.length">
       <div class="section-header">
-        <h3 class="m-0">产品规格</h3>
+        <h3 class="m-0">规格参数</h3>
         <button class="btn-primary btn-sm" @click="addSpecRow">+ 添加</button>
       </div>
       <table class="data-table" style="margin-bottom:8px">
@@ -205,13 +211,19 @@
       </div>
     </div>
   </div>
+
+  <div v-if="route.params.id" class="card mt-16">
+    <DependencyEditor :productId="Number(route.params.id)" />
+  </div>
+  <ProductFiles v-if="route.params.id" :productId="Number(route.params.id)" class="mt-16" />
+
   <!-- AI 智能录入卡片 -->
-  <div v-if="!isEdit" ref="aiCard" class="card mt-16">
+  <div v-if="loaded" ref="aiCard" class="card mt-16">
     <h3 style="margin:0 0 8px">AI 智能录入</h3>
-    <p style="margin:0 0 12px;font-size:13px;color:var(--color-text-secondary)">粘贴产品URL或产品规格文本，AI自动提取产品信息填入表单</p>
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-      <input v-model="aiUrlInput" class="flex-1" placeholder="产品URL (e.g. https://example.com/product)" @keyup.enter="onAiFetch" />
-      <button class="btn-secondary" @click="onAiFetch" :disabled="aiFetching">
+    <p style="margin:0 0 12px;font-size:13px;color:var(--color-text-secondary)">粘贴产品URL或规格文本，AI自动提取产品信息填入表单</p>
+    <div style="display:flex;gap:8px;align-items:flex-start">
+      <textarea v-model="aiTextInput" rows="2" placeholder="粘贴产品URL或规格文本…" style="flex:1;box-sizing:border-box;font-size:13px" @keyup.ctrl.enter="onAiFetch" />
+      <button class="btn-primary btn-sm" @click="onAiFetch" :disabled="aiFetching || !aiTextInput.trim()" style="white-space:nowrap">
         <span v-if="aiFetching">提取中...</span>
         <span v-else>AI 识别</span>
       </button>
@@ -222,35 +234,34 @@
       @dragover.prevent="aiDragOver = true"
       @dragleave="aiDragOver = false"
       @drop.prevent="onAiDrop"
-    >拖拽规格书文件到此处或粘贴文本</div>
-    <textarea v-model="aiTextInput" rows="3" placeholder="或直接粘贴规格书文本...（粘贴后点击AI识别）" style="width:100%;box-sizing:border-box" />
+    >拖拽规格书文件到此处</div>
     <div v-if="aiPreview" style="margin-top:12px;padding:12px;background:white;border-radius:4px">
-      <strong>提取结果预览：</strong>
-      <ul style="margin:8px 0 0;font-size:13px">
-        <li v-if="aiPreview.name">产品名: {{ aiPreview.name }}</li>
-        <li v-if="aiPreview.model">型号: {{ aiPreview.model }}</li>
-        <li v-if="aiPreview.category_slug">品类: {{ aiPreview.category_slug }}</li>
-        <li v-if="aiPreview.manufacturer_name">厂商: {{ aiPreview.manufacturer_name }}</li>
-        <li v-if="aiPreview.comm_methods?.length">通讯: {{ aiPreview.comm_methods.map((x:any) => x.name).join(', ') }}</li>
-        <li v-if="aiPreview.comm_protocols?.length">协议: {{ aiPreview.comm_protocols.map((x:any) => x.name).join(', ') }}</li>
-        <li v-if="aiPreview.power_supplies?.length">供电: {{ aiPreview.power_supplies.map((x:any) => x.name).join(', ') }}</li>
-        <li v-if="aiPreview.sensor_capabilities?.length">传感器: {{ aiPreview.sensor_capabilities.map((x:any) => x.metric_name).join(', ') }}</li>
-      </ul>
-      <button class="btn-primary btn-sm" @click="onAiFill" style="margin-top:8px">填入表单</button>
-      <button class="btn-secondary btn-sm" @click="aiPreview = null" style="margin-top:8px;margin-left:8px">清除</button>
+      <div class="section-header"><strong style="margin:0">提取结果预览（可编辑）</strong></div>
+      <table class="data-table" style="margin-top:8px">
+        <thead><tr><th>字段</th><th>提取值</th></tr></thead>
+        <tbody>
+          <tr v-for="key in aiDisplayFields" :key="key">
+            <td style="font-weight:500;white-space:nowrap;vertical-align:top" class="text-sm">{{ fieldLabels[key] || key.replace(/_/g,' ') }}</td>
+            <td>
+              <textarea v-if="isSimpleList(aiEditFields[key]) || (key === 'specs' && isComplexVal(aiEditFields[key]))" :value="isSimpleList(aiEditFields[key]) ? fmtAiListDetail(aiEditFields[key]) : fmtAiSpecs(aiEditFields[key])" @change="aiEditFields[key] = parseAiVal(($event.target as HTMLTextAreaElement).value)" :rows="Math.min(12, Math.max(3, (isSimpleList(aiEditFields[key]) ? fmtAiListDetail(aiEditFields[key]) : fmtAiSpecs(aiEditFields[key])).split('\n').length))" style="width:100%;font-size:11px;font-family:monospace;box-sizing:border-box" :placeholder="'未提取'" />
+              <input v-else v-model="aiEditFields[key]" style="width:100%;font-size:12px" :placeholder="'未提取'" />
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="flex gap-8" style="margin-top:8px">
+        <button class="btn-primary btn-sm" @click="onAiFill">填入表单</button>
+        <button class="btn-secondary btn-sm" @click="aiPreview = null">清除</button>
+      </div>
     </div>
   </div>
-
-  <div v-if="route.params.id" class="card mt-16">
-    <DependencyEditor :productId="Number(route.params.id)" />
-  </div>
-  <ProductFiles v-if="route.params.id" :productId="Number(route.params.id)" class="mt-16" />
   <div v-else style="text-align:center;padding:48px;color:var(--color-text-secondary)">加载中...</div>
-  <ConfirmDialog title="删除规格" :message="`确定删除规格参数「${specDeleteTarget}」？`" :visible="!!specDeleteTarget" @confirm="doDeleteSpec" @cancel="specDeleteTarget = null" />
+
+
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, inject, watch } from 'vue'
+import { ref, computed, onMounted, inject, watch, nextTick } from 'vue'
 import ProductFiles from '../components/ProductFiles.vue'
 import DependencyEditor from '../components/DependencyEditor.vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
@@ -288,6 +299,15 @@ const commMethods = ref<any[]>([])
 const commProtocols = ref<any[]>([])
 const powerSupplies = ref<any[]>([])
 const sensorMetrics = ref<any[]>([])
+function getMetricPlaceholder(metricId: any, field: string): string {
+  if (!metricId) return ''
+  const m = sensorMetrics.value.find((x: any) => x.id == metricId)
+  if (!m) return ''
+  if (field === 'accuracy') return m.accuracy || ''
+  if (field === 'resolution') return m.resolution || ''
+  if (field === 'range') return m.measure_range || ''
+  return ''
+}
 const specDefs = ref<any[]>([])
 function addSpecRow() {
   const key = 'new_' + Date.now()
@@ -298,28 +318,81 @@ function renameSpecKey(oldKey: string, newKey: string) {
   form.value.specs[newKey.trim()] = form.value.specs[oldKey]
   delete form.value.specs[oldKey]
 }
-const specDeleteTarget = ref<string | number | null>(null)
-function deleteSpecKey(key: string) { specDeleteTarget.value = key }
-function doDeleteSpec() {
-  if (!specDeleteTarget.value) return
-  delete form.value.specs[specDeleteTarget.value]
-  specDeleteTarget.value = null
-}
+function deleteSpecKey(key: string) { delete form.value.specs[key] }
 
 const imageUrlInput = ref('')
 const imageDownloading = ref(false)
 
 // AI fetch
 const aiCard = ref<HTMLElement | null>(null)
-const aiUrlInput = ref('')
 const aiTextInput = ref('')
 const aiFetching = ref(false)
+function isComplexVal(v: any) { return v !== null && typeof v === 'object' }
+function isSimpleList(v: any) { return Array.isArray(v) && v.length > 0 && typeof v[0] === 'object' }
+function fmtAiSpecs(v: any) { if (!v || typeof v !== 'object') return String(v); return Object.entries(v).map(([k,val]) => k + ': ' + (val ?? '')).join('\n') }
+const aiCategoryIds = computed(() => {
+  const v = aiEditFields.value.category_slug
+  if (!v) return new Set<number>()
+  const ids = Array.isArray(v) ? v : String(v).split(',').map(Number).filter(n => n > 0)
+  return new Set(ids)
+})
+function toggleAiCat(id: number) {
+  const cur = new Set(aiCategoryIds.value)
+  if (cur.has(id)) cur.delete(id)
+  else cur.add(id)
+  aiEditFields.value.category_slug = [...cur].join(',')
+}
+function fmtAiListDetail(v: any): string {
+  if (!Array.isArray(v)) return String(v)
+  return v.map((x: any) => {
+    const name = x.name || x.metric_name || x.interface_name || ''
+    const parts = [name]
+    if (x.details) parts.push(x.details)
+    if (x.voltage_range) parts.push(x.voltage_range)
+    if (x.measure_range) parts.push(x.measure_range)
+    if (x.accuracy) parts.push(x.accuracy)
+    if (x.direction) parts.push(x.direction)
+    if (x.quantity) parts.push('×'+x.quantity)
+    if (x.description) parts.push(x.description)
+    return parts.join(' | ')
+  }).join('\n')
+}
+function parseAiVal(s: string) { try { return JSON.parse(s) } catch { return s } }
 
+function isValidUrl(s: string) { return /^https?:\/\/.+/.test(s.trim()) }
 function scrollToAi() {
   aiCard.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
+async function aiFetchFromUrl() {
+  const url = form.value.product_url?.trim()
+  if (!url) return
+  aiTextInput.value = url
+  scrollToAi()
+  await onAiFetch()
+}
 const aiDragOver = ref(false)
 const aiPreview = ref<any>(null)
+const aiEditFields = ref<Record<string, any>>({})
+
+// Fields always shown in preview (even if AI didn't extract them)
+const aiDefaultFields: string[] = []
+const aiDisplayFields = computed(() => {
+  const keys = new Set([...aiDefaultFields, ...Object.keys(aiEditFields.value)])
+  return [...keys]
+})
+
+const fieldLabels: Record<string, string> = {
+  name: '产品名', model: '型号', category_slug: '品类', manufacturer_name: '厂商',
+  base_price: '价格', cost_price: '成本', description: '功能描述', product_url: '产品URL',
+  comm_methods: '通讯方式', comm_protocols: '协议', power_supplies: '供电',
+  sensor_capabilities: '传感能力', specs: '规格参数', sku: 'SKU',
+  dimensions: '尺寸', weight: '重量', ip_rating: '防护等级',
+  operating_temp: '工作温度', operating_temperature: '工作温度', installation: '安装方式', battery_life: '电池续航',
+  power: '供电方式', color: '颜色', material: '材质',
+  filename: '文件名', hardware_interfaces: '硬件接口',
+  category_name: '品类名', unit: '单位', status: '状态',
+  supply_category: '供电类别', method_type: '通讯类型',
+}
 
 const pendingAiFile = ref<File | null>(null)
 
@@ -341,34 +414,51 @@ async function onAiDrop(e: DragEvent) {
     if (!res.ok) throw new Error((await res.json()).detail || 'Extraction failed')
     const data = await res.json()
     aiPreview.value = data.fetched
+    let raw = JSON.parse(JSON.stringify(data.fetched))
+    // Translate spec keys to Chinese
+    if (raw.specs && typeof raw.specs === 'object') {
+      const keyMap: Record<string,string> = { ip_rating: '防护等级', dimensions_mm: '尺寸', dimensions: '尺寸', weight_g: '重量', weight: '重量', operating_temp: '工作温度', operating_temperature: '工作温度', working_temperature: '工作温度', installation: '安装方式', color: '颜色', material: '材质', battery_life: '电池续航', power_supply: '供电方式', protocol: '通讯协议', communication: '通讯方式' }
+      const translated: Record<string,any> = {}
+      for (const [k, v] of Object.entries(raw.specs)) { translated[keyMap[k] || k] = v }
+      raw.specs = translated
+    }
+    for (const k of aiDefaultFields) { if (!(k in raw)) raw[k] = '' }
+    aiEditFields.value = raw
     showToast('文件识别完成', 'success')
   } catch (e: any) { showToast(e.message || '识别失败', 'error') }
   aiFetching.value = false
 }
 
 async function onAiFetch() {
-  const url = aiUrlInput.value.trim()
-  const text = aiTextInput.value.trim()
-  if (!url && !text) { showToast('请输入URL或文本', 'error'); return }
+  const input = aiTextInput.value.trim()
+  if (!input) { showToast('请输入URL或文本', 'error'); return }
+  const isUrl = /^https?:\/\//.test(input)
   aiFetching.value = true
   try {
     const token = localStorage.getItem('token')
-    const res = await (await fetch('/product-db/api/products/ai-fetch', {
+    const resp = await fetch('/product-db/api/products/ai-fetch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify(url ? { url } : { text }),
-    })).json()
-    aiPreview.value = res.fetched
+      body: JSON.stringify(isUrl ? { url: input } : { text: input }),
+    })
+    const data = await resp.json()
+    if (!resp.ok) throw new Error(data.detail || 'AI提取失败')
+    if (!data.fetched || typeof data.fetched !== 'object') throw new Error('提取结果为空')
+    aiPreview.value = data.fetched
+    aiEditFields.value = JSON.parse(JSON.stringify(data.fetched))
     showToast('AI提取完成，请检查并填入表单', 'success')
+    nextTick(() => scrollToAi())
   } catch (err: any) {
     showToast(err.message || 'AI提取失败', 'error')
+  } finally {
+    aiFetching.value = false
   }
-  aiFetching.value = false
 }
 
 function onAiFill() {
-  const p = aiPreview.value
-  if (!p) return
+  try {
+  const p = aiEditFields.value
+  if (!p || !Object.keys(p).length) return
 
   // Basic fields
   if (p.name) form.value.name = p.name
@@ -441,13 +531,28 @@ function onAiFill() {
     })
   }
 
-  // Specs
-  if (p.specs && typeof p.specs === 'object') {
-    form.value.specs = { ...p.specs }
+  // Specs — handle both object and key:value text format
+  if (p.specs) {
+    if (typeof p.specs === 'object') {
+      form.value.specs = { ...p.specs }
+    } else if (typeof p.specs === 'string') {
+      const parsed: Record<string,any> = {}
+      for (const line of p.specs.split('\n')) {
+        const idx = line.indexOf(':')
+        if (idx > 0) parsed[line.substring(0, idx).trim()] = line.substring(idx + 1).trim()
+      }
+      if (Object.keys(parsed).length) form.value.specs = parsed
+    }
   }
 
-  aiPreview.value = null
-  showToast('已填入表单，请检查修改后保存', 'success')
+  document.querySelector('.page-header')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  nextTick(() => {
+    aiPreview.value = null
+    showToast('已填入表单，请检查修改后保存', 'success')
+  })
+  } catch (err: any) {
+    showToast(err.message || '填入表单失败', 'error')
+  }
 }
 
 function flattenTree(nodes: any[], result: any[] = []): any[] {
@@ -594,6 +699,7 @@ async function save() {
         })
         pendingAiFile.value = null
       }
+      dirty.value = false
       showToast('产品已创建', 'success')
       router.push('/products')
     }
