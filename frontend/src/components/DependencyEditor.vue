@@ -128,6 +128,7 @@ async function loadOptions() {
 }
 
 async function addDep() {
+  if (!props.productId) { showToast('请先保存产品', 'error'); return }
   const data: any = {
     dependency_type: newDep.value.dependency_type,
     description: newDep.value.description,
@@ -173,7 +174,8 @@ async function deleteDep(depId: number) {
 }
 
 onMounted(async () => {
-  await Promise.all([loadDeps(), loadOptions()])
+  await loadOptions()
+  if (props.productId > 0) await loadDeps()
 })
 </script>
 

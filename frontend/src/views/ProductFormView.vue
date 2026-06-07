@@ -1,5 +1,6 @@
 <template>
   <PageHeader :title="isEdit ? '编辑产品' : '新增产品'" :breadcrumb="[{ label: '产品列表', to: '/products' }, { label: isEdit ? '编辑产品' : '新增产品', to: '' }]">
+    <button class="btn-secondary" @click="scrollToAi">AI 智能录入</button>
     <button class="btn-secondary" @click="$router.back()">取消</button>
     <button class="btn-primary" @click="save">保存</button>
   </PageHeader>
@@ -31,7 +32,10 @@
       </div>
       <div class="form-group full">
         <label>产品URL</label>
-        <input v-model="form.product_url" placeholder="https://..." />
+        <div class="form-row-sm" style="display:flex;gap:8px">
+          <input v-model="form.product_url" placeholder="https://..." style="flex:1" />
+          <button v-if="isValidUrl(form.product_url)" class="btn-primary btn-sm" @click="aiFetchFromUrl" style="white-space:nowrap">AI 识别</button>
+        </div>
       </div>
       <div class="form-group full">
         <label>品类 *</label>
@@ -210,12 +214,12 @@
     </div>
   </div>
 
-  <div v-if="route.params.id" class="card mt-16">
-    <DependencyEditor :productId="Number(route.params.id)" />
+  <div class="card mt-16">
+    <DependencyEditor :productId="Number(route.params.id) || 0" />
   </div>
   <ProductFiles v-if="route.params.id" :productId="Number(route.params.id)" class="mt-16" />
 
-  <AiExtractCard v-if="loaded" @fill="onAiFill" />
+  <div v-if="loaded" ref="aiCardRef"><AiExtractCard ref="aiCard" @fill="onAiFill" /></div>
   <div v-else style="text-align:center;padding:48px;color:var(--color-text-secondary)">加载中...</div>
 
 
@@ -411,6 +415,16 @@ async function onFileSelect(e: Event) {
   ;(e.target as HTMLInputElement).value = ''
 }
 
+const aiCardRef = ref<HTMLElement | null>(null)
+const aiCard = ref<InstanceType<typeof AiExtractCard> | null>(null)
+function scrollToAi() { aiCardRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
+function aiFetchFromUrl() {
+  const url = form.value.product_url?.trim()
+  if (!url) return
+  aiCard.value?.fetchFromUrl(url)
+  scrollToAi()
+}
+
 function isValidUrl(s: string) { return /^https?:\/\/.+/.test(s.trim()) }
 
 function onAddImageUrl() {
@@ -522,7 +536,7 @@ async function save() {
       const newId = res?.product?.id
       dirty.value = false
       showToast('产品已创建', 'success')
-      router.push('/products')
+      router.push(`/products/${newId}/edit`)
     }
   } catch (e: any) {
     showToast(e.detail || e.message, 'error')

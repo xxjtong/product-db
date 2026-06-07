@@ -2,7 +2,16 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-06-07, R12)
+## 最新变更 (2026-06-07, R12.1)
+
+- 恢复产品编辑/新建页 Header「AI 智能录入」按钮 + 产品URL右侧「AI 识别」按钮
+- AiExtractCard 暴露 `fetchFromUrl()`: URL 按钮点击自动填入并触发 AI 提取
+- AI 提取完成后自动滚动到结果预览区
+- 新建产品页显示依赖关系卡片，保存后自动跳转编辑页（不再回列表）
+- `v-else` 孤儿修复 (SolutionsView/QuotationsView/AdminView)
+- ai-drop CSS 从 scoped → main.css 全局
+
+### R12: 全面优化 — 性能/架构/CSS/LLM/OCR/组件/安全
 
 ### R12: 全面优化 — 性能/架构/CSS/LLM/OCR
 

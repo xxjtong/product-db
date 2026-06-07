@@ -20,7 +20,7 @@
         </label>
       </div>
     </div>
-    <div v-if="preview" style="margin-top:12px;padding:12px;background:white;border-radius:4px">
+    <div v-if="preview" ref="previewRef" style="margin-top:12px;padding:12px;background:white;border-radius:4px">
       <div class="section-header"><strong style="margin:0">提取结果预览（可编辑）</strong></div>
       <table class="data-table" style="margin-top:8px">
         <thead><tr><th>字段</th><th>提取值</th></tr></thead>
@@ -47,7 +47,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 
 const emit = defineEmits<{ fill: [data: Record<string, any>] }>()
 
@@ -57,6 +57,11 @@ const preview = ref<any>(null)
 const editFields = ref<Record<string, any>>({})
 const dragOver = ref(false)
 const imagePreview = ref('')
+const previewRef = ref<HTMLElement | null>(null)
+
+function scrollToPreview() {
+  nextTick(() => previewRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+}
 
 const displayFields = computed(() => [...Object.keys(editFields.value)])
 
@@ -141,7 +146,7 @@ async function doFileExtract(file: File) {
       raw.specs = translated
     }
     editFields.value = raw
-    preview.value = data.fetched
+    preview.value = data.fetched; scrollToPreview()
   } catch (err: any) {
     alert(err.message || '提取失败')
   }
@@ -164,7 +169,7 @@ async function onFetch() {
     const data = await resp.json()
     if (!resp.ok) throw new Error(data.detail || 'AI提取失败')
     if (!data.fetched || typeof data.fetched !== 'object') throw new Error('提取结果为空')
-    preview.value = data.fetched
+    preview.value = data.fetched; scrollToPreview()
     editFields.value = JSON.parse(JSON.stringify(data.fetched))
   } catch (err: any) {
     alert(err.message || 'AI提取失败')
@@ -191,4 +196,11 @@ function onFill() {
   emit('fill', raw)
   preview.value = null
 }
+
+async function fetchFromUrl(url: string) {
+  textInput.value = url
+  await onFetch()
+}
+
+defineExpose({ fetchFromUrl })
 </script>
