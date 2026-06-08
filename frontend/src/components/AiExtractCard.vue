@@ -14,7 +14,7 @@
         <img :src="imagePreview" style="max-width:200px;max-height:150px;border-radius:4px;border:1px solid var(--color-border)" />
       </div>
       <div style="display:flex;align-items:center;gap:8px">
-        拖拽文件到此处 或
+        粘贴图片、拖拽文件到此处 或
         <label class="btn-secondary btn-sm btn-label">选择文件
           <input type="file" accept=".pdf,.docx,.txt,.csv,.jpg,.jpeg,.png,.webp,.bmp" style="display:none" @change="onFileSelect" />
         </label>
@@ -155,8 +155,10 @@ async function doFileExtract(file: File) {
 
 // --- Text/URL extraction ---
 async function onFetch() {
-  const input = textInput.value.trim()
+  let input = textInput.value.trim()
   if (!input) return
+  // Auto-prefix bare www URLs
+  if (/^www\..+\..+/.test(input)) input = 'https://' + input
   const isUrl = /^https?:\/\//.test(input)
   fetching.value = true
   try {

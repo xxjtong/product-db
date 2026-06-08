@@ -54,10 +54,14 @@
         </div>
       </div>
     </div>
+    <hr style="margin:12px 0;border:none;border-top:1px solid var(--color-border)" />
     <div>
       <h4 style="margin:8px 0 4px">提示词</h4>
       <div v-for="(defPrompt, key) in aiSettings?.prompt_defaults || {}" :key="key" class="mb-8">
-        <label style="font-size:12px;font-weight:600">{{ promptLabels[key] || key }}</label>
+        <div style="display:flex;align-items:center;gap:8px">
+          <label style="font-size:12px;font-weight:600">{{ promptLabels[key] || key }}</label>
+          <button class="btn-secondary btn-sm" style="font-size:11px;padding:1px 6px" @click="aiPrompts[key] = defPrompt; showToast('提示词已重置', 'success')" title="恢复默认提示词">重置</button>
+        </div>
         <textarea v-model="aiPrompts[key]" rows="3" style="width:100%;font-family:monospace;font-size:13px;margin-top:2px"></textarea>
       </div>
     </div>

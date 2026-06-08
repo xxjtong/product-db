@@ -418,14 +418,14 @@ async function onFileSelect(e: Event) {
 const aiCardRef = ref<HTMLElement | null>(null)
 const aiCard = ref<InstanceType<typeof AiExtractCard> | null>(null)
 function scrollToAi() { aiCardRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
-function aiFetchFromUrl() {
+async function aiFetchFromUrl() {
   const url = form.value.product_url?.trim()
   if (!url) return
-  aiCard.value?.fetchFromUrl(url)
   scrollToAi()
+  await aiCard.value?.fetchFromUrl(url)
 }
 
-function isValidUrl(s: string) { return /^https?:\/\/.+/.test(s.trim()) }
+function isValidUrl(s: string) { return /^https?:\/\/.+/.test(s.trim()) || /^www\..+\..+/.test(s.trim()) }
 
 function onAddImageUrl() {
   const url = imageUrlInput.value.trim()
