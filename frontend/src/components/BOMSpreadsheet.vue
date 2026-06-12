@@ -62,7 +62,7 @@ const showToast = inject<(msg: string, type?: string) => void>('toast', () => {}
 
 const props = defineProps<{ solutionId?: number; quotationId?: number }>()
 
-interface BomRow { name: string; sku: string; qty: number; price: number; discount: number; description: string; remark: string }
+interface BomRow { name: string; sku: string; model: string; qty: number; price: number; discount: number; description: string; remark: string }
 const rows = ref<BomRow[]>([])
 const loading = ref(true)
 const dirty = ref(false)
@@ -72,7 +72,7 @@ function subtotal(r: BomRow): string {
 }
 
 function addRow() {
-  rows.value.push({ name: '', sku: '', qty: 1, price: 0, discount: 100, description: '', remark: '' })
+  rows.value.push({ name: '', sku: '', model: '', qty: 1, price: 0, discount: 100, description: '', remark: '' })
   dirty.value = true
 }
 
@@ -92,8 +92,9 @@ async function loadSnapshot() {
     if (props.quotationId) {
       const res = await fetchQuotationBom(props.quotationId)
       rows.value = (res.rows || []).map((r: any) => ({
-        name: r.name || '', sku: r.sku || '', qty: Number(r.qty) || 1,
-        price: Number(r.price) || 0, discount: Number(r.discount) || 100,
+        name: r.name || '', sku: r.sku || '', model: r.model || '',
+        qty: Number(r.qty) || 1, price: Number(r.price) || 0,
+        discount: Number(r.discount) || 100,
         description: r.description || '', remark: r.remark || '',
       }))
     } else if (props.solutionId) {
@@ -107,7 +108,7 @@ async function loadSnapshot() {
         const col = m[1]
         const rowNum = parseInt(m[2])
         if (rowNum <= 1) continue
-        if (!rowMap[rowNum]) rowMap[rowNum] = { name: '', sku: '', qty: 1, price: 0, discount: 100, description: '', remark: '' }
+        if (!rowMap[rowNum]) rowMap[rowNum] = { name: '', sku: '', model: '', qty: 1, price: 0, discount: 100, description: '', remark: '' }
         const v = c.v ?? ''
         if (col === 'A') {/* row number, skip */}
         else if (col === 'B') rowMap[rowNum].name = String(v)
@@ -132,7 +133,7 @@ async function save() {
   try {
     if (props.quotationId) {
       const data = rows.value.map(r => ({
-        name: r.name, sku: r.sku, qty: r.qty, price: r.price,
+        name: r.name, sku: r.sku, model: r.model, qty: r.qty, price: r.price,
         discount: r.discount, description: r.description, remark: r.remark,
       }))
       await saveQuotationBom(props.quotationId, { rows: data })

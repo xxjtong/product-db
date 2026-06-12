@@ -49,7 +49,7 @@ def list_solutions(
     q = db.query(Solution).options(
         selectinload(Solution.items).selectinload(SolutionItem.product),
     )
-    q = filter_by_ownership(q, Solution, user)
+    q = filter_by_ownership(q, Solution, user, strict=True)
     if status:
         q = q.filter(Solution.status == status)
     if search:
@@ -72,6 +72,15 @@ def list_solutions(
 def batch_delete_solutions(data: BatchDeleteRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
     if not data.ids:
         raise HTTPException(400, "ids is required")
+    if user.role != "admin":
+        owned = db.query(Solution.id).filter(
+            Solution.id.in_(data.ids),
+            Solution.created_by == user.id,
+        ).all()
+        owned_ids = {r[0] for r in owned}
+        forbidden = [i for i in data.ids if i not in owned_ids]
+        if forbidden:
+            raise HTTPException(403, f"Access denied for solutions: {forbidden}")
     deleted = db.query(Solution).filter(Solution.id.in_(data.ids)).delete(synchronize_session="fetch")
     db.commit()
     return {"ok": True, "deleted": deleted}
@@ -101,13 +110,14 @@ def get_solution(solution_id: int, db: Session = Depends(get_db), user=Depends(g
     ).where(Solution.id == solution_id))
     if not sol:
         raise HTTPException(404, "Solution not found")
+    check_ownership(sol, user, strict=True)
     return {"solution": sol.to_dict()}
 
 
 @router.put("/solutions/{solution_id}")
 def update_solution(solution_id: int, data: SolutionUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
-    check_ownership(sol, user)
+    check_ownership(sol, user, strict=True)
     apply_partial_update(sol, data, ["name", "description", "client_name", "project_name", "status", "notes"])
     sol.updated_at = datetime.now()
     db.commit()
@@ -120,7 +130,7 @@ def update_solution(solution_id: int, data: SolutionUpdate, db: Session = Depend
 @router.delete("/solutions/{solution_id}")
 def delete_solution(solution_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
-    check_ownership(sol, user)
+    check_ownership(sol, user, strict=True)
     db.delete(sol)
     db.commit()
     return {"ok": True}
@@ -131,6 +141,7 @@ def delete_solution(solution_id: int, db: Session = Depends(get_db), user=Depend
 @router.get("/solutions/{solution_id}/items")
 def list_items(solution_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
+    check_ownership(sol, user, strict=True)
     items = db.query(SolutionItem).options(
         selectinload(SolutionItem.product),
     ).filter_by(solution_id=solution_id)\
@@ -141,6 +152,7 @@ def list_items(solution_id: int, db: Session = Depends(get_db), user=Depends(get
 @router.post("/solutions/{solution_id}/items")
 def add_item(solution_id: int, data: SolutionItemCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
+    check_ownership(sol, user, strict=True)
     product = db.get(Product, data.product_id)
     if not product:
         raise HTTPException(400, "Product not found")
@@ -164,6 +176,8 @@ def add_item(solution_id: int, data: SolutionItemCreate, db: Session = Depends(g
 
 @router.put("/solutions/{solution_id}/items/{item_id}")
 def update_item(solution_id: int, item_id: int, data: SolutionItemUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    sol = get_or_404(db, Solution, solution_id, "Solution not found")
+    check_ownership(sol, user, strict=True)
     item = db.get(SolutionItem, item_id)
     if not item or item.solution_id != solution_id:
         raise HTTPException(404, "Item not found")
@@ -178,12 +192,13 @@ def update_item(solution_id: int, item_id: int, data: SolutionItemUpdate, db: Se
 
 @router.delete("/solutions/{solution_id}/items/{item_id}")
 def delete_item(solution_id: int, item_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    sol = get_or_404(db, Solution, solution_id, "Solution not found")
+    check_ownership(sol, user, strict=True)
     item = db.get(SolutionItem, item_id)
     if not item or item.solution_id != solution_id:
         raise HTTPException(404, "Item not found")
     db.delete(item)
     db.commit()
-    sol = db.get(Solution, solution_id)
     _recalc_totals(sol, db)
     db.commit()
     return {"ok": True}
@@ -195,6 +210,7 @@ def delete_item(solution_id: int, item_id: int, db: Session = Depends(get_db), u
 def check_solution(solution_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """Check solution completeness: find unmet required dependencies."""
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
+    check_ownership(sol, user, strict=True)
 
     items = db.query(SolutionItem).filter_by(solution_id=solution_id).all()
     solution_product_ids = {i.product_id for i in items}
@@ -246,6 +262,7 @@ def check_solution(solution_id: int, db: Session = Depends(get_db), user=Depends
 def suggest_solution(solution_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """Suggest products to fulfill unmet dependencies."""
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
+    check_ownership(sol, user, strict=True)
 
     items = db.query(SolutionItem).filter_by(solution_id=solution_id).all()
     solution_product_ids = {i.product_id for i in items}

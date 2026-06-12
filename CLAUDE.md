@@ -2,6 +2,60 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
+## 最新变更 (2026-06-12, R13)
+
+### R13: 权限收紧 + Excel 导出统一 + AI 增强 + 质量加固
+
+**方案/报价单权限收紧:**
+- `auth.py` `filter_by_ownership`/`check_ownership` 新增 `strict` 参数
+- `strict=True`: admin 全看, 普通用户只看自己创建的
+- solutions.py + quotations.py 全部端点接入 strict 模式
+- 批量删除增加所有权校验
+
+**Excel 导出统一为威发格式:**
+- 新建 `app/utils/excel_style.py` — 统一样式常量和辅助函数
+- 12 列标准布局: 信息行(灰色) → 标题行(黄底) → 表头 → 数据行 → 合计(中文大写) → 备注 → 页脚
+- 微软雅黑字体, thin 边框, 列宽标准化
+- `export_products()` — 产品清单导出统一格式
+- `export_quotation_xlsx()` — 报价单导出: H=F*G 公式, J=H*I 公式, J=SUM 公式
+- `_write_basic_bom()` — BOM 导出统一格式
+- 金额转中文大写 `num_to_chinese_uppercase()`
+- F/H/J 列 ¥货币格式, G 列整数, I 列百分比
+
+**图片嵌入 Excel:**
+- `excel_style.py` `embed_image()` — 等比缩放居中嵌入产品图片到 L 列
+- `_resolve_image()` — 支持本地文件/远程URL/上传目录
+- 报价单和 BOM 导出均嵌入产品图片
+
+**AI 助手质量提升:**
+- `reasoning_content` 兜底: deepseek-v4-flash 推理模型回复在 reasoning_content 字段
+- 关键词模型改回 `deepseek-chat` (无推理开销)
+- 优化 `ai_keyword_prompt`: 去除硬编码同义词, LLM 自主语义理解产品匹配
+- 新增 `solutions` 分组: 多方案场景 LLM 按方案返回产品组
+- 前端 `AiChat.vue` / `SolutionDetailView.vue`: 方案组虚线分隔渲染
+- SSE 异常不再泄露到前端, 服务器日志完整
+
+**质量加固 (Review 修复):**
+- `SolutionDetailView.vue` saveInfo: 静默丢弃 → toast 错误
+- `quotations.py` BOM 保存: delete-then-insert → try/rollback
+- `AiChat.vue` onAddToBom: 静默跳转 → toast 错误
+- 批量添加 toast: 报告请求总数 → 报告实际成功/失败数
+- `embed_image` 返回值检查 + 日志
+- ~10 处 `except Exception` 补充异常详情日志
+- BOM 编辑器 `model` 字段补充, `BomRow` 类型修正
+- `bom_templates.py` `_sync_snapshot_to_items`: 修复未定义变量
+- `ai.py` 提取 `_parse_tool_result` / `_get_done_events` helper
+- `excel_style.py` 移除未用 import 和死参数
+- `AiChat.vue` 提取 FAB 拖拽 helper
+
+**数据修复:**
+- `quotation_items.product_id` NOT NULL → nullable (BOM 编辑支持自由行)
+- `quotation_items.sort_order` 0 → 1..N (修复 old_items 键冲突导致 product_id 丢失)
+- `solution_items.sort_order` 同步修复
+- DB `ai_keyword_model` 改回 `deepseek-chat`
+
+### R12.2: 提示词 DB 化 + URL 按钮修复
+
 ## 最新变更 (2026-06-08, R12.2)
 
 - 提示词 DB 化: `build_extraction_prompt` 从 `ai_extract_prompt` 读取, 管理页可编辑+重置

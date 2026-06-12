@@ -137,12 +137,11 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
         def _search_kw(kw: str, base_q, max_results: int):
             """Search for a single keyword, return up to max_results products."""
             kw_clean = escape_like(kw)
-            q = base_q.filter(or_(
+            return base_q.filter(or_(
                 Product.name.ilike(f"%{kw_clean}%"),
                 Product.model.ilike(f"%{kw_clean}%"),
                 Product.description.ilike(f"%{kw_clean}%"),
-            ))
-            return q.options(
+            )).options(
                 selectinload(Product.category),
                 selectinload(Product.manufacturer),
                 selectinload(Product.comm_methods).selectinload(ProductCommMethod.method),

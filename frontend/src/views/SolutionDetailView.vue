@@ -41,12 +41,24 @@
         <div v-for="(m, i) in chatMessages" :key="i" :class="['sol-chat-msg', m.role]">
           <div class="sol-chat-bubble" v-if="m.content" v-html="sanitize(m.content)" />
           <div v-if="m.products?.length" class="sol-chat-products">
-            <div v-for="p in m.products" :key="p.id" class="sol-chat-prod" @click="router.push('/products/'+p.id)">
-              <span class="sol-chat-prod-name">{{ p.name }}</span>
-              <span class="font-mono" style="font-size:11px;color:var(--color-text-secondary);margin:0 8px">{{ p.model }}</span>
-              <span style="font-weight:600;font-size:13px" v-if="p.price">¥{{ p.price }}</span>
-              <button class="btn-primary btn-sm" style="margin-left:auto;padding:2px 8px;font-size:11px" @click.stop="onAddToBom([{id:p.id, qty:1}])">加入方案</button>
-            </div>
+            <template v-for="(p, pi) in m.products" :key="pi">
+              <div v-if="p._solution" class="sol-chat-solution-sep">
+                <div class="sol-chat-solution-name">{{ p._solution.name }}</div>
+                <div v-if="p._solution.desc" style="font-size:11px;color:var(--color-text-secondary);margin-bottom:4px">{{ p._solution.desc }}</div>
+                <div v-for="sp in p._products" :key="sp.id" class="sol-chat-prod" @click="router.push('/products/'+sp.id)">
+                  <span class="sol-chat-prod-name">{{ sp.name }}</span>
+                  <span class="font-mono" style="font-size:11px;color:var(--color-text-secondary);margin:0 8px">{{ sp.model }}</span>
+                  <span style="font-weight:600;font-size:13px" v-if="sp.price">¥{{ sp.price }}</span>
+                  <button class="btn-primary btn-sm" style="margin-left:auto;padding:2px 8px;font-size:11px" @click.stop="onAddToBom([{id:sp.id, qty:1}])">加入方案</button>
+                </div>
+              </div>
+              <div v-else class="sol-chat-prod" @click="router.push('/products/'+p.id)">
+                <span class="sol-chat-prod-name">{{ p.name }}</span>
+                <span class="font-mono" style="font-size:11px;color:var(--color-text-secondary);margin:0 8px">{{ p.model }}</span>
+                <span style="font-weight:600;font-size:13px" v-if="p.price">¥{{ p.price }}</span>
+                <button class="btn-primary btn-sm" style="margin-left:auto;padding:2px 8px;font-size:11px" @click.stop="onAddToBom([{id:p.id, qty:1}])">加入方案</button>
+              </div>
+            </template>
           </div>
           <div v-if="m.components?.length">
             <component v-for="(comp, ci) in m.components" :key="ci" :is="componentRegistry[comp.component]" v-bind="comp.props" @addToBom="onAddToBom" @compare="onCompare" @viewQuote="(id: number) => router.push(`/quotations/${id}`)" />
@@ -199,7 +211,7 @@ async function saveInfo() {
       client_name: solution.value.client_name, project_name: solution.value.project_name,
       status: solution.value.status, notes: solution.value.notes,
     })
-  } catch { /* ignore */ }
+  } catch (e: any) { showToast('保存失败: ' + (e.detail || e.message || '请重试'), 'error') }
 }
 
 // Batch add
@@ -210,19 +222,23 @@ function togglePick(id: number) {
 }
 
 async function batchAdd() {
+  let added = 0, failed = 0
   for (const id of pickerSelected.value) {
-    try { await addSolutionItem(Number(route.params.id), { product_id: id, quantity: 1 }) } catch { /* skip */ }
+    try { await addSolutionItem(Number(route.params.id), { product_id: id, quantity: 1 }); added++ } catch { failed++ }
   }
-  showToast(`已添加 ${pickerSelected.value.length} 个产品`, 'success')
+  const msg = failed ? `已添加 ${added} 个，${failed} 个失败` : `已添加 ${added} 个产品`
+  showToast(msg, failed ? 'error' : 'success')
   pickerOpen.value = false; pickerSelected.value = []; await load()
 }
 
 // GenUI events from AI
 async function onAddToBom(items: { id: number; qty: number }[]) {
+  let added = 0, failed = 0
   for (const item of items) {
-    try { await addSolutionItem(Number(route.params.id), { product_id: item.id, quantity: item.qty || 1 }) } catch { /* skip */ }
+    try { await addSolutionItem(Number(route.params.id), { product_id: item.id, quantity: item.qty || 1 }); added++ } catch { failed++ }
   }
-  showToast(`已添加 ${items.length} 个产品`, 'success')
+  const msg = failed ? `已添加 ${added} 个，${failed} 个失败` : `已添加 ${added} 个产品`
+  showToast(msg, failed ? 'error' : 'success')
   await load()
 }
 
@@ -273,7 +289,7 @@ async function loadConvs() {
     const res = await fetchConversations()
     convs.value = res.conversations || []
     showConvs.value = true
-  } catch { /* ignore */ }
+  } catch { console.warn('Failed to load conversations') }
 }
 async function loadConv(id: number) {
   try {
@@ -293,7 +309,9 @@ async function loadConv(id: number) {
       }
     }
     nextTick(scrollChat)
-  } catch { /* ignore */ }
+  } catch (e: any) {
+    chatMessages.value.push({ role: 'assistant', content: `请求失败: ${escapeHtml(e.message || '请重试')}`, products: [], components: [] })
+  }
 }
 function newChat() { chatCid.value = null; chatMessages.value = []; showConvs.value = false }
 
@@ -324,6 +342,13 @@ async function sendChat() {
       }
       if (typeof text === 'string' && text.startsWith('[PRODUCTS:')) {
         try { curProducts = JSON.parse(text.slice(10)) } catch { /* skip */ }
+        continue
+      }
+      if (typeof text === 'string' && text.startsWith('[SOLUTION:')) {
+        try {
+          const sol = JSON.parse(text.slice(10))
+          curProducts.push({ _solution: { name: sol.name, desc: sol.desc }, _products: sol.products })
+        } catch { /* skip */ }
         continue
       }
       if (typeof text === 'string' && text.startsWith('[COMPONENT:')) {
@@ -409,6 +434,8 @@ onMounted(load)
 }
 .sol-chat-prod:hover { border-color: var(--color-accent); box-shadow: var(--shadow-sm); }
 .sol-chat-prod-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sol-chat-solution-sep { margin: 6px 0 2px; }
+.sol-chat-solution-name { font-size: 12px; font-weight: 600; color: var(--color-accent); padding: 2px 0; border-bottom: 1px dashed var(--color-border); margin-bottom: 6px; }
 .ai-cursor { animation: blink 1s infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 .sol-chat-bubble b { font-weight: 600; }

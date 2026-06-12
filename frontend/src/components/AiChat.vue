@@ -41,12 +41,22 @@
         <div v-for="(m, i) in messages" :key="i" :class="['ai-msg', m.role]">
           <div class="ai-msg-text" v-html="sanitize(stripCalls(m.content))" v-if="m.content" />
           <div v-if="m.products?.length" class="ai-products">
-            <div class="ai-products-header">找到 {{ m.products.length }} 个产品：</div>
-            <div v-for="p in m.products" :key="p.id" class="ai-product-card" @click="router.push('/products/' + p.id)">
-              <span class="ai-prod-name">{{ p.name }}</span>
-              <span class="font-mono" style="font-size:11px;color:var(--color-text-secondary);margin:0 8px">{{ p.model }}</span>
-              <span style="font-weight:600;font-size:13px" v-if="p.price">¥{{ p.price }}</span>
-            </div>
+            <template v-for="(p, pi) in m.products" :key="pi">
+              <div v-if="p._solution" class="ai-solution-sep">
+                <div class="ai-solution-name">{{ p._solution.name }}</div>
+                <div v-if="p._solution.desc" class="ai-solution-desc">{{ p._solution.desc }}</div>
+                <div v-for="sp in p._products" :key="sp.id" class="ai-product-card" @click="router.push('/products/' + sp.id)">
+                  <span class="ai-prod-name">{{ sp.name }}</span>
+                  <span class="font-mono" style="font-size:11px;color:var(--color-text-secondary);margin:0 8px">{{ sp.model }}</span>
+                  <span style="font-weight:600;font-size:13px" v-if="sp.price">¥{{ sp.price }}</span>
+                </div>
+              </div>
+              <div v-else class="ai-product-card" @click="router.push('/products/' + p.id)">
+                <span class="ai-prod-name">{{ p.name }}</span>
+                <span class="font-mono" style="font-size:11px;color:var(--color-text-secondary);margin:0 8px">{{ p.model }}</span>
+                <span style="font-weight:600;font-size:13px" v-if="p.price">¥{{ p.price }}</span>
+              </div>
+            </template>
           </div>
           <div v-if="m.tools?.length" class="ai-tool-calls">
             <span v-for="t in collapseTools(m.tools)" :key="t.name" class="tag tag-default">🔧 {{ t.name }}{{ t.count > 1 ? ' ×' + t.count : '' }}</span>
@@ -82,7 +92,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount, inject } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessageCircleIcon, Minimize2Icon } from 'lucide-vue-next'
 import SolutionProductCard from './GenUI/SolutionProductCard.vue'
@@ -95,6 +105,7 @@ function sanitize(html: string): string { return DOMPurify.sanitize(html) as str
 function stripCalls(text: string): string { return text.replace(/调用.*?\.\.\./g, '').replace(/<｜｜DSML｜｜tool_calls>[\s\S]*?<\/｜｜DSML｜｜tool_calls>/g, '').trim() }
 
 const genuiRegistry: Record<string, any> = { SolutionProductCard, QuoteDraftCard }
+const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
 const router = useRouter()
 const open = ref(false)
@@ -112,9 +123,6 @@ let fabStart = { x: 0, y: 0, left: 0, bottom: 0 }
 let fabMoved = false
 
 function getFabDefaultPos(): { x: number; y: number } {
-  if (window.innerWidth <= 480) {
-    return { x: window.innerWidth - 68, y: 60 }
-  }
   return { x: window.innerWidth - 68, y: 60 }
 }
 
@@ -124,48 +132,47 @@ function toggleFab(e: MouseEvent) {
   loadConvs()
 }
 
-function startDragFab(e: MouseEvent) {
+function _initFabDrag(clientX: number, clientY: number) {
   const el = fabEl.value
-  if (!el) return
+  if (!el) return false
   const rect = el.getBoundingClientRect()
-  fabStart = { x: e.clientX, y: e.clientY, left: rect.left, bottom: window.innerHeight - rect.bottom }
+  fabStart = { x: clientX, y: clientY, left: rect.left, bottom: window.innerHeight - rect.bottom }
   fabDragging = true
   fabMoved = false
+  return true
+}
+
+function _updateFabPosition(clientX: number, clientY: number, threshold = 8) {
+  const dx = clientX - fabStart.x
+  const dy = clientY - fabStart.y
+  if (Math.abs(dx) > threshold || Math.abs(dy) > threshold) fabMoved = true
+  fabPos.value = {
+    x: Math.max(0, Math.min(window.innerWidth - 56, fabStart.left + dx)),
+    y: Math.max(70, Math.min(window.innerHeight - 56, fabStart.bottom - dy)),
+  }
+}
+
+function startDragFab(e: MouseEvent) {
+  if (!_initFabDrag(e.clientX, e.clientY)) return
   document.addEventListener('mousemove', onDragFab)
   document.addEventListener('mouseup', stopDragFab)
 }
 
 function startDragFabTouch(e: TouchEvent) {
-  const el = fabEl.value
-  if (!el || !e.touches[0]) return
-  const rect = el.getBoundingClientRect()
   const t = e.touches[0]
-  fabStart = { x: t.clientX, y: t.clientY, left: rect.left, bottom: window.innerHeight - rect.bottom }
-  fabDragging = true
-  fabMoved = false
+  if (!t || !_initFabDrag(t.clientX, t.clientY)) return
   document.addEventListener('touchmove', onDragFabTouch, { passive: false })
   document.addEventListener('touchend', stopDragFabTouch)
 }
 
 function onDragFab(e: MouseEvent) {
-  const dx = e.clientX - fabStart.x
-  const dy = e.clientY - fabStart.y
-  if (Math.abs(dx) > 8 || Math.abs(dy) > 8) fabMoved = true
-  const x = Math.max(0, Math.min(window.innerWidth - 56, fabStart.left + dx))
-  const y = Math.max(70, Math.min(window.innerHeight - 56, fabStart.bottom - dy))
-  fabPos.value = { x, y }
+  _updateFabPosition(e.clientX, e.clientY)
 }
 
 function onDragFabTouch(e: TouchEvent) {
   e.preventDefault()
   const t = e.touches[0]
-  if (!t) return
-  const dx = t.clientX - fabStart.x
-  const dy = t.clientY - fabStart.y
-  if (Math.abs(dx) > 10 || Math.abs(dy) > 10) fabMoved = true
-  const x = Math.max(0, Math.min(window.innerWidth - 56, fabStart.left + dx))
-  const y = Math.max(70, Math.min(window.innerHeight - 56, fabStart.bottom - dy))
-  fabPos.value = { x, y }
+  if (t) _updateFabPosition(t.clientX, t.clientY, 10)
 }
 
 function stopDragFab() {
@@ -286,7 +293,7 @@ async function loadConv(id: number) {
       products: extractProducts(m.content, m.role),
     }))
     scrollDown()
-  } catch { console.warn('AiChat: failed to load conversations') }
+  } catch { console.warn('AiChat: failed to load conversation') }
 }
 
 async function deleteConv(id: number) {
@@ -294,7 +301,7 @@ async function deleteConv(id: number) {
     await deleteConversation(id)
     convs.value = convs.value.filter(c => c.id !== id)
     if (convId.value === id) { convId.value = null; messages.value = [] }
-  } catch { console.warn('AiChat: failed to load conversations') }
+  } catch { console.warn('AiChat: failed to delete conversation') }
 }
 
 async function onAddToBom(items: { id: number; qty: number }[]) {
@@ -304,7 +311,8 @@ async function onAddToBom(items: { id: number; qty: number }[]) {
       await addSolutionItem(sol.solution.id, { product_id: item.id, quantity: item.qty || 1 })
     }
     router.push(`/solutions/${sol.solution.id}`)
-  } catch {
+  } catch (e: any) {
+    showToast('加入方案失败: ' + (e.detail || e.message || '请重试'), 'error')
     router.push('/solutions')
   }
 }
@@ -419,7 +427,12 @@ async function send(question?: string) {
             loadConvs()
           }
           if (event.event === 'products' && event.data) {
-            currentProducts = event.data
+            // Accumulate products for multi-solution grouping
+            if (event.solution_name) {
+              currentProducts.push({ _solution: { name: event.solution_name, desc: event.solution_desc || '' }, _products: event.data })
+            } else {
+              currentProducts = currentProducts.concat(event.data)
+            }
           } else if (event.event === 'component') {
             currentComponents.push(event)
           } else if (event.event === 'quick_replies') {
@@ -452,11 +465,11 @@ async function send(question?: string) {
           } else if (event.event === 'error') {
             messages.value.push({ role: 'assistant', content: `错误: ${escapeHtml(event.text)}` })
           }
-        } catch { /* skip */ }
+        } catch { /* skip malformed SSE line */ }
       }
     }
   } catch (e: any) {
-    messages.value.push({ role: 'assistant', content: `请求失败: ${escapeHtml(e.message)}` })
+    messages.value.push({ role: 'assistant', content: `请求失败: ${escapeHtml(e.message || '请重试')}` })
   }
   loading.value = false
   scrollDown()
@@ -540,6 +553,9 @@ function quickReply(reply: string, msg: any) {
   display: flex; align-items: center;
 }
 .ai-product-card:hover { border-color: var(--color-accent); box-shadow: var(--shadow-sm); }
+.ai-solution-sep { margin: 6px 0 2px; }
+.ai-solution-name { font-size: 12px; font-weight: 600; color: var(--color-accent); padding: 2px 0; border-bottom: 1px dashed var(--color-border); margin-bottom: 6px; }
+.ai-solution-desc { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 4px; }
 .ai-prod-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ai-tool-calls { font-size: 11px; padding: 2px 8px; }
 .ai-cursor { animation: blink 1s infinite; } @keyframes blink { 50% { opacity: 0; } }

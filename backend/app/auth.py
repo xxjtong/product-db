@@ -95,20 +95,34 @@ def _get_admin_ids(session) -> list:
     return ids or [1]
 
 
-def filter_by_ownership(query, model, user):
-    """Filter query by ownership: admin sees all, others see own + admin + legacy (NULL)."""
+def filter_by_ownership(query, model, user, strict: bool = False):
+    """Filter query by ownership.
+
+    strict=False (default): admin sees all, others see own + admin + legacy (NULL).
+    strict=True: admin sees all, others see ONLY their own (created_by == user.id).
+    """
     if user.role == "admin":
         return query
     from sqlalchemy import or_
+    if strict:
+        return query.filter(model.created_by == user.id)
     admin_ids = _get_admin_ids(query.session)
     return query.filter(or_(model.created_by == None, model.created_by == user.id, model.created_by.in_(admin_ids)))
 
 
-def check_ownership(resource, user):
-    """Raise 403 if user doesn't own this resource (admin always passes, NULL=legacy allowed)."""
+def check_ownership(resource, user, strict: bool = False):
+    """Raise 403 if user doesn't own this resource.
+
+    strict=False (default): admin always passes, NULL=legacy allowed, admin(id=1) allowed.
+    strict=True: admin always passes, others can only access their own.
+    """
     if user.role == "admin":
         return
     created_by = getattr(resource, 'created_by', None)
-    if created_by is not None and created_by != user.id and created_by != 1:
+    if created_by is None and not strict:
+        return
+    if created_by is not None and created_by != user.id:
+        if not strict and created_by == 1:
+            return
         from fastapi import HTTPException
         raise HTTPException(403, "Access denied: not your resource")

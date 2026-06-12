@@ -29,7 +29,8 @@ def _get_ai_setting(db: Session, key: str, default: str) -> str:
     try:
         s = db.query(SystemSetting).filter_by(key=key).first()
         return s.value if s else default
-    except Exception:
+    except Exception as e:
+        logging.getLogger("uvicorn").warning(f"Failed to read AI setting {key}: {e}")
         return default
 
 # Context cache (TTL 300s)
@@ -145,6 +146,41 @@ def save_message(conv_id: int, role: str, content: str = "", tool_calls: str = N
 
 # --- Agent Loop ---
 
+def _product_to_dict(p) -> dict:
+    """Convert a Product model to a flat dict for AI response."""
+    return {
+        "id": p.id,
+        "name": p.name,
+        "model": p.model or "",
+        "category": p.category.name if p.category else "",
+        "manufacturer": p.manufacturer.name if p.manufacturer else "",
+        "price": float(p.base_price) if p.base_price else 0,
+        "comm_methods": [cm.method.name for cm in p.comm_methods if cm.method],
+        "power_supplies": [ps.power.name for ps in p.power_supplies if ps.power],
+        "description": (p.description or "")[:200],
+    }
+
+
+def _parse_tool_result(result_str: str) -> tuple:
+    """Safely parse tool result JSON and extract products and created_quote."""
+    try:
+        tr = json.loads(result_str)
+        return tr.get("products"), tr.get("created_quote")
+    except (json.JSONDecodeError, TypeError, KeyError):
+        return None, None
+
+
+def _get_done_events(conv_id, db, total_tokens) -> list[dict]:
+    """Return SSE event dicts signaling query completion with product results."""
+    text = "查询完成。如需进一步筛选或对比，请告诉我。"
+    save_message(conv_id, "assistant", content=text, db=db, commit=False)
+    db.commit()
+    events = [{"event": "text", "text": char} for char in text]
+    events.append({"event": "done", "tokens": total_tokens})
+    events.append({"event": "quick_replies", "items": ["对比产品", "全部加入方案"]})
+    return events
+
+
 def run_mock_agent(user_input: str, db: Session, conv_id: int):
     """Mock agent using keyword matching — no LLM API key needed."""
     yield {"event": "connect"}
@@ -184,8 +220,8 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int):
                 response += "需要查看哪个产品的详情？"
             else:
                 response = "没有找到匹配的产品。试试调整搜索条件？"
-        except Exception:
-            logging.getLogger("uvicorn").warning("Mock agent: failed to parse tool result")
+        except Exception as e:
+            logging.getLogger("uvicorn").warning(f"Mock agent: failed to parse tool result: {e}")
             response = "搜索完成，但结果解析出错。请重试。"
 
     elif "品类" in inp or "分类" in inp or "categories" in inp.lower():
@@ -275,7 +311,6 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             for pid, cids in pc_id_map.items():
                 prod_cats[pid] = [cat_id_to_name[cid] for cid in cids if cid in cat_id_to_name]
 
-            import re as _re
             prod_parts = []
             for p in products:
                 pid = p.id
@@ -286,7 +321,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                 if cats_list:
                     part += f" [{', '.join(cats_list)}]"
                 if p.description:
-                    desc = _re.sub(r'https?://\S+', '', p.description).strip()
+                    desc = re.sub(r'https?://\S+', '', p.description).strip()
                     if desc:
                         part += f": {desc}"
                 if p.specs and isinstance(p.specs, dict):
@@ -333,7 +368,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             "- power: string|null — 供电方式\n"
             "- min_price: number|null, max_price: number|null — 价格区间\n"
             "- sort_by: \"price_asc\"|\"price_desc\"|null\n\n"
-            "同义词: 漏水→水浸, 感应器→传感器, 探测器→传感器, 烟雾→烟感, 空开→智能空开, 无线→WiFi\n\n"
+            "信任LLM的语义理解和产品匹配能力，不要机械字符串匹配。\n\n"
             "只返回JSON，无其他内容。")
         kw_system = f"{kw_prompt}\n\n{db_ctx}"
         extract_prompt = [
@@ -344,7 +379,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
         usage_ext = extract_resp.get("usage", {})
         total_tokens["in"] += usage_ext.get("prompt_tokens", 0)
         total_tokens["out"] += usage_ext.get("completion_tokens", 0)
-        content = extract_resp["choices"][0]["message"].get("content", "")
+        content = extract_resp["choices"][0]["message"].get("content") or extract_resp["choices"][0]["message"].get("reasoning_content", "")
         json_match = re.search(r'\{.*\}', content, re.DOTALL)
         # DSML fallback: deepseek-v4-flash sometimes returns native tool-call format
         has_dsml = not json_match and ('DSML' in content or 'dsml' in content)
@@ -361,14 +396,11 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                     "function": {"name": "search_products", "arguments": json.dumps(args)}
                 }]})
                 current_messages.append({"role": "tool", "tool_call_id": "extract_0", "content": result_str})
-                try:
-                    tr = json.loads(result_str)
-                    if tr.get("products"):
-                        products_found = True
-                        yield {"event": "products", "data": tr["products"]}
-                        yield {"event": "component", "component": "SolutionProductCard", "props": {"products": tr["products"]}}
-                except Exception:
-                    logging.getLogger("uvicorn").warning("JSON parse of tool result failed")
+                products_data, _ = _parse_tool_result(result_str)
+                if products_data:
+                    products_found = True
+                    yield {"event": "products", "data": products_data}
+                    yield {"event": "component", "component": "SolutionProductCard", "props": {"products": products_data}}
                 max_turns = 1
         elif json_match:
             extracted = json.loads(json_match.group())
@@ -383,8 +415,43 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             brand = extracted.get("brand") or extracted.get("manufacturer")
             has_filter = bool(extracted.get("category") or extracted.get("comm_method") or extracted.get("protocol") or extracted.get("power") or brand)
             matches = extracted.get("matches", {})  # LLM-matched: {keyword: [id1, id2, ...]}
+            solutions = extracted.get("solutions")  # multi-solution grouping
 
-            if keywords or has_filter:
+            # Multi-solution mode: yield grouped results
+            if solutions and isinstance(solutions, list) and len(solutions) > 0:
+                from app.models.product import Product as ProductModel
+                all_pids = set()
+                for sol in solutions:
+                    for pid in sol.get("product_ids", [])[:10]:
+                        if str(pid).isdigit():
+                            all_pids.add(int(pid))
+                product_map = {}
+                if all_pids:
+                    prods = db.query(ProductModel).options(*product_eager_loads()).filter(
+                        ProductModel.id.in_(all_pids), ProductModel.status == 'active'
+                    ).all()
+                    product_map = {p.id: p for p in prods}
+
+                for sol in solutions:
+                    sol_name = sol.get("name", "")
+                    sol_desc = sol.get("desc", "")
+                    sol_pids = [int(i) for i in sol.get("product_ids", [])[:10] if str(i).isdigit()]
+                    sol_products = []
+                    for pid in sol_pids:
+                        p = product_map.get(pid)
+                        if p:
+                            sol_products.append(_product_to_dict(p))
+                    if sol_products:
+                        products_found = True
+                        yield {"event": "products", "data": sol_products,
+                               "solution_name": sol_name, "solution_desc": sol_desc}
+                        yield {"event": "component", "component": "SolutionProductCard",
+                               "props": {"products": sol_products,
+                                         "solution_name": sol_name, "solution_desc": sol_desc}}
+                if products_found:
+                    max_turns = 1
+
+            elif keywords or has_filter:
                 if keywords:
                     yield {"event": "tool", "text": f"搜索 {' + '.join(keywords)}..."}
                 elif brand:
@@ -433,21 +500,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                             p = product_map.get(pid)
                             if not p:
                                 continue
-                            cat_name = p.category.name if p.category else ""
-                            mfg_name = p.manufacturer.name if p.manufacturer else ""
-                            comms = [cm.method.name for cm in p.comm_methods if cm.method]
-                            powers = [ps.power.name for ps in p.power_supplies if ps.power]
-                            item = {
-                                "id": p.id,
-                                "name": p.name,
-                                "model": p.model or "",
-                                "category": cat_name,
-                                "manufacturer": mfg_name,
-                                "price": float(p.base_price) if p.base_price else 0,
-                                "comm_methods": comms,
-                                "power_supplies": powers,
-                                "description": (p.description or "")[:200],
-                            }
+                            item = _product_to_dict(p)
                             # SQL-level price filter (db_ctx doesn't include price)
                             if filter_args.get("min_price") is not None and item["price"] < filter_args["min_price"]:
                                 seen_ids.discard(pid)
@@ -504,27 +557,19 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                         "function": {"name": "search_products", "arguments": json.dumps(args)}
                     }]})
                     current_messages.append({"role": "tool", "tool_call_id": "extract_0", "content": result_str})
-                    try:
-                        tr = json.loads(result_str)
-                        if tr.get("products"):
-                            products_found = True
-                            yield {"event": "products", "data": tr["products"]}
-                            yield {"event": "component", "component": "SolutionProductCard", "props": {"products": tr["products"]}}
-                    except Exception:
-                        logging.getLogger("uvicorn").warning("Chat LLM tool parse failed")
+                    products_data, _ = _parse_tool_result(result_str)
+                    if products_data:
+                        products_found = True
+                        yield {"event": "products", "data": products_data}
+                        yield {"event": "component", "component": "SolutionProductCard", "props": {"products": products_data}}
                     max_turns = 1
     except Exception as e:
         logging.getLogger("uvicorn").warning(f"Keyword extraction failed: {e}")
 
     # If keyword extraction already found products, skip chat LLM
     if products_found:
-        text = "查询完成。如需进一步筛选或对比，请告诉我。"
-        save_message(conv_id, "assistant", content=text, db=db, commit=False)
-        db.commit()
-        for char in text:
-            yield {"event": "text", "text": char}
-        yield {"event": "done", "tokens": total_tokens}
-        yield {"event": "quick_replies", "items": ["对比产品", "全部加入方案"]}
+        for event in _get_done_events(conv_id, db, total_tokens):
+            yield event
         return
 
     chat_model = _get_ai_setting(db, "ai_chat_model", "deepseek-v4-flash")
@@ -539,13 +584,8 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             logging.getLogger("uvicorn").warning(f"Chat LLM failed: {e}")
             # If keyword extraction already found products, don't mock-re-search
             if products_found:
-                text = "查询完成。如需进一步筛选或对比，请告诉我。"
-                save_message(conv_id, "assistant", content=text, db=db, commit=False)
-                db.commit()
-                for char in text:
-                    yield {"event": "text", "text": char}
-                yield {"event": "done", "tokens": total_tokens}
-                yield {"event": "quick_replies", "items": ["对比产品", "全部加入方案"]}
+                for event in _get_done_events(conv_id, db, total_tokens):
+                    yield event
                 return
             # Fall back to mock mode on API error
             user_msg = messages[-1]["content"] if messages else ""
@@ -582,17 +622,14 @@ async def run_agent(messages: list, db: Session, conv_id: int):
 
                 # Save tool result
                 save_message(conv_id, "tool", content=result_str, tool_call_id=tc.get("id", ""), db=db, commit=False)
-                try:
-                    tr = json.loads(result_str)
-                    if tr.get("products"):
-                        products_found = True
-                        yield {"event": "products", "data": tr["products"]}
-                        yield {"event": "component", "component": "SolutionProductCard", "props": {"products": tr["products"]}}
-                    if tr.get("created_quote"):
-                        products_found = True
-                        yield {"event": "component", "component": "QuoteDraftCard", "props": tr["created_quote"]}
-                except Exception:
-                    logging.getLogger("uvicorn").warning("run_agent: failed to parse tool result JSON")
+                products_data, created_quote = _parse_tool_result(result_str)
+                if products_data:
+                    products_found = True
+                    yield {"event": "products", "data": products_data}
+                    yield {"event": "component", "component": "SolutionProductCard", "props": {"products": products_data}}
+                if created_quote:
+                    products_found = True
+                    yield {"event": "component", "component": "QuoteDraftCard", "props": created_quote}
 
                 current_messages.append({
                     "role": "tool",
@@ -604,7 +641,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             continue
 
         # Model returned a text response — stream it
-        content = msg.get("content", "")
+        content = msg.get("content") or msg.get("reasoning_content", "")
         # Save the full response
         save_message(conv_id, "assistant", content=content, db=db, commit=False)
         db.commit()
@@ -621,7 +658,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
     # Max turns exceeded — ask LLM for final response without tools
     try:
         response = await engine.chat(current_messages, temperature=0.3)
-        text = response["choices"][0]["message"].get("content", "抱歉，查询超时，请重新提问。")
+        text = response["choices"][0]["message"].get("content") or response["choices"][0]["message"].get("reasoning_content") or "抱歉，查询超时，请重新提问。"
     except Exception as e:
         logging.getLogger("uvicorn").warning(f"run_agent: max-turns LLM call failed: {e}")
         if products_found:
@@ -695,7 +732,8 @@ async def ai_chat(request: Request, db: Session = Depends(get_db), user=Depends(
                 sse_db.commit()
         except Exception as e:
             success = False
-            yield f"data: {json.dumps({'event': 'error', 'text': str(e)}, ensure_ascii=False)}\n\n"
+            logging.getLogger("uvicorn").error(f"AI chat error: {e}", exc_info=True)
+            yield f"data: {json.dumps({'event': 'error', 'text': 'AI 服务暂时不可用，请稍后重试'}, ensure_ascii=False)}\n\n"
         finally:
             # Persist usage log via SQLAlchemy session (before close)
             duration = int((time.time() - start_time) * 1000)
@@ -707,8 +745,8 @@ async def ai_chat(request: Request, db: Session = Depends(get_db), user=Depends(
                 )
                 sse_db.add(usage)
                 sse_db.commit()
-            except Exception:
-                logging.getLogger("uvicorn").warning("Failed to log AI usage for user %d", uid)
+            except Exception as e:
+                logging.getLogger("uvicorn").warning("Failed to log AI usage for user %d: %s", uid, e)
             finally:
                 sse_db.close()
 

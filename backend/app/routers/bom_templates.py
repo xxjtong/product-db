@@ -181,26 +181,19 @@ def _sync_snapshot_to_items(solution_id: int, snapshot: dict, db: Session):
     if not sku_updates:
         return
 
-    # Match by SKU via Product → SolutionItem (filtered, not full table scan)
-    skus_in_use = {r.get("sku") for r in snapshot_rows if r.get("sku")}
-    products = {}
-    if skus_in_use:
-        products = {p.sku: p.id for p in db.query(Product).filter(Product.sku.in_(skus_in_use)).all() if p.sku}
+    # Batch-load products for all solution items to map SKU
     items = db.query(SolutionItem).filter_by(solution_id=solution_id).all()
+    pids = [it.product_id for it in items if it.product_id]
+    products = {p.id: p for p in db.query(Product).filter(Product.id.in_(pids)).all()} if pids else {}
 
     updated = 0
     for item in items:
-        # Find the product's SKU for this item
-        pid = item.product_id
-        item_sku = None
-        for sku, prod_id in products.items():
-            if prod_id == pid:
-                item_sku = sku
-                break
-        if not item_sku or item_sku not in sku_updates:
+        p = products.get(item.product_id)
+        if not p or not p.sku:
             continue
-
-        u = sku_updates[item_sku]
+        u = sku_updates.get(p.sku)
+        if not u:
+            continue
         item.quantity = u["quantity"]
         item.unit_price = u["unit_price"]
         item.discount_rate = u["discount_rate"]
@@ -357,18 +350,37 @@ def _write_snapshot_to_xlsx(ws, snapshot: dict):
         start = _cell_ref_to_rc(parts[0])
         end = _cell_ref_to_rc(parts[1]) if len(parts) > 1 else start
         ws.merge_cells(
-            min_row=start[0], min_col=start[1],
-            max_row=end[0], max_col=end[1]
+            start_row=start[0], start_column=start[1],
+            end_row=end[0], end_column=end[1]
         )
 
 
 def _write_basic_bom(ws, sol, solution_id: int, db: Session):
-    """Fallback: generate a basic BOM sheet from solution_items."""
-    ws.append([f"BOM - {sol.name}"])
-    ws.append([f"客户: {sol.client_name or ''}", f"项目: {sol.project_name or ''}"])
-    ws.append([])
-    ws.append(["#", "产品名称", "型号/SKU", "功能描述", "数量", "单价", "折扣%", "小计", "备注"])
+    """Fallback: generate a BOM sheet from solution_items with unified style."""
+    from app.utils.excel_style import (
+        apply_info_row, apply_title_row, apply_header_row, apply_data_row,
+        apply_total_row, apply_note_row, apply_footer_row, apply_column_widths,
+        num_to_chinese_uppercase, NUM_FMT_CURRENCY, NUM_FMT_NUMBER, NUM_FMT_PERCENT,
+        embed_image,
+    )
+    from datetime import date
 
+    ws.title = "BOM清单"
+    apply_column_widths(ws)
+
+    # Row 1: info
+    today = date.today().isoformat()
+    info_text = f"客户：{sol.client_name or ''}  |  项目：{sol.project_name or ''}  |  日期：{today}"
+    apply_info_row(ws, 1, info_text)
+
+    # Row 2: title
+    apply_title_row(ws, 2, f"BOM清单 — {sol.name}")
+
+    # Row 3: headers
+    headers = ["序号", "名称", "规格型号", "型号", "功能描述", "单价", "数量", "合计", "折扣率", "成交价", "备注", "图片"]
+    apply_header_row(ws, 3, headers)
+
+    # Data rows
     items = db.query(SolutionItem).filter_by(solution_id=solution_id)\
         .order_by(SolutionItem.sort_order).all()
     pids = {it.product_id for it in items if it.product_id}
@@ -378,20 +390,44 @@ def _write_basic_bom(ws, sol, solution_id: int, db: Session):
         qty = float(item.quantity or 0)
         price = float(item.unit_price or 0)
         discount = float(item.discount_rate or 100)
-        ws.append([
+        row = 3 + idx
+        formats = {6: NUM_FMT_CURRENCY, 7: NUM_FMT_NUMBER, 8: NUM_FMT_CURRENCY,
+                   9: NUM_FMT_PERCENT, 10: NUM_FMT_CURRENCY}
+        apply_data_row(ws, row, [
             idx,
             p.name if p else "",
-            ((p.model or "") + (" / " + p.sku if p and p.sku else "")) if p else "",
+            (p.model or "") if p else "",
+            (p.model or "") if p else "",
             (p.description or "")[:200] if p else "",
-            qty,
             price,
-            discount,
-            qty * price * (discount / 100),
+            qty,
+            price * qty,  # H placeholder
+            discount / 100,  # I: 折扣率(小数)
+            price * qty * (discount / 100),  # J placeholder
             item.remark or "",
-        ])
+            p.image_url or "" if p else "",
+        ], formats)
+        # Replace H and J with formulas
+        ws.cell(row=row, column=8).value = f"=F{row}*G{row}"       # H: 合计
+        ws.cell(row=row, column=10).value = f"=H{row}*I{row}"       # J: 成交价
 
-    ws.append([])
-    ws.append(["", "", "", "", "", "", "合计", float(sol.total_price or 0), ""])
+        # Embed product image in column L
+        if p and p.image_url:
+            import os
+            from app.services.storage import UPLOAD_DIR
+            if not embed_image(ws, row, 12, p.image_url, str(UPLOAD_DIR)):
+                import logging; logging.getLogger("uvicorn").warning(f"Failed to embed image for product {p.id} at row {row}")
+
+    # Total row
+    total_row = 3 + len(items) + 1
+    total = float(sol.total_price or 0)
+    apply_total_row(ws, total_row, f"合计（大写）：{num_to_chinese_uppercase(total)}", col_letter="J")
+
+    # Note row
+    apply_note_row(ws, total_row + 1, f"BOM清单 — {sol.name}  |  方案编号：{solution_id}")
+
+    # Footer
+    apply_footer_row(ws, total_row + 2, "产品数据库 — BOM清单导出")
 
 
 def _generate_snapshot(sol: Solution, template, db: Session) -> dict:

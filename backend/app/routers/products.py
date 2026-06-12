@@ -232,23 +232,52 @@ def export_products(
     _sk2 = case((Product.manufacturer_id.in_(_mfg_pri_ids2), 0), (Product.image_url != None, 1), else_=2)
     products = q.order_by(_sk2, Product.name).all()
 
+    from app.utils.excel_style import (
+        apply_info_row, apply_title_row, apply_header_row, apply_data_row,
+        apply_footer_row, apply_column_widths,
+    )
+    from datetime import date
+
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "产品列表"
-    headers = ["ID", "型号", "名称", "品类", "厂商", "通讯方式", "协议", "供电", "规格(JSON)"]
-    ws.append(headers)
+    ws.title = "产品清单"
+    apply_column_widths(ws)
 
-    for p in products:
+    # Row 1: info
+    apply_info_row(ws, 1, f"导出人：{user.username}  |  日期：{date.today().isoformat()}  |  共 {len(products)} 条")
+
+    # Row 2: title
+    apply_title_row(ws, 2, "产品清单")
+
+    # Row 3: headers
+    headers = ["序号", "名称", "规格型号", "型号", "功能描述", "单价", "品类", "厂商", "通讯", "供电", "备注", "图片"]
+    apply_header_row(ws, 3, headers)
+
+    # Data rows
+    for idx, p in enumerate(products, 1):
         comm = ", ".join(cm.method.name for cm in p.comm_methods if cm.method)
         proto = ", ".join(cp.protocol.name for cp in p.comm_protocols if cp.protocol)
         power = ", ".join(ps.power.name for ps in p.power_supplies if ps.power)
-        ws.append([
-            p.id, p.model or "", p.name,
-            p.category.name if p.category else "",
+        all_comm = ", ".join(filter(None, [comm, proto]))
+        cat_name = p.category.name if p.category else ""
+        apply_data_row(ws, 3 + idx, [
+            idx,
+            p.name,
+            p.model or "",
+            p.model or "",
+            (p.description or "")[:200],
+            float(p.base_price or 0),
+            cat_name,
             p.manufacturer.name if p.manufacturer else "",
-            comm, proto, power,
-            json.dumps(p.specs or {}, ensure_ascii=False),
+            all_comm,
+            power,
+            "",
+            p.image_url or "",
         ])
+
+    # Footer
+    footer_row = 3 + len(products) + 1
+    apply_footer_row(ws, footer_row, "产品数据库 — 产品清单导出")
 
     buf = BytesIO()
     wb.save(buf)

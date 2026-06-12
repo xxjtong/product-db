@@ -199,7 +199,12 @@ export async function* streamAiChat(input: string, conversationId?: number | nul
           } else if (parsed.event === 'component') {
             yield `[COMPONENT:${JSON.stringify(parsed)}]` as any
           } else if (parsed.event === 'products' && parsed.data) {
-            yield `[PRODUCTS:${JSON.stringify(parsed.data)}]` as any
+            const pkg: any = parsed.data
+            if (parsed.solution_name) {
+              yield `[SOLUTION:${JSON.stringify({name: parsed.solution_name, desc: parsed.solution_desc || '', products: parsed.data})}]` as any
+            } else {
+              yield `[PRODUCTS:${JSON.stringify(parsed.data)}]` as any
+            }
           } else if (parsed.event === 'tool') {
             yield `[TOOL:${parsed.text || ''}]` as any
           } else if (parsed.text || parsed.event === 'text') {
