@@ -95,9 +95,9 @@ def _seed_supplier(db, name="测试供应商"):
 
 
 def _seed_product(db, name="测试产品", model="TEST-001", category_id=1, manufacturer_id=None, supplier_id=None, **kwargs):
+    init_kwargs = dict(kwargs)
     p = Product(name=name, model=model, category_id=category_id,
-                manufacturer_id=manufacturer_id, supplier_id=supplier_id,
-                specs=kwargs.get("specs", {"ip_rating": "IP67", "weight_g": 500}))
+                manufacturer_id=manufacturer_id, supplier_id=supplier_id, **init_kwargs)
     db.add(p)
     db.commit()
     db.refresh(p)
@@ -862,3 +862,133 @@ class TestSpecValidation:
 
         errors = validate_specs({"has_display": "yes"}, [sd])
         assert len(errors) == 1
+
+
+class TestFieldVisibility:
+    """Test that field visibility settings hide sensitive fields from non-admin users."""
+
+    def _make_user(self, db, username="normal", role="user"):
+        from app.auth import hash_password
+        u = User(username=username, password_hash=hash_password("test123"), role=role)
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        return u
+
+    def _auth_for(self, user):
+        token = create_token(user.id, user.username)
+        return {"Authorization": f"Bearer {token}"}
+
+    def _seed_field_setting(self, db, field_name, user_visible):
+        from app.models.field_setting import FieldSetting
+        fs = db.query(FieldSetting).filter_by(field_name=field_name).first()
+        if fs:
+            fs.user_visible = user_visible
+        else:
+            db.add(FieldSetting(field_name=field_name, user_visible=user_visible))
+        db.commit()
+
+    def _clear_field_settings(self, db):
+        from app.models.field_setting import FieldSetting
+        db.query(FieldSetting).delete()
+        db.commit()
+        # Clear cache
+        from app.services.field_visibility import _cache
+        _cache["ts"] = 0
+        _cache["data"] = None
+
+    def test_list_hides_cost_price_for_user(self, db):
+        """GET /products hides cost_price when field visible=false for non-admin."""
+        self._clear_field_settings(db)
+        self._seed_field_setting(db, "cost_price", False)
+        cat = _seed_category(db)
+        _seed_product(db, category_id=cat.id, cost_price=999.99)
+
+        # Admin sees cost_price
+        admin = db.query(User).filter_by(username="admin").first()
+        res = client.get("/product-db/api/products", headers=self._auth_for(admin))
+        assert res.status_code == 200
+        assert res.json()["products"][0]["cost_price"] == 999.99
+
+        # Normal user should NOT see cost_price
+        user = self._make_user(db)
+        res = client.get("/product-db/api/products", headers=self._auth_for(user))
+        assert res.status_code == 200
+        assert res.json()["products"][0]["cost_price"] is None
+
+    def test_detail_hides_cost_price_for_user(self, db):
+        """GET /products/{id} hides cost_price when field visible=false for non-admin."""
+        self._clear_field_settings(db)
+        self._seed_field_setting(db, "cost_price", False)
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, cost_price=888.88)
+
+        # Admin sees cost_price
+        admin = db.query(User).filter_by(username="admin").first()
+        res = client.get(f"/product-db/api/products/{p.id}", headers=self._auth_for(admin))
+        assert res.status_code == 200
+        assert res.json()["product"]["cost_price"] == 888.88
+
+        # Normal user should NOT see cost_price
+        user = self._make_user(db)
+        res = client.get(f"/product-db/api/products/{p.id}", headers=self._auth_for(user))
+        assert res.status_code == 200
+        assert res.json()["product"]["cost_price"] is None
+
+    def test_detail_shows_cost_price_when_visible(self, db):
+        """GET /products/{id} shows cost_price when field visible=true for non-admin."""
+        self._clear_field_settings(db)
+        self._seed_field_setting(db, "cost_price", True)
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, cost_price=777.77)
+
+        user = self._make_user(db)
+        res = client.get(f"/product-db/api/products/{p.id}", headers=self._auth_for(user))
+        assert res.status_code == 200
+        assert res.json()["product"]["cost_price"] == 777.77
+
+    def test_admin_always_sees_cost_price(self, db):
+        """Admin sees cost_price regardless of field visibility setting."""
+        self._clear_field_settings(db)
+        self._seed_field_setting(db, "cost_price", False)
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, cost_price=555.55)
+
+        admin = db.query(User).filter_by(username="admin").first()
+        res = client.get(f"/product-db/api/products/{p.id}", headers=self._auth_for(admin))
+        assert res.status_code == 200
+        assert res.json()["product"]["cost_price"] == 555.55
+
+    def test_session_returns_field_visibility_for_user(self, db):
+        """GET /auth/session returns field_visibility for non-admin, empty for admin."""
+        self._clear_field_settings(db)
+        self._seed_field_setting(db, "cost_price", False)
+        self._seed_field_setting(db, "manufacturer_name", True)
+
+        # Non-admin gets field_visibility dict
+        user = self._make_user(db)
+        res = client.get("/product-db/api/auth/session", headers=self._auth_for(user))
+        assert res.status_code == 200
+        fv = res.json()["field_visibility"]
+        assert fv["cost_price"] is False
+        assert fv["manufacturer_name"] is True
+
+        # Admin gets empty dict (sees everything)
+        admin = db.query(User).filter_by(username="admin").first()
+        res = client.get("/product-db/api/auth/session", headers=self._auth_for(admin))
+        assert res.status_code == 200
+        assert res.json()["field_visibility"] == {}
+
+    def test_no_field_settings_defaults_visible(self, db):
+        """When no FieldSetting rows exist, all fields default to visible."""
+        self._clear_field_settings(db)
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, cost_price=333.33)
+
+        # Admin endpoint auto-creates defaults, but regular endpoints
+        # just pass through (filter_fields_for_user has nothing to hide)
+        user = self._make_user(db)
+        res = client.get(f"/product-db/api/products/{p.id}", headers=self._auth_for(user))
+        assert res.status_code == 200
+        # Without field settings, no fields are filtered
+        assert res.json()["product"]["cost_price"] == 333.33

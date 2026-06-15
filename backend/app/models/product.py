@@ -34,7 +34,7 @@ class Product(Base):
     view_count = Column(Integer, default=0)
 
     created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=datetime.now)
+    updated_at = Column(DateTime, server_default=func.now())
 
     # Relationships
     category = relationship("Category", backref="products", foreign_keys=[category_id])

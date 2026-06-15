@@ -11,8 +11,8 @@
     <!-- Operation breakdown -->
     <div v-if="usage?.by_op?.length" class="mb-8">
       <span class="text-sm text-muted">按操作: </span>
-      <span v-for="(op, i) in usage.by_op" :key="op[0]" class="tag" style="font-size:11px">
-        {{ opLabels[op[0]] || op[0] }} {{ op[1] }}
+      <span v-for="(op, i) in usage.by_op" :key="op.operation" class="tag" style="font-size:11px">
+        {{ opLabels[op.operation] || op.operation }} {{ op.count }}
       </span>
     </div>
     <div class="text-sm text-muted mb-4">最近使用记录</div>

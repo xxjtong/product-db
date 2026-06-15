@@ -340,7 +340,7 @@ def get_ai_usage(db: Session = Depends(get_db), user=Depends(get_current_user)):
             "total": total, "success": success_count, "avg_duration_ms": round(avg_time, 1),
             "total_tokens_in": total_tokens_in, "total_tokens_out": total_tokens_out,
         },
-        "by_operation": [{"operation": op, "count": c} for op, c in by_op],
+        "by_op": [{"operation": op, "count": c} for op, c in by_op],
         "recent": [r.to_dict() for r in recent],
     }
 

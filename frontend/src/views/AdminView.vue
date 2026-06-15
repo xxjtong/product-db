@@ -310,8 +310,10 @@ async function load() {
 async function toggleField(key: string) {
   const fv = fieldList.value.find(f => f.key === key)
   if (!fv) return; fv.visible = !fv.visible
+  const label = fv.label
   try {
     await fetch('/product-db/api/admin/fields', { method: 'PUT', headers: h(), body: JSON.stringify({ [key]: fv.visible }) })
+    showToast(fv.visible ? `「${label}」已对普通用户可见` : `「${label}」已对普通用户隐藏`, 'success')
   } catch { fv.visible = !fv.visible; showToast('保存失败', 'error') }
 }
 

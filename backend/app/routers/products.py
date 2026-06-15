@@ -346,7 +346,11 @@ def get_product(product_id: int, db: Session = Depends(get_db), user=Depends(get
         raise HTTPException(404, "Product not found")
     p.view_count = (p.view_count or 0) + 1
     db.commit()
-    return {"product": build_product_detail(p, db)}
+    result = build_product_detail(p, db)
+    from app.services.field_visibility import filter_fields_for_user
+    is_admin = getattr(user, 'role', '') == 'admin'
+    filter_fields_for_user(result, is_admin, db)
+    return {"product": result}
 
 
 @router.post("/products")
@@ -396,7 +400,11 @@ def create_product(data: ProductCreate, db: Session = Depends(get_db), user=Depe
     db.commit()
     db.refresh(p)
     cats, mfgs, sups = get_name_maps(db)
-    return {"product": p.to_dict(cats, sups, mfgs)}
+    result = p.to_dict(cats, sups, mfgs)
+    from app.services.field_visibility import filter_fields_for_user
+    is_admin = getattr(user, 'role', '') == 'admin'
+    filter_fields_for_user(result, is_admin, db)
+    return {"product": result}
 
 
 @router.put("/products/{product_id}")
@@ -433,7 +441,11 @@ def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(g
 
     db.commit()
     cats, mfgs, sups = get_name_maps(db)
-    return {"product": p.to_dict(cats, sups, mfgs)}
+    result = p.to_dict(cats, sups, mfgs)
+    from app.services.field_visibility import filter_fields_for_user
+    is_admin = getattr(user, 'role', '') == 'admin'
+    filter_fields_for_user(result, is_admin, db)
+    return {"product": result}
 
 
 @router.delete("/products/{product_id}")
