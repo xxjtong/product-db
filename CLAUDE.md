@@ -2,7 +2,28 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-06-12, R13)
+## 最新变更 (2026-06-15, R14)
+
+### R14: 字段可见性修复 + AI 统计 + 产品修改时间
+
+**字段可见性修复:**
+- `products.py` `get_product`/`create_product`/`update_product` 加 `filter_fields_for_user`（之前仅列表端点有）
+- 成本价隐藏时后端设 `None`，前端 `|| '—'` 兜底，与厂商/供应商统一
+- 管理页字段开关加 toast 通知（「成本价」已对普通用户可见/隐藏）
+
+**AI 统计修复:**
+- `admin_routes.py` `by_operation` → `by_op`（前端 key 不匹配导致"0操作类型"）
+- `AiUsageStats.vue` `op[0]`/`op[1]` → `op.operation`/`op.count`
+
+**产品修改时间:**
+- `ProductDetailView` 新增修改时间显示（浏览前）
+- `Product.updated_at` 移除 `onupdate=datetime.now`（浏览+1 触发误刷）
+
+**测试:**
+- `_seed_product` 修复 kwargs 透传
+- +6 `TestFieldVisibility` 测试（84→84）
+
+## 历史变更 (2026-06-12, R13)
 
 ### R13: 权限收紧 + Excel 导出统一 + AI 增强 + 质量加固
 
