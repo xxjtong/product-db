@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     JWT_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     AI_GATEWAY_URL: str = "http://127.0.0.1:8642"
     AI_GATEWAY_KEY: str = ""
+    HERMES_API_URL: str = "http://127.0.0.1:8642"
+    HERMES_API_KEY: str = ""
     DEV_MODE: bool = False
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
     DISABLE_IP_LOOKUP: bool = False

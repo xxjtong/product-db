@@ -105,7 +105,7 @@ interface ChatMeta {
 }
 
 // ── Constants ──────────────────────────────────────────
-const HERMES_BASE = '/product-db/hermes'
+const AGENT_API = '/product-db/api/agent/chat'
 
 const SYSTEM_PROMPT = `You are Hermes, an AI assistant integrated into the product-db (产品数据库) system — an IoT product selection, comparison, specification sheet generation, and solution design platform.
 
@@ -324,11 +324,14 @@ async function send(question?: string) {
   let tokenUsage = { prompt: 0, completion: 0, total: 0 }
 
   try {
-    const resp = await fetch(HERMES_BASE + '/v1/chat/completions', {
+    const token = localStorage.getItem('token')
+    const resp = await fetch(AGENT_API, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({
-        model: 'hermes-agent',
         messages: apiMessages,
         stream: true,
       }),

@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi import HTTPException
 from app.database import Base
 from app.models import *  # noqa: ensure all models registered
-from app.routers import products, product_import, categories, suppliers, solutions, quotations, bom_templates, ai, dictionaries, auth_routes, admin_routes, system_settings, product_files
+from app.routers import products, product_import, categories, suppliers, solutions, quotations, bom_templates, ai, dictionaries, auth_routes, admin_routes, system_settings, product_files, agent
 from app.config import settings
 from loguru import logger
 import os
@@ -64,6 +64,7 @@ app.include_router(auth_routes.router, prefix="/product-db/api", tags=["auth"])
 app.include_router(admin_routes.router, prefix="/product-db/api", tags=["admin"])
 app.include_router(system_settings.router, prefix="/product-db/api", tags=["settings"])
 app.include_router(product_files.router, prefix="/product-db/api", tags=["product-files"])
+app.include_router(agent.router, prefix="/product-db/api", tags=["agent"])
 
 # Static file serving for uploaded images
 upload_dir = os.path.join(os.path.dirname(__file__), "uploads")
