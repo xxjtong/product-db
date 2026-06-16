@@ -12,11 +12,9 @@ import logging
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
 from app.config import settings
-from app.database import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +35,6 @@ def _build_auth_header() -> dict:
 @router.post("/agent/chat")
 async def agent_chat(
     request: Request,
-    db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
     """Proxy a chat request to the Hermes Agent API server (SSE passthrough).
