@@ -13,6 +13,17 @@ export default defineConfig({
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
+      '/product-db/hermes': {
+        target: 'http://127.0.0.1:8642',
+        rewrite: (path) => path.replace(/^\/product-db\/hermes/, ''),
+        configure: (proxy) => {
+          const apiKey = process.env.VITE_HERMES_API_KEY || 'qs-65bf75614bdd4245'
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.setHeader('Authorization', `Bearer ${apiKey}`)
+            proxyReq.removeHeader('Origin')
+          })
+        },
+      },
     },
   },
   build: {

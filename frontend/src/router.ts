@@ -19,6 +19,7 @@ const router = createRouter({
     { path: '/solutions/:id', name: 'solution-detail', component: () => import('./views/SolutionDetailView.vue') },
     { path: '/quotations', name: 'quotations', component: () => import('./views/QuotationsView.vue') },
     { path: '/quotations/:id', name: 'quotation-detail', component: () => import('./views/QuotationDetailView.vue') },
+    { path: '/agent', name: 'agent', component: () => import('./views/AgentView.vue') },
   ],
 })
 

@@ -2,7 +2,43 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-06-15, R14)
+## 最新变更 (2026-06-16, R15)
+
+### R15: Hermes Agent 全屏对话页
+
+**Hermes Agent 集成:**
+- 新建 `AgentView.vue` — 全屏独立对话页面，路由 `/agent`
+- 前端直连 Hermes API Server（localhost:8642）OpenAI-compatible SSE 流
+- Vite dev proxy `/product-db/hermes` → `127.0.0.1:8642`，`configure` 钩子注入 Bearer token
+- System prompt 硬编码 product-db 上下文（414产品/27品类/48厂商）
+- localStorage 对话持久化（多会话切换/删除）
+- 自定义 markdown 渲染器：表格、代码块、标题、列表、引用
+- DOMPurify XSS 防护
+
+**交互功能:**
+- SSE 流式输出 + AbortController 中断
+- 呼吸脉冲动画指示 agent 工作中
+- Enter 发送 / Shift+Enter 换行
+- 侧边栏 5 个建议问题快捷入口
+- 每条回复底部显示 token 统计（输入/输出/合计）
+- `/agent` 页自动隐藏 AiChat 浮动 FAB
+
+**侧边栏:**
+- 新增 Agent 入口（Bot 图标）介于报价单和字典之间
+
+**修复 (评审):**
+- 1 关键: `renderTable()` 在 `\n`→`<br>` 之后调用 → 移到之前
+- 2 关键: 表头 `thead` 计算后未输出 → 补回 `${thead}`
+- 1 死代码: `RE_TABLE_ROW` 未使用 → 删除
+- 1 bug: bullet 列表 `$2` → `$1`（单捕获组）
+- 1 安全: API key 硬编码 → `process.env.VITE_HERMES_API_KEY` + dev 默认值
+- 2 优化: 流式图标动画 + token 统计
+
+**范围:** 纯前端，后端 0 改动
+
+**测试:** vue-tsc 0 errors / vitest 38/38 / vite build 成功 / Playwright E2E 浏览器实测通过
+
+## 历史变更 (2026-06-15, R14)
 
 ### R14: 字段可见性修复 + AI 统计 + 产品修改时间
 
@@ -311,6 +347,7 @@ frontend/src/
 │   └── SolutionsView.vue     # 方案列表 (行内状态下拉, 批量选择)
 ├── components/          # 通用组件
 │   ├── AiChat.vue            # AI 浮动对话面板 (可拖拽/缩放, 气泡式)
+│   ├── AgentView.vue          # Hermes Agent 全屏对话页 (/agent, SSE直连, 多会话)
 │   ├── BOMSpreadsheet.vue    # BOM HTML 表格编辑器
 │   ├── DependencyGraph.vue   # Canvas 依赖关系图 (自适应)
 │   ├── ProductFiles.vue      # 产品文件上传/下载/预览
