@@ -303,7 +303,6 @@ const RE_HR = /^---$/gm
 const RE_NUM_LIST = /^(\d+)[.、]\s+(.+)$/gm
 const RE_BULLET = /^[-•]\s+(.+)$/gm
 const RE_BLOCKQUOTE = /^&gt;\s?(.+)$/gm
-const RE_MD_LINK = /\[([^\]]+)\]\(([^)]+)\)/g
 const RE_URL = /(https?:\/\/[^\s<>]+)/g
 const RE_NL = /\n/g
 const RE_MD_LIST = /(<div class="md-li">.*?<\/div>(<br>)?)+/g
@@ -408,7 +407,9 @@ async function send(question?: string) {
         if (f.dataUrl) userContent.push({ type: 'image_url', image_url: { url: f.dataUrl } })
       } else {
         const fu = fileUrls.find(u => u.name === f.name)
-        userContent.push({ type: 'text', text: `\n\n[已上传文件: ${f.name}](${fu?.url || ''})` })
+        const uuid = fu?.url ? fu.url.split('/').pop() : ''
+        const path = uuid ? `${uploadDir.value}/${uuid}` : (fu?.url || '')
+        userContent.push({ type: 'text', text: `\n\n📎 ${f.name}\n文件路径: ${path}` })
       }
     }
   }
