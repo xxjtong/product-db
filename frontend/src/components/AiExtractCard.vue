@@ -10,11 +10,18 @@
     </div>
     <div class="ai-drop" :class="{ 'ai-drop-active': dragOver }"
       @dragover.prevent="dragOver = true" @dragleave="dragOver = false" @drop.prevent="onDrop">
-      <div v-if="imagePreview" style="margin-bottom:8px">
-        <img :src="imagePreview" style="max-width:200px;max-height:150px;border-radius:4px;border:1px solid var(--color-border)" />
+      <div v-if="attachedFiles.length" class="ai-preview-list">
+        <div v-for="(f, i) in attachedFiles" :key="i" class="ai-preview-item">
+          <img v-if="f.type.startsWith('image/')" :src="f.dataUrl" class="ai-preview-img" />
+          <div v-else class="ai-preview-file">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+            <span class="ai-preview-ext">{{ f.name.split('.').pop()?.toUpperCase() || 'FILE' }}</span>
+          </div>
+          <span class="ai-preview-name">{{ f.name }}</span>
+        </div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
-        粘贴图片、拖拽文件到此处 或
+        粘贴/拖拽/上传文件及图片 或
         <label class="btn-secondary btn-sm btn-label">选择文件
           <input type="file" accept=".pdf,.docx,.txt,.csv,.jpg,.jpeg,.png,.webp,.bmp" style="display:none" @change="onFileSelect" />
         </label>
@@ -56,7 +63,7 @@ const textInput = ref('')
 const fetching = ref(false)
 const preview = ref<any>(null)
 const editFields = ref<Record<string, any>>({})
-const { dragOver, imagePreview, onFileSelect, onDrop, onPaste, clearFiles } = useFileDrop(doFileExtract)
+const { attachedFiles, dragOver, onFileSelect, onDrop, onPaste, clearFiles } = useFileDrop(doFileExtract)
 const previewRef = ref<HTMLElement | null>(null)
 
 function scrollToPreview() {
@@ -174,3 +181,53 @@ async function fetchFromUrl(url: string) {
 
 defineExpose({ fetchFromUrl })
 </script>
+
+<style scoped>
+.ai-preview-list {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.ai-preview-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 72px;
+}
+.ai-preview-img {
+  width: 64px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+}
+.ai-preview-file {
+  width: 64px;
+  height: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg);
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+}
+.ai-preview-ext {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.ai-preview-name {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 72px;
+}
+</style>
