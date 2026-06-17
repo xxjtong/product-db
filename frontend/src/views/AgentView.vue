@@ -52,6 +52,12 @@
                 </div>
               </template>
               <template v-else>{{ m.content }}</template>
+              <div v-if="m.fileUrls?.length" class="agent-msg-files">
+                <a v-for="(fu, fi) in m.fileUrls" :key="fi" :href="fu.url" target="_blank" class="agent-file-link" :class="{ dead: !fu.url }">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                  {{ fu.name }}
+                </a>
+              </div>
             </div>
             <div v-else class="agent-msg-text" v-html="renderMd(m.content as string)" />
             <div v-if="m.role === 'assistant' && m.tokens" class="agent-msg-meta">
@@ -135,6 +141,7 @@ interface Message {
   role: 'user' | 'assistant' | 'system'
   content: string | { type: string; text?: string; image_url?: { url: string } }[]
   tokens?: string
+  fileUrls?: { name: string; url: string }[]
 }
 
 interface ChatMeta {
@@ -326,21 +333,49 @@ async function send(question?: string) {
   ensureChat(q.slice(0, 30))
 
   // Build multimodal content if images attached
-  let userContent: string | any[] = q
+  // Upload files first, get URLs
+  let fileUrls: { name: string; url: string }[] = []
   const files = attachedFiles.value
+  if (files.length) {
+    for (const f of files) {
+      try {
+        const fd = new FormData()
+        fd.append('file', f.file!)
+        const token = localStorage.getItem('token')
+        const upRes = await fetch('/product-db/api/agent/upload', {
+          method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: fd,
+        })
+        if (upRes.ok) {
+          const upData = await upRes.json()
+          fileUrls.push({ name: f.name, url: upData.url })
+        } else {
+          fileUrls.push({ name: f.name, url: '' })
+        }
+      } catch { fileUrls.push({ name: f.name, url: '' }) }
+    }
+  }
+
+  let userContent: string | any[] = q
   if (files.length) {
     userContent = [{ type: 'text', text: q }]
     for (const f of files) {
       if (f.type.startsWith('image/')) {
         if (f.dataUrl) userContent.push({ type: 'image_url', image_url: { url: f.dataUrl } })
       } else if (f.textContent) {
-        userContent.push({ type: 'text', text: `\n\n[文件: ${f.name}]\n${f.textContent}` })
+        const uploaded = fileUrls.find(u => u.name === f.name)
+        const note = uploaded?.url ? `\n文件URL: ${uploaded.url}` : ''
+        userContent.push({ type: 'text', text: `\n\n[文件: ${f.name}]${note}\n${f.textContent}` })
       } else {
-        userContent.push({ type: 'text', text: `\n\n[已上传文件: ${f.name} (${f.type || '未知类型'})]` })
+        const uploaded = fileUrls.find(u => u.name === f.name)
+        if (uploaded?.url) {
+          userContent.push({ type: 'text', text: `\n\n[已上传文件: ${f.name}]\n文件URL: ${uploaded.url}\n请用web工具读取此文件内容。` })
+        } else {
+          userContent.push({ type: 'text', text: `\n\n[已上传文件: ${f.name} (上传失败)]` })
+        }
       }
     }
   }
-  messages.value.push({ role: 'user', content: userContent })
+  messages.value.push({ role: 'user', content: userContent, fileUrls })
   clearFiles()
   saveMessages()
   scrollDown()
@@ -652,6 +687,31 @@ watch(streaming, (val) => {
   margin-top: 4px;
   cursor: pointer;
   transition: opacity .15s;
+}
+.agent-msg-files {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.agent-file-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(255,255,255,.15);
+  color: rgba(255,255,255,.85);
+  text-decoration: none;
+}
+.agent-file-link:hover {
+  background: rgba(255,255,255,.25);
+  color: #fff;
+}
+.agent-file-link.dead {
+  opacity: .5;
+  cursor: default;
 }
 .agent-msg-img:hover {
   opacity: .85;

@@ -4,7 +4,9 @@ export interface FileAttachment {
   name: string
   type: string       // MIME type
   dataUrl: string    // base64 data URL (images only)
-  textContent: string // text content (non-image files: csv, txt, json, etc.)
+  textContent: string // text content (deprecated, use url)
+  url: string        // public URL after upload
+  uploaded: boolean  // true after successful upload
   file?: File
 }
 
@@ -23,7 +25,7 @@ export function useFileDrop(onFileAdded?: (file: File) => void) {
       const reader = new FileReader()
       reader.onload = () => {
         const dataUrl = reader.result as string
-        attachedFiles.value.push({ name: file.name, type: file.type, dataUrl, textContent: '', file })
+        attachedFiles.value.push({ name: file.name, type: file.type, dataUrl, textContent: '', url: '', uploaded: false, file })
         if (!imagePreview.value) imagePreview.value = dataUrl
       }
       reader.readAsDataURL(file)
@@ -31,12 +33,12 @@ export function useFileDrop(onFileAdded?: (file: File) => void) {
       const reader = new FileReader()
       reader.onload = () => {
         const text = reader.result as string
-        attachedFiles.value.push({ name: file.name, type: file.type, dataUrl: '', textContent: text, file })
+        attachedFiles.value.push({ name: file.name, type: file.type, dataUrl: '', textContent: text, url: '', uploaded: false, file })
       }
       reader.readAsText(file)
     } else {
       // Binary file (xlsx, pdf, etc.): just note it
-      attachedFiles.value.push({ name: file.name, type: file.type, dataUrl: '', textContent: '', file })
+      attachedFiles.value.push({ name: file.name, type: file.type, dataUrl: '', textContent: '', url: '', uploaded: false, file })
     }
     // Notify callback for custom handling (e.g. AI extraction)
     if (onFileAdded) onFileAdded(file)

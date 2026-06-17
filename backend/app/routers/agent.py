@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 from app.auth import get_current_user
 from app.config import settings, DB_FILESYSTEM_PATH
 from app.database import get_db
+from app.services.storage import save_file, UPLOAD_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,17 @@ HERMES_CHAT_URL = f"{settings.HERMES_API_URL.rstrip('/')}/v1/chat/completions"
 HERMES_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
 
 _AGENT_PROMPT_DEFAULT = "你是 pdb，产品数据库系统的 AI 助手。"
+
+ALLOWED_UPLOAD_TYPES = {
+    "image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif", "image/bmp",
+    "text/plain", "text/csv", "application/json", "text/markdown",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # xlsx
+    "application/vnd.ms-excel",  # xls
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # docx
+    "text/xml", "application/xml",
+}
+MAX_UPLOAD_SIZE = 20 * 1024 * 1024  # 20MB
 
 
 def _get_agent_prompt(db):
@@ -63,6 +75,63 @@ def _build_auth_header() -> dict:
     if key:
         return {"Authorization": f"Bearer {key}"}
     return {}
+
+
+@router.post("/agent/upload")
+async def agent_upload(
+    request: Request,
+    user=Depends(get_current_user),
+):
+    """Upload a file for Agent context. Returns a public URL Hermes can fetch."""
+    content_type = request.headers.get("content-type", "")
+    if not content_type.startswith("multipart/form-data"):
+        raise HTTPException(400, "Expected multipart/form-data")
+
+    form = await request.form()
+    file = form.get("file")
+    if not file:
+        raise HTTPException(400, "No file provided")
+
+    import mimetypes
+    guessed = mimetypes.guess_type(file.filename or "")[0]
+    mime_type = file.content_type or ""
+    # Prefer guessed type over generic octet-stream from browser/curl
+    if not mime_type or mime_type == "application/octet-stream":
+        mime_type = guessed or mime_type or "application/octet-stream"
+
+    if mime_type not in ALLOWED_UPLOAD_TYPES:
+        raise HTTPException(400, f"File type not allowed: {mime_type}")
+
+    contents = await file.read()
+    if len(contents) > MAX_UPLOAD_SIZE:
+        raise HTTPException(400, f"File too large (max {MAX_UPLOAD_SIZE // 1024 // 1024}MB)")
+
+    # Save to uploads dir with UUID filename
+    import uuid
+    ext = (file.filename or "file").rsplit(".", 1)[-1] if "." in (file.filename or "") else ""
+    stored_name = f"{uuid.uuid4().hex}"
+    if ext:
+        stored_name += f".{ext}"
+    stored_path = UPLOAD_DIR / stored_name
+    stored_path.write_bytes(contents)
+
+    # Build public URL — use configured API base or derive from request
+    from urllib.parse import urlparse
+    api_base = settings.AGENT_API_BASE
+    if api_base:
+        base_host = api_base.rstrip("/")
+    else:
+        base_host = str(request.base_url).rstrip("/")
+
+    file_url = f"{base_host}/product-db/api/uploads/{stored_name}"
+
+    logger.info("agent_upload: %s → %s (%d bytes)", file.filename, stored_name, len(contents))
+    return {
+        "url": file_url,
+        "filename": file.filename,
+        "size": len(contents),
+        "type": mime_type,
+    }
 
 
 @router.post("/agent/chat")
