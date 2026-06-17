@@ -103,6 +103,20 @@ def _get_agent_prompt(db):
         return _AGENT_PROMPT_DEFAULT
 
 
+@router.post("/agent/cleanup-uploads")
+async def agent_cleanup_uploads(user=Depends(get_current_user)):
+    """Delete upload files older than 7 days."""
+    import time
+    cutoff = time.time() - 7 * 86400
+    cleaned = 0
+    for f in UPLOAD_DIR.iterdir():
+        if f.is_file() and f.stat().st_mtime < cutoff:
+            f.unlink()
+            cleaned += 1
+    logger.info("agent_cleanup: removed %d old uploads", cleaned)
+    return {"cleaned": cleaned}
+
+
 @router.get("/agent/config")
 async def agent_config(user=Depends(get_current_user)):
     """Return agent configuration including database path and API base URL."""

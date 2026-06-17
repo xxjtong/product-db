@@ -215,6 +215,25 @@ function loadChats(): ChatMeta[] {
   } catch { return [] }
 }
 
+// ── Cleanup old data ───────────────────────────────────
+const CHAT_RETENTION_DAYS = 30
+
+function cleanupOldChats() {
+  const cutoff = Date.now() - CHAT_RETENTION_DAYS * 86400 * 1000
+  const chats = loadChats()
+  let changed = false
+  for (const c of chats) {
+    if (c.updatedAt < cutoff) {
+      localStorage.removeItem(STORAGE_PREFIX + 'msgs_' + c.id)
+      changed = true
+    }
+  }
+  if (changed) {
+    const remaining = chats.filter(c => c.updatedAt >= cutoff)
+    localStorage.setItem(STORAGE_PREFIX + 'chats', JSON.stringify(remaining))
+  }
+}
+
 // ── Chat management ────────────────────────────────────
 function newChat() {
   activeChatId.value = null
@@ -515,6 +534,7 @@ function scrollDown() {
 
 // ── Lifecycle ──────────────────────────────────────────
 onMounted(async () => {
+  cleanupOldChats()
   chats.value = loadChats()
   // Load DB path from backend config
   try {
