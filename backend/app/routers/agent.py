@@ -175,18 +175,12 @@ async def agent_upload(
 
     file_url = f"{base_host}/product-db/api/uploads/{stored_name}"
 
-    # Extract text content for LLM context
-    text_content = ""
-    if mime_type in EXTRACTABLE_TYPES or stored_name.rsplit(".", 1)[-1].lower() in ("xlsx", "xls", "csv", "txt", "json", "pdf", "docx", "xml", "md"):
-        text_content = _extract_file_text(stored_path, file.filename or "", mime_type)
-
-    logger.info("agent_upload: %s → %s (%d bytes, text %d chars)", file.filename, stored_name, len(contents), len(text_content))
+    logger.info("agent_upload: %s → %s (%d bytes)", file.filename, stored_name, len(contents))
     return {
         "url": file_url,
         "filename": file.filename,
         "size": len(contents),
         "type": mime_type,
-        "text": text_content,
     }
 
 
