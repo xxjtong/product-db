@@ -89,7 +89,7 @@
         <textarea
           ref="inputEl"
           v-model="input"
-          placeholder="输入消息... (Enter 发送，Shift+Enter 换行)&#10;支持粘贴/拖拽/上传文件及图片"
+          placeholder="输入消息... (Enter 发送，Shift+Enter 换行)，支持粘贴/拖拽/上传文件及图片"
           @keydown.enter.exact.prevent="send()"
           :disabled="streaming"
           rows="1"
