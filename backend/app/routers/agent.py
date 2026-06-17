@@ -71,11 +71,12 @@ async def agent_cleanup_uploads(user=Depends(get_current_user)):
 
 @router.get("/agent/config")
 async def agent_config(user=Depends(get_current_user)):
-    """Return agent configuration including database path and API base URL."""
+    """Return agent configuration including database path, API base, and auth token."""
     api_base = settings.AGENT_API_BASE or f"http://127.0.0.1:{8000 if settings.DEV_MODE else 8002}"
     return {
         "db_path": DB_FILESYSTEM_PATH,
         "api_base": f"{api_base}/product-db/api",
+        "token": user.id,  # placeholder, actual token via JWT
     }
 
 

@@ -415,6 +415,7 @@ async function send(question?: string) {
   let systemPrompt = (agentPrompt.value || '你是 pdb，产品数据库 AI 助手。')
     .replace(/\{\{DB_PATH\}\}/g, dbPath.value)
     .replace(/\{\{API_BASE\}\}/g, apiBase.value)
+    .replace(/\{\{TOKEN\}\}/g, localStorage.getItem('token') || '')
   const apiMessages: { role: string; content: string | any[] }[] = [
     { role: 'system', content: systemPrompt },
     ...messages.value.map(m => ({ role: m.role, content: m.content })),
