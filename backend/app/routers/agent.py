@@ -40,54 +40,6 @@ ALLOWED_UPLOAD_TYPES = {
 }
 MAX_UPLOAD_SIZE = 20 * 1024 * 1024  # 20MB
 
-EXTRACTABLE_TYPES = {
-    "text/plain", "text/csv", "application/json", "text/markdown",
-    "text/xml", "application/xml",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.ms-excel",
-}
-
-
-def _extract_file_text(path, filename: str, mime_type: str) -> str:
-    """Extract text content from uploaded file for LLM context."""
-    if mime_type in ("text/plain", "text/csv", "application/json", "text/markdown", "text/xml", "application/xml"):
-        return path.read_text(errors="replace")[:50000]
-
-    if "excel" in mime_type or "spreadsheet" in mime_type or filename.endswith((".xlsx", ".xls")):
-        try:
-            import openpyxl
-            wb = openpyxl.load_workbook(path, data_only=True)
-            lines = []
-            for name in wb.sheetnames:
-                ws = wb[name]
-                lines.append(f"=== Sheet: {name} ===")
-                for row in ws.iter_rows(min_row=1, max_row=min(ws.max_row, 200), values_only=True):
-                    cells = [str(c) if c is not None else "" for c in row]
-                    if any(c.strip() for c in cells):
-                        lines.append(" | ".join(cells))
-                lines.append("")
-            return "\n".join(lines)[:50000]
-        except Exception as e:
-            return f"[无法解析Excel文件: {e}]"
-
-    if "pdf" in mime_type or filename.endswith(".pdf"):
-        try:
-            import subprocess, tempfile
-            result = subprocess.run(["pdftotext", "-layout", str(path), "-"], capture_output=True, text=True, timeout=30)
-            return result.stdout[:50000] or "[PDF提取结果为空]"
-        except Exception as e:
-            return f"[无法解析PDF文件: {e}]"
-
-    if "wordprocessing" in mime_type or filename.endswith(".docx"):
-        try:
-            from docx import Document
-            doc = Document(str(path))
-            return "\n".join(p.text for p in doc.paragraphs)[:50000]
-        except Exception as e:
-            return f"[无法解析DOCX文件: {e}]"
-
-    return ""
-
 
 def _get_agent_prompt(db):
     """Load agent_prompt from system_settings, fallback to import default."""
@@ -245,20 +197,6 @@ async def agent_test_approval(user=Depends(get_current_user)):
         details={"message": "已根据 IoT QTY 需求匹配 11 款产品"},
     )
     return {"task_id": task.task_id}
-
-
-# Write-operation tool names that require human approval
-_WRITE_TOOLS = {
-    "create_quotation": "创建报价单",
-    "save_bom": "保存BOM",
-    "update_solution": "修改方案",
-    "delete_product": "删除产品",
-}
-
-
-def _needs_approval(tool_name: str) -> str:
-    """Return human-readable label if tool needs approval, empty string otherwise."""
-    return _WRITE_TOOLS.get(tool_name, "")
 
 
 async def _call_hermes(client, model: str, messages: list, stream: bool = True):

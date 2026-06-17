@@ -11,7 +11,7 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,6 @@ class ApprovalManager:
 
     def __init__(self):
         self._tasks: dict[str, ApprovalTask] = {}
-        self._lock = asyncio.Lock()
 
     def create(
         self,
