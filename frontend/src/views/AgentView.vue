@@ -333,8 +333,9 @@ async function send(question?: string) {
   ensureChat(q.slice(0, 30))
 
   // Build multimodal content if images attached
-  // Upload files first, get URLs
+  // Upload files first, get URLs and text content from backend
   let fileUrls: { name: string; url: string }[] = []
+  let fileTexts: { name: string; text: string }[] = []
   const files = attachedFiles.value
   if (files.length) {
     for (const f of files) {
@@ -348,6 +349,7 @@ async function send(question?: string) {
         if (upRes.ok) {
           const upData = await upRes.json()
           fileUrls.push({ name: f.name, url: upData.url })
+          if (upData.text) fileTexts.push({ name: f.name, text: upData.text })
         } else {
           fileUrls.push({ name: f.name, url: '' })
         }
@@ -361,16 +363,13 @@ async function send(question?: string) {
     for (const f of files) {
       if (f.type.startsWith('image/')) {
         if (f.dataUrl) userContent.push({ type: 'image_url', image_url: { url: f.dataUrl } })
-      } else if (f.textContent) {
-        const uploaded = fileUrls.find(u => u.name === f.name)
-        const note = uploaded?.url ? `\n文件URL: ${uploaded.url}` : ''
-        userContent.push({ type: 'text', text: `\n\n[文件: ${f.name}]${note}\n${f.textContent}` })
       } else {
-        const uploaded = fileUrls.find(u => u.name === f.name)
-        if (uploaded?.url) {
-          userContent.push({ type: 'text', text: `\n\n[已上传文件: ${f.name}]\n文件URL: ${uploaded.url}\n请用web工具读取此文件内容。` })
+        const ft = fileTexts.find(t => t.name === f.name)
+        const fu = fileUrls.find(u => u.name === f.name)
+        if (ft?.text) {
+          userContent.push({ type: 'text', text: `\n\n[文件: ${f.name}]\n文件URL: ${fu?.url || ''}\n内容:\n${ft.text}` })
         } else {
-          userContent.push({ type: 'text', text: `\n\n[已上传文件: ${f.name} (上传失败)]` })
+          userContent.push({ type: 'text', text: `\n\n[已上传文件: ${f.name}]${fu?.url ? '\n文件URL: ' + fu.url : ''}\n（无法读取文件内容）` })
         }
       }
     }
