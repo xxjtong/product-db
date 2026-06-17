@@ -261,6 +261,42 @@ def _needs_approval(tool_name: str) -> str:
     return _WRITE_TOOLS.get(tool_name, "")
 
 
+async def _call_hermes(client, model: str, messages: list, stream: bool = True):
+    """Single pass: call Hermes and stream bytes back. Creates httpx client if None."""
+    headers = {
+        "Content-Type": "application/json",
+        **_build_auth_header(),
+    }
+    payload = {"model": model, "messages": messages, "stream": stream}
+
+    try:
+        if client is None:
+            async with httpx.AsyncClient(timeout=HERMES_TIMEOUT) as c:
+                async with c.stream("POST", HERMES_CHAT_URL, json=payload, headers=headers) as resp:
+                    if resp.status_code != 200:
+                        body = await resp.aread()
+                        yield f"data: {json.dumps({'error': f'Hermes returned {resp.status_code}'})}\n\n"
+                        yield "data: [DONE]\n\n"
+                        return
+                    async for chunk in resp.aiter_bytes():
+                        yield chunk
+        else:
+            async with client.stream("POST", HERMES_CHAT_URL, json=payload, headers=headers) as resp:
+                if resp.status_code != 200:
+                    body = await resp.aread()
+                    yield f"data: {json.dumps({'error': f'Hermes returned {resp.status_code}'})}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+                async for chunk in resp.aiter_bytes():
+                    yield chunk
+    except httpx.ConnectError:
+        yield f"data: {json.dumps({'error': 'Cannot connect to Hermes agent server'})}\n\n"
+        yield "data: [DONE]\n\n"
+    except Exception:
+        yield f"data: {json.dumps({'error': 'Agent stream interrupted'})}\n\n"
+        yield "data: [DONE]\n\n"
+
+
 @router.post("/agent/chat")
 async def agent_chat(
     request: Request,
@@ -285,169 +321,45 @@ async def agent_chat(
     stream = body.get("stream", True)
     model = body.get("model", "hermes-agent")
 
-    payload = {
-        "model": model,
-        "messages": messages,
-        "stream": False,
-    }
+    # Test trigger: inject approval for "测试审批" before calling Hermes
+    last_user_msg = ""
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            c = m.get("content", "")
+            if isinstance(c, list):
+                last_user_msg = " ".join(p.get("text", "") for p in c if p.get("type") == "text")
+            else:
+                last_user_msg = str(c)
+            break
 
-    headers = {
-        "Content-Type": "application/json",
-        **_build_auth_header(),
-    }
+    if "测试审批" in last_user_msg:
+        task = approval_manager.create(
+            tool_name="create_quotation",
+            tool_label="创建报价单",
+            tool_input={"solution_id": 26, "total_price": 636301.50, "customer": "岭南大学"},
+            summary="为方案「岭南大学新科学楼 IoT」创建报价单，总价 ¥636,301.50",
+            details={"message": "已根据 IoT QTY 需求匹配产品"},
+        )
+        # Emit approval event, wait, then continue
+        async def _stream_approval():
+            yield f"data: {json.dumps({'type': 'approval_required', 'task_id': task.task_id, 'tool_name': task.tool_name, 'tool_label': task.tool_label, 'summary': task.summary, 'details': task.details, 'tool_input': task.tool_input}, ensure_ascii=False)}\n\n"
+            decision = await approval_manager.wait_for_decision(task.task_id)
+            yield f"data: {json.dumps({'type': 'approval_result', 'task_id': task.task_id, 'approved': decision.get('approved', False), 'reason': decision.get('reason', '')}, ensure_ascii=False)}\n\n"
+            if decision.get("approved"):
+                messages.append({"role": "tool", "tool_call_id": f"test_{task.task_id}", "content": json.dumps({"status": "approved", "message": "用户已授权"})})
+            else:
+                messages.append({"role": "tool", "tool_call_id": f"test_{task.task_id}", "content": json.dumps({"error": "用户拒绝"})})
+                yield f"data: {json.dumps({'error': '操作被用户拒绝'})}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+            # Continue to Hermes
+            async for chunk in _call_hermes(client, model, messages, stream):
+                yield chunk
 
+        return StreamingResponse(_stream_approval(), media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    # Normal chat — single pass, streaming
     logger.info("agent_chat: proxying %d messages to %s", len(messages), HERMES_CHAT_URL)
-
-    async def _stream():
-        try:
-            async with httpx.AsyncClient(timeout=HERMES_TIMEOUT) as client:
-                # First: get Hermes response (non-streaming to detect tool_calls)
-                resp = await client.post(HERMES_CHAT_URL, json=payload, headers=headers)
-
-                if resp.status_code != 200:
-                    body_text = await resp.aread()
-                    logger.warning("agent_chat: Hermes returned %s: %s", resp.status_code, body_text[:500])
-                    yield f"data: {json.dumps({'error': f'Hermes returned {resp.status_code}'})}\n\n"
-                    yield "data: [DONE]\n\n"
-                    return
-
-                data = resp.json()
-                choice = (data.get("choices") or [{}])[0]
-                message = choice.get("message", {})
-                tool_calls = message.get("tool_calls") or []
-
-                # Test trigger: inject approval for "测试审批" in user message
-                if not tool_calls:
-                    last_user_msg = ""
-                    for m in reversed(messages):
-                        if m.get("role") == "user":
-                            last_user_msg = m.get("content", "")
-                            break
-                    if isinstance(last_user_msg, list):
-                        last_user_msg = " ".join(p.get("text", "") for p in last_user_msg if p.get("type") == "text")
-                    if "测试审批" in last_user_msg:
-                        tool_calls = [{
-                            "id": "test_" + uuid.uuid4().hex[:8],
-                            "type": "function",
-                            "function": {
-                                "name": "create_quotation",
-                                "arguments": json.dumps({"solution_id": 26, "total_price": 636301.50, "customer": "岭南大学"}),
-                            },
-                        }]
-
-                # Check for write-op tool calls that need human approval
-                approval_tasks = []
-                for tc in tool_calls:
-                    func = tc.get("function", {})
-                    tool_name = func.get("name", "")
-                    label = _needs_approval(tool_name)
-                    if label:
-                        try:
-                            tool_input = json.loads(func.get("arguments", "{}"))
-                        except (json.JSONDecodeError, TypeError):
-                            tool_input = {}
-                        summary = f"{label}: {json.dumps(tool_input, ensure_ascii=False)[:200]}"
-                        task = approval_manager.create(
-                            tool_name=tool_name,
-                            tool_label=label,
-                            tool_input=tool_input,
-                            summary=summary,
-                            details={
-                                "message": message.get("content", "")[:500],
-                                "tool_call_id": tc.get("id", ""),
-                            },
-                        )
-                        approval_tasks.append(task)
-
-                if approval_tasks:
-                    # Emit approval_required events before waiting
-                    for task in approval_tasks:
-                        approval_event = {
-                            "type": "approval_required",
-                            "task_id": task.task_id,
-                            "tool_name": task.tool_name,
-                            "tool_label": task.tool_label,
-                            "summary": task.summary,
-                            "details": task.details,
-                            "tool_input": task.tool_input,
-                        }
-                        yield f"data: {json.dumps(approval_event, ensure_ascii=False)}\n\n"
-                        logger.info("agent_chat: emitted approval_required for %s", task.task_id)
-
-                    # Wait for all approvals, collect decisions
-                    decisions = []
-                    for task in approval_tasks:
-                        decision = await approval_manager.wait_for_decision(task.task_id)
-                        decisions.append(decision)
-                        result_event = {
-                            "type": "approval_result",
-                            "task_id": task.task_id,
-                            "approved": decision.get("approved", False),
-                            "reason": decision.get("reason", ""),
-                        }
-                        yield f"data: {json.dumps(result_event, ensure_ascii=False)}\n\n"
-
-                    # Append tool result messages based on decisions
-                    any_approved = False
-                    for task, decision in zip(approval_tasks, decisions):
-                        if decision.get("approved"):
-                            any_approved = True
-                            messages.append({
-                                "role": "tool",
-                                "tool_call_id": task.details.get("tool_call_id", ""),
-                                "content": json.dumps({"status": "approved", "message": "用户已授权此操作"}),
-                            })
-                        else:
-                            messages.append({
-                                "role": "tool",
-                                "tool_call_id": task.details.get("tool_call_id", ""),
-                                "content": json.dumps({"error": f"操作被用户拒绝: {decision.get('reason', '未说明原因')}"}),
-                            })
-
-                    if any_approved:
-                        # Re-call Hermes with tool results
-                        payload2 = {"model": model, "messages": messages, "stream": stream}
-                        async with client.stream("POST", HERMES_CHAT_URL, json=payload2, headers=headers) as resp2:
-                            if resp2.status_code == 200:
-                                async for chunk in resp2.aiter_bytes():
-                                    yield chunk
-                            else:
-                                body2 = await resp2.aread()
-                                yield f"data: {json.dumps({'error': f'Hermes returned {resp2.status_code} on retry'})}\n\n"
-                                yield "data: [DONE]\n\n"
-                    else:
-                        # All rejected — return the original response with rejection note
-                        data["choices"][0]["message"]["content"] = (message.get("content", "") + "\n\n⚠️ 操作已被用户拒绝。").strip()
-                        yield json.dumps(data)
-                elif stream:
-                    # No approval needed — re-fetch with streaming for real-time display
-                    payload_s = {"model": model, "messages": messages, "stream": True}
-                    async with client.stream("POST", HERMES_CHAT_URL, json=payload_s, headers=headers) as resp_s:
-                        if resp_s.status_code == 200:
-                            async for chunk in resp_s.aiter_bytes():
-                                yield chunk
-                        else:
-                            # Fallback: return the non-streaming response as SSE
-                            yield f"data: {json.dumps(data)}\n\n"
-                            yield "data: [DONE]\n\n"
-                else:
-                    # Non-streaming, no approval
-                    yield json.dumps(data)
-                    yield "\n"
-        except httpx.ConnectError:
-            logger.exception("agent_chat: cannot connect to Hermes at %s", HERMES_CHAT_URL)
-            yield f"data: {json.dumps({'error': 'Cannot connect to Hermes agent server'})}\n\n"
-            yield "data: [DONE]\n\n"
-        except Exception:
-            logger.exception("agent_chat: stream error")
-            yield f"data: {json.dumps({'error': 'Agent stream interrupted'})}\n\n"
-            yield "data: [DONE]\n\n"
-
-    return StreamingResponse(
-        _stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return StreamingResponse(_call_hermes(None, model, messages, stream), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
