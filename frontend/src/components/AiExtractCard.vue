@@ -48,6 +48,7 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick } from 'vue'
+import { useFileDrop } from '../composables/useFileDrop'
 
 const emit = defineEmits<{ fill: [data: Record<string, any>] }>()
 
@@ -55,8 +56,7 @@ const textInput = ref('')
 const fetching = ref(false)
 const preview = ref<any>(null)
 const editFields = ref<Record<string, any>>({})
-const dragOver = ref(false)
-const imagePreview = ref('')
+const { dragOver, imagePreview, onFileSelect, onDrop, onPaste, clearFiles } = useFileDrop(doFileExtract)
 const previewRef = ref<HTMLElement | null>(null)
 
 function scrollToPreview() {
@@ -96,39 +96,7 @@ const fieldLabels: Record<string, string> = {
 }
 
 // --- File/image upload ---
-function onFileSelect(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
-  if (file) doFileExtract(file)
-}
-
-async function onDrop(e: DragEvent) {
-  dragOver.value = false
-  const file = e.dataTransfer?.files?.[0]
-  if (file) doFileExtract(file)
-}
-
-function onPaste(e: ClipboardEvent) {
-  if ((e.target as HTMLElement)?.tagName === 'TEXTAREA') return
-  const items = e.clipboardData?.items
-  if (!items) return
-  for (const item of items) {
-    if (item.type.startsWith('image/')) {
-      e.preventDefault()
-      const blob = item.getAsFile()
-      if (!blob) continue
-      const file = new File([blob], 'paste.' + (item.type.split('/')[1] || 'png'), { type: item.type })
-      doFileExtract(file)
-      break
-    }
-  }
-}
-
 async function doFileExtract(file: File) {
-  if (file.type.startsWith('image/')) {
-    const reader = new FileReader()
-    reader.onload = (e) => { imagePreview.value = e.target?.result as string }
-    reader.readAsDataURL(file)
-  }
   fetching.value = true
   try {
     const fd = new FormData(); fd.append('file', file)

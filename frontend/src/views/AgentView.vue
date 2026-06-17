@@ -75,12 +75,13 @@
 
     <!-- Input -->
     <div class="agent-input-area">
-      <div v-if="attachedImages.length" class="agent-img-previews">
-        <div v-for="(img, i) in attachedImages" :key="i" class="agent-img-preview">
+      <div v-if="attachedFiles.length" class="agent-img-previews">
+        <div v-for="(img, i) in attachedFiles" :key="i" class="agent-img-preview">
           <img :src="img.dataUrl" />
-          <button class="agent-img-remove" @click="removeImage(i)" title="移除">✕</button>
+          <button class="agent-img-remove" @click="removeFile(i)" title="移除">✕</button>
         </div>
       </div>
+      <div class="agent-input-hint">支持粘贴/拖拽/上传文件及图片</div>
       <div class="agent-input-bar" :class="{ 'drag-over': dragOver }"
         @dragover.prevent="dragOver = true"
         @dragleave="dragOver = false"
@@ -89,14 +90,14 @@
         <textarea
           ref="inputEl"
           v-model="input"
-          placeholder="输入消息... (Enter 发送，Shift+Enter 换行)&#10;支持粘贴/拖拽/上传图片"
+          placeholder="输入消息... (Enter 发送，Shift+Enter 换行)"
           @keydown.enter.exact.prevent="send()"
           :disabled="streaming"
           rows="1"
         />
         <label class="btn-secondary btn-sm agent-attach-btn" title="上传图片">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-          <input type="file" accept="image/*" style="display:none" @change="onAttachFile" />
+          <input type="file" accept="image/*" style="display:none" @change="onFileSelect" />
         </label>
         <button
           v-if="streaming"
@@ -107,7 +108,7 @@
           v-else
           class="btn-primary"
           @click="send()"
-          :disabled="!input.trim() && !attachedImages.length"
+          :disabled="!input.trim() && !attachedFiles.length"
         >发送</button>
       </div>
     </div>
@@ -116,6 +117,7 @@
 
 <script setup lang="ts">
 import { ref, nextTick, onMounted, watch } from 'vue'
+import { useFileDrop } from '../composables/useFileDrop'
 import { BotIcon, PlusIcon, HistoryIcon } from 'lucide-vue-next'
 import DOMPurify from 'dompurify'
 
@@ -156,9 +158,8 @@ const streaming = ref(false)
 const showHistory = ref(false)
 const dbPath = ref('/opt/product-db/backend/product_db.db')  // loaded from /api/agent/config
 const apiBase = ref('http://127.0.0.1:8000/product-db/api')    // loaded from /api/agent/config
-// File attach: images get converted to base64, sent as multimodal content
-const attachedImages = ref<{ name: string; dataUrl: string }[]>([])
-const dragOver = ref(false)
+
+const { attachedFiles, dragOver, onFileSelect, onDrop, onPaste, removeFile, clearFiles } = useFileDrop()
 
 const chats = ref<ChatMeta[]>([])
 const activeChatId = ref<string | null>(null)
@@ -305,44 +306,6 @@ function renderMd(text: string): string {
   return DOMPurify.sanitize(html) as string
 }
 
-// ── File attach ───────────────────────────────────────
-function addImage(file: File) {
-  if (!file.type.startsWith('image/')) return
-  const reader = new FileReader()
-  reader.onload = () => {
-    attachedImages.value.push({ name: file.name, dataUrl: reader.result as string })
-  }
-  reader.readAsDataURL(file)
-}
-
-function onAttachFile(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
-  if (file) addImage(file)
-}
-
-function onDrop(e: DragEvent) {
-  dragOver.value = false
-  const file = e.dataTransfer?.files?.[0]
-  if (file) addImage(file)
-}
-
-function onPaste(e: ClipboardEvent) {
-  if ((e.target as HTMLElement)?.tagName === 'TEXTAREA') return
-  const items = e.clipboardData?.items
-  if (!items) return
-  for (const item of items) {
-    if (item.type.startsWith('image/')) {
-      e.preventDefault()
-      const blob = item.getAsFile()
-      if (!blob) continue
-      addImage(new File([blob], 'paste.' + (item.type.split('/')[1] || 'png'), { type: item.type }))
-      break
-    }
-  }
-}
-
-function removeImage(i: number) { attachedImages.value.splice(i, 1) }
-
 // ── SSE Streaming ──────────────────────────────────────
 async function send(question?: string) {
   const q = question || input.value.trim()
@@ -353,15 +316,15 @@ async function send(question?: string) {
 
   // Build multimodal content if images attached
   let userContent: string | any[] = q
-  const imgs = attachedImages.value
-  if (imgs.length) {
+  const files = attachedFiles.value
+  if (files.length) {
     userContent = [{ type: 'text', text: q }]
-    for (const img of imgs) {
-      userContent.push({ type: 'image_url', image_url: { url: img.dataUrl } })
+    for (const f of files) {
+      userContent.push({ type: 'image_url', image_url: { url: f.dataUrl } })
     }
   }
   messages.value.push({ role: 'user', content: userContent })
-  attachedImages.value = []
+  clearFiles()
   saveMessages()
   scrollDown()
 
@@ -772,6 +735,13 @@ watch(streaming, (val) => {
 /* Input area */
 .agent-input-area {
   flex-shrink: 0;
+}
+.agent-input-hint {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  text-align: center;
+  padding: 6px 20px 0;
+  background: var(--color-card);
 }
 .agent-img-previews {
   display: flex;
