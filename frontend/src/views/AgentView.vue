@@ -303,6 +303,7 @@ const RE_HR = /^---$/gm
 const RE_NUM_LIST = /^(\d+)[.、]\s+(.+)$/gm
 const RE_BULLET = /^[-•]\s+(.+)$/gm
 const RE_BLOCKQUOTE = /^&gt;\s?(.+)$/gm
+const RE_MD_LINK = /\[([^\]]+)\]\(([^)]+)\)/g
 const RE_URL = /(https?:\/\/[^\s<>]+)/g
 const RE_NL = /\n/g
 const RE_MD_LIST = /(<div class="md-li">.*?<\/div>(<br>)?)+/g
@@ -342,6 +343,7 @@ function renderMd(text: string): string {
     .replace(RE_NUM_LIST, '<div class="md-li">$1. $2</div>')
     .replace(RE_BULLET, '<div class="md-li">• $1</div>')
     .replace(RE_BLOCKQUOTE, '<blockquote>$1</blockquote>')
+    .replace(RE_MD_LINK, '<a href="$2" target="_blank">$1</a>')
     .replace(RE_URL, '<a href="$1" target="_blank">$1</a>')
 
   html = renderTable(html)
