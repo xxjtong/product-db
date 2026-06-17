@@ -331,8 +331,12 @@ async function send(question?: string) {
   if (files.length) {
     userContent = [{ type: 'text', text: q }]
     for (const f of files) {
-      if (f.dataUrl && f.type.startsWith('image/')) {
-        userContent.push({ type: 'image_url', image_url: { url: f.dataUrl } })
+      if (f.type.startsWith('image/')) {
+        if (f.dataUrl) userContent.push({ type: 'image_url', image_url: { url: f.dataUrl } })
+      } else if (f.textContent) {
+        userContent.push({ type: 'text', text: `\n\n[文件: ${f.name}]\n${f.textContent}` })
+      } else {
+        userContent.push({ type: 'text', text: `\n\n[已上传文件: ${f.name} (${f.type || '未知类型'})]` })
       }
     }
   }

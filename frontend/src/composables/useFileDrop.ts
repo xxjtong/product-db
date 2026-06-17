@@ -2,8 +2,9 @@ import { ref } from 'vue'
 
 export interface FileAttachment {
   name: string
-  type: string      // MIME type
-  dataUrl: string   // base64 data URL (images) or empty (non-images)
+  type: string       // MIME type
+  dataUrl: string    // base64 data URL (images only)
+  textContent: string // text content (non-image files: csv, txt, json, etc.)
   file?: File
 }
 
@@ -14,16 +15,28 @@ export function useFileDrop(onFileAdded?: (file: File) => void) {
 
   function addFile(file: File) {
     const isImage = file.type.startsWith('image/')
+    const textTypes = ['text/', 'application/json', 'application/xml', 'text/csv']
+    const isText = textTypes.some(t => file.type.startsWith(t)) ||
+      /\.(csv|txt|json|xml|md|log|yaml|yml|tsv)$/i.test(file.name)
+
     if (isImage) {
       const reader = new FileReader()
       reader.onload = () => {
         const dataUrl = reader.result as string
-        attachedFiles.value.push({ name: file.name, type: file.type, dataUrl, file })
+        attachedFiles.value.push({ name: file.name, type: file.type, dataUrl, textContent: '', file })
         if (!imagePreview.value) imagePreview.value = dataUrl
       }
       reader.readAsDataURL(file)
+    } else if (isText) {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const text = reader.result as string
+        attachedFiles.value.push({ name: file.name, type: file.type, dataUrl: '', textContent: text, file })
+      }
+      reader.readAsText(file)
     } else {
-      attachedFiles.value.push({ name: file.name, type: file.type, dataUrl: '', file })
+      // Binary file (xlsx, pdf, etc.): just note it
+      attachedFiles.value.push({ name: file.name, type: file.type, dataUrl: '', textContent: '', file })
     }
     // Notify callback for custom handling (e.g. AI extraction)
     if (onFileAdded) onFileAdded(file)
