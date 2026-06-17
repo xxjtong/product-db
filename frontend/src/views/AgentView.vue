@@ -404,6 +404,9 @@ async function send(question?: string) {
     for (const f of files) {
       if (f.type.startsWith('image/')) {
         if (f.dataUrl) userContent.push({ type: 'image_url', image_url: { url: f.dataUrl } })
+      } else {
+        const fu = fileUrls.find(u => u.name === f.name)
+        userContent.push({ type: 'text', text: `\n\n[已上传文件: ${f.name}，URL: ${fu?.url || '上传失败'}]` })
       }
     }
   }
