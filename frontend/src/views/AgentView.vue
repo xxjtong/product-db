@@ -127,12 +127,16 @@
         <button class="image-preview-close" @click="previewImage = ''">✕</button>
       </div>
     </Teleport>
+
+    <!-- Human-in-the-loop approval modal -->
+    <AgentApprovalModal ref="approvalModal" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, nextTick, onMounted, watch } from 'vue'
 import { useFileDrop } from '../composables/useFileDrop'
+import AgentApprovalModal from '../components/AgentApprovalModal.vue'
 import { BotIcon, PlusIcon, HistoryIcon } from 'lucide-vue-next'
 import DOMPurify from 'dompurify'
 
@@ -178,6 +182,7 @@ const apiBase = ref('http://127.0.0.1:8000/product-db/api')    // loaded from /a
 const { attachedFiles, dragOver, onFileSelect, onDrop, onPaste, removeFile, clearFiles } = useFileDrop()
 
 const previewImage = ref('')  // full-size image preview modal
+const approvalModal = ref<InstanceType<typeof AgentApprovalModal> | null>(null)
 
 const chats = ref<ChatMeta[]>([])
 const activeChatId = ref<string | null>(null)
@@ -430,6 +435,30 @@ async function send(question?: string) {
         if (data === '[DONE]') continue
         try {
           const chunk = JSON.parse(data)
+
+          // Human-in-the-loop: intercept approval_required events
+          if (chunk.type === 'approval_required' && approvalModal.value) {
+            const approved = await approvalModal.value.show({
+              task_id: chunk.task_id,
+              tool_name: chunk.tool_name,
+              tool_label: chunk.tool_label,
+              summary: chunk.summary,
+              details: chunk.details,
+              tool_input: chunk.tool_input || {},
+            })
+            if (approved) {
+              streamText.value = fullContent + '\n\n✅ 操作已授权，等待执行...'
+            } else {
+              streamText.value = fullContent + '\n\n❌ 操作已拒绝'
+            }
+            continue
+          }
+
+          // Approval result notification
+          if (chunk.type === 'approval_result') {
+            continue  // Modal already shows result
+          }
+
           const delta = chunk.choices?.[0]?.delta?.content
           if (delta) {
             fullContent += delta
