@@ -14,7 +14,6 @@ class Settings(BaseSettings):
     HERMES_API_URL: str = "http://127.0.0.1:8642"
     HERMES_API_KEY: str = ""
     AGENT_API_BASE: str = ""  # API base URL for Agent to call, defaults to localhost:8000/8002
-    AGENT_UPLOAD_DIR: str = ""  # upload dir path for Hermes to read files directly
     DEV_MODE: bool = False
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
     DISABLE_IP_LOOKUP: bool = False
