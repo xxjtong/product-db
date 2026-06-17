@@ -321,7 +321,9 @@ async function send(question?: string) {
   if (files.length) {
     userContent = [{ type: 'text', text: q }]
     for (const f of files) {
-      userContent.push({ type: 'image_url', image_url: { url: f.dataUrl } })
+      if (f.dataUrl && f.type.startsWith('image/')) {
+        userContent.push({ type: 'image_url', image_url: { url: f.dataUrl } })
+      }
     }
   }
   messages.value.push({ role: 'user', content: userContent })
