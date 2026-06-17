@@ -75,15 +75,12 @@
 
     <!-- Input -->
     <div class="agent-input-area">
-      <div v-if="attachedFiles.length" class="agent-img-previews">
-        <div v-for="(f, i) in attachedFiles" :key="i" class="agent-img-preview">
-          <img v-if="f.type.startsWith('image/')" :src="f.dataUrl" />
-          <div v-else class="agent-file-badge">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-            <span class="agent-file-ext">{{ f.name.split('.').pop()?.toUpperCase() || 'FILE' }}</span>
-          </div>
-          <div class="agent-img-name">{{ f.name }}</div>
-          <button class="agent-img-remove" @click="removeFile(i)" title="移除">✕</button>
+      <div v-if="attachedFiles.length" class="agent-file-chips">
+        <div v-for="(f, i) in attachedFiles" :key="i" class="agent-file-chip">
+          <img v-if="f.type.startsWith('image/')" :src="f.dataUrl" class="agent-chip-thumb" />
+          <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="agent-chip-icon"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+          <span class="agent-chip-name">{{ f.name }}</span>
+          <button class="agent-chip-remove" @click="removeFile(i)" title="移除">✕</button>
         </div>
       </div>
       <div class="agent-input-bar" :class="{ 'drag-over': dragOver }"
@@ -740,67 +737,59 @@ watch(streaming, (val) => {
 .agent-input-area {
   flex-shrink: 0;
 }
-.agent-img-previews {
+.agent-file-chips {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   padding: 8px 20px 0;
   background: var(--color-card);
+  flex-wrap: wrap;
 }
-.agent-img-preview {
-  position: relative;
-  width: 64px;
+.agent-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 5px 6px;
   border-radius: 6px;
-  overflow: hidden;
   border: 1px solid var(--color-border);
   background: var(--color-bg);
+  font-size: 12px;
 }
-.agent-img-preview img {
-  width: 64px;
-  height: 48px;
+.agent-chip-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
   object-fit: cover;
-  display: block;
+  flex-shrink: 0;
 }
-.agent-file-badge {
-  width: 64px;
-  height: 48px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
+.agent-chip-icon {
   color: var(--color-text-secondary);
+  flex-shrink: 0;
 }
-.agent-file-ext {
-  font-size: 9px;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-}
-.agent-img-name {
-  font-size: 10px;
-  color: var(--color-text-secondary);
-  text-align: center;
-  padding: 2px 4px 4px;
+.agent-chip-name {
+  color: var(--color-text);
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 64px;
 }
-.agent-img-remove {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: rgba(0,0,0,.5);
-  color: #fff;
-  border: none;
-  font-size: 10px;
-  cursor: pointer;
+.agent-chip-remove {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: none;
+  font-size: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
   padding: 0;
+}
+.agent-chip-remove:hover {
+  background: var(--color-border);
+  color: var(--color-text);
 }
 .agent-attach-btn {
   cursor: pointer;

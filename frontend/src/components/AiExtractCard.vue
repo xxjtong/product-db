@@ -10,14 +10,11 @@
     </div>
     <div class="ai-drop" :class="{ 'ai-drop-active': dragOver }"
       @dragover.prevent="dragOver = true" @dragleave="dragOver = false" @drop.prevent="onDrop">
-      <div v-if="attachedFiles.length" class="ai-preview-list">
-        <div v-for="(f, i) in attachedFiles" :key="i" class="ai-preview-item">
-          <img v-if="f.type.startsWith('image/')" :src="f.dataUrl" class="ai-preview-img" />
-          <div v-else class="ai-preview-file">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-            <span class="ai-preview-ext">{{ f.name.split('.').pop()?.toUpperCase() || 'FILE' }}</span>
-          </div>
-          <span class="ai-preview-name">{{ f.name }}</span>
+      <div v-if="attachedFiles.length" class="ai-file-chips">
+        <div v-for="(f, i) in attachedFiles" :key="i" class="ai-file-chip">
+          <img v-if="f.type.startsWith('image/')" :src="f.dataUrl" class="ai-chip-thumb" />
+          <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ai-chip-icon"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+          <span class="ai-chip-name">{{ f.name }}</span>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
@@ -183,51 +180,38 @@ defineExpose({ fetchFromUrl })
 </script>
 
 <style scoped>
-.ai-preview-list {
+.ai-file-chips {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   margin-bottom: 8px;
   flex-wrap: wrap;
 }
-.ai-preview-item {
-  display: flex;
-  flex-direction: column;
+.ai-file-chip {
+  display: inline-flex;
   align-items: center;
-  gap: 2px;
-  width: 72px;
-}
-.ai-preview-img {
-  width: 64px;
-  height: 48px;
-  object-fit: cover;
-  border-radius: 4px;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
   border: 1px solid var(--color-border);
-}
-.ai-preview-file {
-  width: 64px;
-  height: 48px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  color: var(--color-text-secondary);
   background: var(--color-bg);
-  border-radius: 4px;
-  border: 1px solid var(--color-border);
+  font-size: 12px;
 }
-.ai-preview-ext {
-  font-size: 9px;
-  font-weight: 600;
-  color: var(--color-text-secondary);
+.ai-chip-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  object-fit: cover;
+  flex-shrink: 0;
 }
-.ai-preview-name {
-  font-size: 10px;
+.ai-chip-icon {
   color: var(--color-text-secondary);
-  text-align: center;
+  flex-shrink: 0;
+}
+.ai-chip-name {
+  color: var(--color-text);
+  max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 72px;
 }
 </style>
