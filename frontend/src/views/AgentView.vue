@@ -76,8 +76,13 @@
     <!-- Input -->
     <div class="agent-input-area">
       <div v-if="attachedFiles.length" class="agent-img-previews">
-        <div v-for="(img, i) in attachedFiles" :key="i" class="agent-img-preview">
-          <img :src="img.dataUrl" />
+        <div v-for="(f, i) in attachedFiles" :key="i" class="agent-img-preview">
+          <img v-if="f.type.startsWith('image/')" :src="f.dataUrl" />
+          <div v-else class="agent-file-badge">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+            <span class="agent-file-ext">{{ f.name.split('.').pop()?.toUpperCase() || 'FILE' }}</span>
+          </div>
+          <div class="agent-img-name">{{ f.name }}</div>
           <button class="agent-img-remove" @click="removeFile(i)" title="移除">✕</button>
         </div>
       </div>
@@ -743,16 +748,42 @@ watch(streaming, (val) => {
 }
 .agent-img-preview {
   position: relative;
-  width: 56px;
-  height: 56px;
+  width: 64px;
   border-radius: 6px;
   overflow: hidden;
   border: 1px solid var(--color-border);
+  background: var(--color-bg);
 }
 .agent-img-preview img {
-  width: 100%;
-  height: 100%;
+  width: 64px;
+  height: 48px;
   object-fit: cover;
+  display: block;
+}
+.agent-file-badge {
+  width: 64px;
+  height: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: var(--color-text-secondary);
+}
+.agent-file-ext {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.agent-img-name {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  text-align: center;
+  padding: 2px 4px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 64px;
 }
 .agent-img-remove {
   position: absolute;

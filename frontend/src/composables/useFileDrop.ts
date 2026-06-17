@@ -2,8 +2,9 @@ import { ref } from 'vue'
 
 export interface FileAttachment {
   name: string
-  dataUrl: string  // base64 data URL
-  file?: File       // raw file for FormData upload
+  type: string      // MIME type
+  dataUrl: string   // base64 data URL (images) or empty (non-images)
+  file?: File
 }
 
 export function useFileDrop(onFileAdded?: (file: File) => void) {
@@ -12,15 +13,18 @@ export function useFileDrop(onFileAdded?: (file: File) => void) {
   const imagePreview = ref('')
 
   function addFile(file: File) {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const dataUrl = reader.result as string
-      attachedFiles.value.push({ name: file.name, dataUrl, file })
-      if (file.type.startsWith('image/') && !imagePreview.value) {
-        imagePreview.value = dataUrl
+    const isImage = file.type.startsWith('image/')
+    if (isImage) {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const dataUrl = reader.result as string
+        attachedFiles.value.push({ name: file.name, type: file.type, dataUrl, file })
+        if (!imagePreview.value) imagePreview.value = dataUrl
       }
+      reader.readAsDataURL(file)
+    } else {
+      attachedFiles.value.push({ name: file.name, type: file.type, dataUrl: '', file })
     }
-    reader.readAsDataURL(file)
     // Notify callback for custom handling (e.g. AI extraction)
     if (onFileAdded) onFileAdded(file)
   }
