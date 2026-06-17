@@ -558,6 +558,9 @@ API key 存在?
 | BOM Snapshots | `GET|PUT /solutions/{id}/bom-snapshot` | 方案 BOM 快照 |
 | Dicts | `GET|POST /dicts/{type}`, `PUT|DELETE /dicts/{type}/{id}` | 通讯/协议/供电/传感器/厂商/供应商 |
 | AI | `POST /ai/chat` (SSE), `GET /ai/conversations` | AI 方案助手 |
+| Agent | `POST /agent/chat` (SSE), `GET /agent/config|prompt` | Hermes Agent 代理 |
+| Agent Files | `POST /agent/upload`, `POST /agent/cleanup-uploads` | 文件上传 + 清理 |
+| Agent Approval | `POST /agent/approval/{id}`, `GET /agent/approvals` | Human-in-the-loop 审批 |
 | Files | `GET|POST /products/{id}/files`, `GET|DELETE /products/files/{id}` | 产品文件 (下载需auth) |
 | Admin | `GET|PUT /admin/*` | 用户管理/系统设置/AI设置 (admin only) |
 

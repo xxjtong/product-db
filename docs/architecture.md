@@ -112,6 +112,7 @@ frontend/src/
 | `ai.py` | `/ai` | SSE 对话 + 对话管理 + 统计 |
 | `auth_routes.py` | `/auth` | 登录/注册/JWT/Profile |
 | `admin_routes.py` | `/admin` | 用户/系统/AI/日志管理 |
+| `agent.py` | `/agent` | Hermes Agent 代理(SSE) + 文件上传 + 审批 |
 | `product_files.py` | `/products/{id}/files` | 文件上传/下载/删除 |
 | `product_import.py` | `/products/import` | 批量导入 |
 | `bom_templates.py` | `/bom-templates` | BOM 模板 + 快照 |
@@ -124,6 +125,7 @@ frontend/src/
 | `ai_engine.py` | DeepSeek API 异步调用封装 |
 | `ai_tools.py` | Tool Calling 4 工具 |
 | `ai_extract.py` | AI 产品信息提取 + Regex 回退 |
+| `approval_manager.py` | Human-in-the-loop 审批(asyncio.Event 挂起) |
 | `product_helpers.py` | 产品查询 eager loads + 名称映射 |
 | `product_category_helper.py` | 多对多品类统一操作 (消除 6 处 raw SQL) |
 | `spec_service.py` | 规格校验 + 产品对比 |
@@ -150,6 +152,7 @@ frontend/src/
 /dictionaries       → DictionariesView.vue     (6 tab 字典)
 /suppliers          → SuppliersView.vue        (已并入字典)
 /admin              → AdminView.vue            (管理后台)
+/agent              → AgentView.vue            (Hermes Agent 全屏对话 + 文件上传 + 审批)
 ```
 
 ### 组件通信
