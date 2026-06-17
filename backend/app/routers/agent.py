@@ -410,7 +410,7 @@ async def agent_chat(
                 yield "data: [DONE]\n\n"
                 return
             # Continue to Hermes
-            async for chunk in _call_hermes(None, model, messages, stream):
+            async for chunk in _call_hermes(None, model, messages, stream, tools=AGENT_TOOLS):
                 yield chunk
 
         return StreamingResponse(_stream_approval(), media_type="text/event-stream",
@@ -418,5 +418,5 @@ async def agent_chat(
 
     # Normal chat — single pass, streaming with tool definitions
     logger.info("agent_chat: proxying %d messages to %s", len(messages), HERMES_CHAT_URL)
-    return StreamingResponse(_call_hermes(None, model, messages, stream), media_type="text/event-stream",
+    return StreamingResponse(_call_hermes(None, model, messages, stream, tools=AGENT_TOOLS), media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
