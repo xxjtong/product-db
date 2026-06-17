@@ -53,9 +53,13 @@
         </div>
 
         <div v-if="streaming" class="agent-msg assistant">
-          <div class="agent-msg-avatar streaming"><BotIcon :size="18" /></div>
+          <div class="agent-msg-avatar"><BotIcon :size="18" /></div>
           <div class="agent-msg-body">
-            <div class="agent-msg-text" v-html="streamText ? renderMd(streamText) : '<span class=&quot;ai-cursor&quot;>▊</span>'" />
+            <div class="agent-msg-text">
+              <span v-if="streamText" v-html="renderMd(streamText)" />
+              <span v-else class="ai-loading">思考中</span>
+              <span class="ai-cursor">▊</span>
+            </div>
           </div>
         </div>
       </div>
@@ -107,65 +111,8 @@ interface ChatMeta {
 // ── Constants ──────────────────────────────────────────
 const AGENT_API = '/product-db/api/agent/chat'
 
-const SYSTEM_PROMPT = `You are Hermes, an AI assistant integrated into the product-db (产品数据库) system — an IoT product selection, comparison, specification sheet generation, and solution design platform.
-
-## System Context
-- **Stack**: FastAPI backend + Vue 3 frontend + SQLite database at backend/product_db.db
-- **Scale**: 414 products, 27 categories, 48 manufacturers, 60 suppliers
-
-## Database (SQLite at backend/product_db.db — query with: sqlite3 -column -header backend/product_db.db "SELECT ...")
-
-### Core tables
-- **products**: id, name, model, sku, category_id, manufacturer_id, base_price, cost_price, description, image_url, product_url, specs (JSON), status
-- **device_categories**: id, name, parent_id (tree structure)
-- **manufacturers**: id, name, website
-- **suppliers**: id, name
-
-### Communication methods (product_comm_methods → dict_comm_methods)
-dict_comm_methods id→name: Ethernet(1), RS485(2), RS232(3), DryContact(4), KNX(5), M-BUS(6), USB(7), LoRaWAN(8), WiFi(9), 4G(10), 5G(11), NB-IoT(12), Zigbee(13), BLE(14), NFC(15), D2D(17), EnOcean(18), Sub-G(19)
-
-### Protocols (product_comm_protocols → dict_comm_protocols)
-HTTP, MQTT, MQTTS, Modbus RTU, Modbus TCP, BACnet/IP, SNMP, TCP, UDP, SSH, RTSP, NTP, Zigbee, VPN
-
-### Power (product_power_supplies → dict_power_supplies)
-DC, PoE, Battery, AC, Solar, USB, Type-C, Battery-Rechargeable, Battery-Disposable, Bus-Powered, Other
-
-### Common SQL queries
-\`\`\`sql
--- Products by comm method (e.g. 5G=11, LoRaWAN=8, 4G=10)
-SELECT p.id, p.name, p.model, m.name AS brand, p.base_price, p.description
-FROM products p
-JOIN product_comm_methods pcm ON pcm.product_id = p.id
-LEFT JOIN manufacturers m ON m.id = p.manufacturer_id
-WHERE pcm.method_id = 11;
-
--- Products by category (e.g. gateway=1, sensor=2)
-SELECT p.id, p.name, p.model, p.base_price FROM products p WHERE p.category_id = <id>;
-
--- Keyword search
-SELECT p.id, p.name, p.model, p.base_price FROM products p
-WHERE p.name LIKE '%keyword%' OR p.model LIKE '%keyword%' OR p.description LIKE '%keyword%';
-
--- Multi-method (product has BOTH LoRaWAN AND 5G)
-SELECT p.id, p.name FROM products p
-JOIN product_comm_methods a ON a.product_id = p.id AND a.method_id = 8
-JOIN product_comm_methods b ON b.product_id = p.id AND b.method_id = 11;
-\`\`\`
-
-## Your Capabilities
-1. **Product search** — query SQLite directly with sqlite3; filter by category, comm method, protocol, power, price, brand
-2. **Solution design** — help assemble multi-product solutions with dependency analysis
-3. **Technical analysis** — compare products, explain specs, recommend alternatives
-4. **Development assistance** — Vue 3 + FastAPI + SQLite project help
-
-## Guidelines
-- When users ask about products, ALWAYS query the database with sqlite3 first — never guess
-- Be specific about products: mention category, communication method, key specs, price
-- When comparing products, use tables
-- Be concise and actionable
-- Use Chinese when the user writes in Chinese, English when they write in English
-
-You are helpful, technically knowledgeable, and focused on delivering value for IoT product engineering workflows.`
+// System prompt loaded from backend /agent/prompt (admin-editable)
+const agentPrompt = ref('')
 
 const suggestions = [
   '推荐一款支持LoRaWAN的温湿度传感器',
@@ -183,6 +130,8 @@ const messages = ref<Message[]>([])
 const streamText = ref('')
 const streaming = ref(false)
 const showHistory = ref(false)
+const dbPath = ref('/opt/product-db/backend/product_db.db')  // loaded from /api/agent/config
+const apiBase = ref('http://127.0.0.1:8000/product-db/api')    // loaded from /api/agent/config
 
 const chats = ref<ChatMeta[]>([])
 const activeChatId = ref<string | null>(null)
@@ -341,8 +290,11 @@ async function send(question?: string) {
   saveMessages()
   scrollDown()
 
+  let systemPrompt = (agentPrompt.value || '你是 pdb，产品数据库 AI 助手。')
+    .replace(/\{\{DB_PATH\}\}/g, dbPath.value)
+    .replace(/\{\{API_BASE\}\}/g, apiBase.value)
   const apiMessages: { role: string; content: string }[] = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: systemPrompt },
     ...messages.value.map(m => ({ role: m.role, content: m.content })),
   ]
 
@@ -451,8 +403,28 @@ function scrollDown() {
 }
 
 // ── Lifecycle ──────────────────────────────────────────
-onMounted(() => {
+onMounted(async () => {
   chats.value = loadChats()
+  // Load DB path from backend config
+  try {
+    const token = localStorage.getItem('token')
+    const res = await fetch('/product-db/api/agent/config', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    if (res.ok) {
+      const data = await res.json()
+      if (data.db_path) dbPath.value = data.db_path
+      if (data.api_base) apiBase.value = data.api_base
+    }
+    // Load Hermes system prompt from backend
+    const promptRes = await fetch('/product-db/api/agent/prompt', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    if (promptRes.ok) {
+      const promptData = await promptRes.json()
+      if (promptData.prompt) agentPrompt.value = promptData.prompt
+    }
+  } catch { /* keep default */ }
 })
 
 watch(streaming, (val) => {
@@ -597,14 +569,6 @@ watch(streaming, (val) => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: box-shadow .3s;
-}
-.agent-msg-avatar.streaming {
-  animation: agent-pulse 1.6s ease-in-out infinite;
-}
-@keyframes agent-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,.4); }
-  50% { box-shadow: 0 0 0 8px rgba(59,130,246,0); }
 }
 .agent-msg-body {
   min-width: 0;
@@ -700,12 +664,27 @@ watch(streaming, (val) => {
   font-weight: 600;
 }
 
-/* Cursor blink */
+/* Loading placeholder */
+.ai-loading {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  animation: loading-fade 1.2s ease-in-out infinite;
+}
+@keyframes loading-fade {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+/* Cursor blink — visible during streaming, hidden when done */
 .ai-cursor {
-  animation: cursor-blink 1s infinite;
+  display: inline-block;
+  animation: cursor-blink 0.8s step-end infinite;
   color: var(--color-accent);
+  font-weight: 400;
+  margin-left: 1px;
 }
 @keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
 

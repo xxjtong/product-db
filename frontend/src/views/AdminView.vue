@@ -257,7 +257,7 @@ const aiSettings = ref<any>(null)
 const aiPrompts = ref<Record<string,string>>({})
 const aiModels = ref<Record<string,string>>({})
 const aiSaving = ref(false)
-const promptLabels: Record<string,string> = { ai_system_prompt: '系统提示词', ai_keyword_prompt: '关键词提取提示词', ai_extract_prompt: '产品提取提示词' }
+const promptLabels: Record<string,string> = { ai_system_prompt: '系统提示词', ai_keyword_prompt: '关键词提取提示词', ai_extract_prompt: '产品提取提示词', agent_prompt: 'Hermes Agent 提示词' }
 const modelLabels: Record<string,string> = { ai_chat_model: 'AI 对话', ai_keyword_model: '关键词提取', ai_extract_model: '产品提取' }
 
 // AI usage

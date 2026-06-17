@@ -45,6 +45,9 @@
     </aside>
     <main class="app-content">
       <router-view />
+      <footer class="app-footer">
+        <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">陕ICP备2026015306号</a>
+      </footer>
     </main>
   </div>
   <AiChat v-if="$route.path !== '/login' && $route.path !== '/agent'" />

@@ -2,17 +2,45 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-06-16, R15)
+## 最新变更 (2026-06-17, R16)
+
+### R16: Agent prompt DB 化 + API 查询 + 动画 + ICP 页脚
+
+**Agent 提示词 DB 化:**
+- System prompt 从 AgentView.vue 硬编码 → 管理页 AI 设置可编辑
+- 后端 `GET /agent/prompt` 从 `system_settings.agent_prompt` 读取，fallback `_PROMPT_DEFAULTS`
+- 前端 onMounted 拉取 prompt，替换 `{{DB_PATH}}` / `{{API_BASE}}` 占位符
+- 管理页新增 "Hermes Agent 提示词" 输入框，存 DB，实时生效
+- Prompt 优先引导 Hermes 调 REST API（备选 Python sqlite3）
+
+**Agent 配置端点:**
+- `GET /agent/config` 返回 `db_path` + `api_base`
+- `config.py` 新增 `AGENT_API_BASE`、`DATABASE_PATH` 配置项
+- pdb 环境 `AGENT_API_BASE=https://product-db.cn`（Hermes web 工具禁 localhost）
+
+**Agent 流式动画优化:**
+- 头像移除 pulse 动画，改为静态
+- 新增 `.ai-cursor` 0.8s step-end 高频闪烁光标 ▊
+- 空 streamText 时显示 "思考中" 淡入淡出
+- SSE 完成后 streaming div 移除，光标自动消失
+
+**部署修复:**
+- 前端 dist 工程化：`FRONTEND_DIST=frontend/dist`，部署到 `/opt/product-db/frontend/dist/`
+- pdb Hermes `command_allowlist` + `execute_code`
+- DB 路径修复：pdb `DATABASE_PATH=/opt/product-db/backend/product_db.db`
+
+**其他:**
+- 页脚 ICP 备案号：`陕ICP备2026015306号`
+- `product-db/scripts/fix-hermes-pdb.sh` — pdb Hermes 修复脚本
+
+## 历史变更 (2026-06-16, R15)
 
 ### R15: Hermes Agent 全屏对话页
 
 **Hermes Agent 集成:**
 - 新建 `AgentView.vue` — 全屏独立对话页面，路由 `/agent`
-- 前端直连 Hermes API Server（localhost:8642）OpenAI-compatible SSE 流
-- Vite dev proxy `/product-db/hermes` → `127.0.0.1:8642`，`configure` 钩子注入 Bearer token
-- System prompt 硬编码 product-db 上下文（414产品/27品类/48厂商）
-- localStorage 对话持久化（多会话切换/删除）
-- 自定义 markdown 渲染器：表格、代码块、标题、列表、引用
+- 后端 `agent.py` 纯代理转发 Hermes API Server（SSE 流）
+- System prompt 原为硬编码 product-db 上下文（R16 已改为 DB 化）
 - DOMPurify XSS 防护
 
 **交互功能:**

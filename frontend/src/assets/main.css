@@ -197,6 +197,20 @@ button {
   padding: 24px;
   max-width: 1400px;
 }
+.app-footer {
+  text-align: center;
+  padding: 24px 0 12px;
+  margin-top: 32px;
+  border-top: 1px solid var(--color-border);
+}
+.app-footer a {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+}
+.app-footer a:hover {
+  color: var(--color-accent);
+}
 
 /* Sidebar */
 .sidebar-logo {

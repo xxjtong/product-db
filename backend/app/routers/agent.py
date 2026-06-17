@@ -14,7 +14,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.auth import get_current_user
-from app.config import settings
+from app.config import settings, DB_FILESYSTEM_PATH
+from app.database import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,38 @@ router = APIRouter()
 
 HERMES_CHAT_URL = f"{settings.HERMES_API_URL.rstrip('/')}/v1/chat/completions"
 HERMES_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
+
+_AGENT_PROMPT_DEFAULT = "你是 pdb，产品数据库系统的 AI 助手。"
+
+
+def _get_agent_prompt(db):
+    """Load agent_prompt from system_settings, fallback to import default."""
+    from app.models.system_setting import SystemSetting
+    s = db.query(SystemSetting).filter_by(key="agent_prompt").first()
+    if s and s.value:
+        return s.value
+    # Fallback to the module-level default in admin_routes
+    try:
+        from app.routers.admin_routes import _PROMPT_DEFAULTS
+        return _PROMPT_DEFAULTS.get("agent_prompt", _AGENT_PROMPT_DEFAULT)
+    except Exception:
+        return _AGENT_PROMPT_DEFAULT
+
+
+@router.get("/agent/config")
+async def agent_config(user=Depends(get_current_user)):
+    """Return agent configuration including database path and API base URL."""
+    api_base = settings.AGENT_API_BASE or f"http://127.0.0.1:{8000 if settings.DEV_MODE else 8002}"
+    return {
+        "db_path": DB_FILESYSTEM_PATH,
+        "api_base": f"{api_base}/product-db/api",
+    }
+
+
+@router.get("/agent/prompt")
+async def agent_prompt(user=Depends(get_current_user), db=Depends(get_db)):
+    """Return the Hermes agent system prompt (admin-editable, DB-backed)."""
+    return {"prompt": _get_agent_prompt(db)}
 
 
 def _build_auth_header() -> dict:
