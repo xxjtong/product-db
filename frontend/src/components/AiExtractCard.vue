@@ -20,7 +20,7 @@
       <div style="display:flex;align-items:center;gap:8px">
         粘贴/拖拽/上传文件及图片 或
         <label class="btn-secondary btn-sm btn-label">选择文件
-          <input type="file" accept=".pdf,.docx,.txt,.csv,.jpg,.jpeg,.png,.webp,.bmp" style="display:none" @change="onFileSelect" />
+          <input type="file" accept=".pdf,.docx,.txt,.csv,.jpg,.jpeg,.png,.webp,.bmp,.xlsx,.xls" style="display:none" @change="onFileSelect" />
         </label>
       </div>
     </div>
