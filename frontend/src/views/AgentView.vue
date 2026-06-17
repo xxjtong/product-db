@@ -44,8 +44,16 @@
             <BotIcon :size="18" />
           </div>
           <div class="agent-msg-body">
-            <div v-if="m.role === 'user'" class="agent-msg-text user-text">{{ m.content }}</div>
-            <div v-else class="agent-msg-text" v-html="renderMd(m.content)" />
+            <div v-if="m.role === 'user'" class="agent-msg-text user-text">
+              <template v-if="Array.isArray(m.content)">
+                <div v-for="(part, pi) in (m.content as any[])" :key="pi">
+                  <span v-if="part.type === 'text'">{{ part.text }}</span>
+                  <img v-else-if="part.type === 'image_url'" :src="part.image_url?.url" class="agent-msg-img" />
+                </div>
+              </template>
+              <template v-else>{{ m.content }}</template>
+            </div>
+            <div v-else class="agent-msg-text" v-html="renderMd(m.content as string)" />
             <div v-if="m.role === 'assistant' && m.tokens" class="agent-msg-meta">
               {{ m.tokens }}
             </div>
@@ -66,26 +74,42 @@
     </div>
 
     <!-- Input -->
-    <div class="agent-input-bar">
-      <textarea
-        ref="inputEl"
-        v-model="input"
-        placeholder="输入消息... (Enter 发送，Shift+Enter 换行)"
-        @keydown.enter.exact.prevent="send()"
-        :disabled="streaming"
-        rows="1"
-      />
-      <button
-        v-if="streaming"
-        class="btn-danger btn-sm"
-        @click="stopStreaming"
-      >停止</button>
-      <button
-        v-else
-        class="btn-primary"
-        @click="send()"
-        :disabled="!input.trim()"
-      >发送</button>
+    <div class="agent-input-area">
+      <div v-if="attachedImages.length" class="agent-img-previews">
+        <div v-for="(img, i) in attachedImages" :key="i" class="agent-img-preview">
+          <img :src="img.dataUrl" />
+          <button class="agent-img-remove" @click="removeImage(i)" title="移除">✕</button>
+        </div>
+      </div>
+      <div class="agent-input-bar" :class="{ 'drag-over': dragOver }"
+        @dragover.prevent="dragOver = true"
+        @dragleave="dragOver = false"
+        @drop.prevent="onDrop"
+        @paste="onPaste">
+        <textarea
+          ref="inputEl"
+          v-model="input"
+          placeholder="输入消息... (Enter 发送，Shift+Enter 换行)&#10;支持粘贴/拖拽/上传图片"
+          @keydown.enter.exact.prevent="send()"
+          :disabled="streaming"
+          rows="1"
+        />
+        <label class="btn-secondary btn-sm agent-attach-btn" title="上传图片">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <input type="file" accept="image/*" style="display:none" @change="onAttachFile" />
+        </label>
+        <button
+          v-if="streaming"
+          class="btn-danger btn-sm"
+          @click="stopStreaming"
+        >停止</button>
+        <button
+          v-else
+          class="btn-primary"
+          @click="send()"
+          :disabled="!input.trim() && !attachedImages.length"
+        >发送</button>
+      </div>
     </div>
   </div>
 </template>
@@ -98,7 +122,7 @@ import DOMPurify from 'dompurify'
 // ── Types ──────────────────────────────────────────────
 interface Message {
   role: 'user' | 'assistant' | 'system'
-  content: string
+  content: string | { type: string; text?: string; image_url?: { url: string } }[]
   tokens?: string
 }
 
@@ -132,6 +156,9 @@ const streaming = ref(false)
 const showHistory = ref(false)
 const dbPath = ref('/opt/product-db/backend/product_db.db')  // loaded from /api/agent/config
 const apiBase = ref('http://127.0.0.1:8000/product-db/api')    // loaded from /api/agent/config
+// File attach: images get converted to base64, sent as multimodal content
+const attachedImages = ref<{ name: string; dataUrl: string }[]>([])
+const dragOver = ref(false)
 
 const chats = ref<ChatMeta[]>([])
 const activeChatId = ref<string | null>(null)
@@ -278,6 +305,44 @@ function renderMd(text: string): string {
   return DOMPurify.sanitize(html) as string
 }
 
+// ── File attach ───────────────────────────────────────
+function addImage(file: File) {
+  if (!file.type.startsWith('image/')) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    attachedImages.value.push({ name: file.name, dataUrl: reader.result as string })
+  }
+  reader.readAsDataURL(file)
+}
+
+function onAttachFile(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (file) addImage(file)
+}
+
+function onDrop(e: DragEvent) {
+  dragOver.value = false
+  const file = e.dataTransfer?.files?.[0]
+  if (file) addImage(file)
+}
+
+function onPaste(e: ClipboardEvent) {
+  if ((e.target as HTMLElement)?.tagName === 'TEXTAREA') return
+  const items = e.clipboardData?.items
+  if (!items) return
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault()
+      const blob = item.getAsFile()
+      if (!blob) continue
+      addImage(new File([blob], 'paste.' + (item.type.split('/')[1] || 'png'), { type: item.type }))
+      break
+    }
+  }
+}
+
+function removeImage(i: number) { attachedImages.value.splice(i, 1) }
+
 // ── SSE Streaming ──────────────────────────────────────
 async function send(question?: string) {
   const q = question || input.value.trim()
@@ -286,14 +351,24 @@ async function send(question?: string) {
 
   ensureChat(q.slice(0, 30))
 
-  messages.value.push({ role: 'user', content: q })
+  // Build multimodal content if images attached
+  let userContent: string | any[] = q
+  const imgs = attachedImages.value
+  if (imgs.length) {
+    userContent = [{ type: 'text', text: q }]
+    for (const img of imgs) {
+      userContent.push({ type: 'image_url', image_url: { url: img.dataUrl } })
+    }
+  }
+  messages.value.push({ role: 'user', content: userContent })
+  attachedImages.value = []
   saveMessages()
   scrollDown()
 
   let systemPrompt = (agentPrompt.value || '你是 pdb，产品数据库 AI 助手。')
     .replace(/\{\{DB_PATH\}\}/g, dbPath.value)
     .replace(/\{\{API_BASE\}\}/g, apiBase.value)
-  const apiMessages: { role: string; content: string }[] = [
+  const apiMessages: { role: string; content: string | any[] }[] = [
     { role: 'system', content: systemPrompt },
     ...messages.value.map(m => ({ role: m.role, content: m.content })),
   ]
@@ -590,6 +665,12 @@ watch(streaming, (val) => {
   color: #fff;
   border-top-right-radius: 2px;
 }
+.agent-msg-img {
+  max-width: 200px;
+  max-height: 150px;
+  border-radius: 6px;
+  margin-top: 4px;
+}
 .agent-msg-meta {
   font-size: 11px;
   color: var(--color-text-secondary);
@@ -688,6 +769,54 @@ watch(streaming, (val) => {
   50% { opacity: 0; }
 }
 
+/* Input area */
+.agent-input-area {
+  flex-shrink: 0;
+}
+.agent-img-previews {
+  display: flex;
+  gap: 8px;
+  padding: 8px 20px 0;
+  background: var(--color-card);
+}
+.agent-img-preview {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+}
+.agent-img-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.agent-img-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0,0,0,.5);
+  color: #fff;
+  border: none;
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.agent-attach-btn {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 10px !important;
+  flex-shrink: 0;
+}
 /* Input bar */
 .agent-input-bar {
   display: flex;
@@ -696,6 +825,10 @@ watch(streaming, (val) => {
   border-top: 1px solid var(--color-border);
   background: var(--color-card);
   flex-shrink: 0;
+  transition: background .2s;
+}
+.agent-input-bar.drag-over {
+  background: var(--color-blue-50);
 }
 .agent-input-bar textarea {
   flex: 1;
