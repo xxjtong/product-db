@@ -60,6 +60,12 @@
               </div>
             </div>
             <div v-else class="agent-msg-text" v-html="renderMd(m.content as string)" />
+            <div v-if="m._approval?.status === 'pending'" class="agent-approval-btns">
+              <button class="btn-primary btn-sm" @click="approveDecision(m, true)" :disabled="streaming">授权执行</button>
+              <button class="btn-danger btn-sm" @click="approveDecision(m, false)" :disabled="streaming">拒绝</button>
+            </div>
+            <div v-else-if="m._approval?.status === 'approved'" class="agent-approval-done approved">已授权</div>
+            <div v-else-if="m._approval?.status === 'rejected'" class="agent-approval-done rejected">已拒绝</div>
             <div v-if="m.role === 'assistant' && m.tokens" class="agent-msg-meta">
               {{ m.tokens }}
             </div>
@@ -128,15 +134,12 @@
       </div>
     </Teleport>
 
-    <!-- Human-in-the-loop approval modal -->
-    <AgentApprovalModal ref="approvalModal" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, nextTick, onMounted, watch } from 'vue'
 import { useFileDrop } from '../composables/useFileDrop'
-import AgentApprovalModal from '../components/AgentApprovalModal.vue'
 import { BotIcon, PlusIcon, HistoryIcon } from 'lucide-vue-next'
 import DOMPurify from 'dompurify'
 
@@ -146,6 +149,7 @@ interface Message {
   content: string | { type: string; text?: string; image_url?: { url: string } }[]
   tokens?: string
   fileUrls?: { name: string; url: string }[]
+  _approval?: { task_id: string; tool_name: string; status: 'pending' | 'approved' | 'rejected' }
 }
 
 interface ChatMeta {
@@ -182,7 +186,6 @@ const apiBase = ref('http://127.0.0.1:8000/product-db/api')    // loaded from /a
 const { attachedFiles, dragOver, onFileSelect, onDrop, onPaste, removeFile, clearFiles } = useFileDrop()
 
 const previewImage = ref('')  // full-size image preview modal
-const approvalModal = ref<InstanceType<typeof AgentApprovalModal> | null>(null)
 
 const chats = ref<ChatMeta[]>([])
 const activeChatId = ref<string | null>(null)
@@ -348,6 +351,22 @@ function renderMd(text: string): string {
   return DOMPurify.sanitize(html) as string
 }
 
+// ── Approval handler (inline chat) ─────────────────────
+async function approveDecision(m: Message, approved: boolean) {
+  if (!m._approval || m._approval.status !== 'pending') return
+  const taskId = m._approval.task_id
+  try {
+    const token = localStorage.getItem('token')
+    await fetch(`/product-db/api/agent/approval/${taskId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ approved, reason: approved ? '' : '用户拒绝' }),
+    })
+    m._approval.status = approved ? 'approved' : 'rejected'
+    saveMessages()
+  } catch { /* ignore */ }
+}
+
 // ── SSE Streaming ──────────────────────────────────────
 async function send(question?: string) {
   const q = question || input.value.trim()
@@ -448,27 +467,29 @@ async function send(question?: string) {
         try {
           const chunk = JSON.parse(data)
 
-          // Human-in-the-loop: intercept approval_required events
-          if (chunk.type === 'approval_required' && approvalModal.value) {
-            const approved = await approvalModal.value.show({
-              task_id: chunk.task_id,
-              tool_name: chunk.tool_name,
-              tool_label: chunk.tool_label,
-              summary: chunk.summary,
-              details: chunk.details,
-              tool_input: chunk.tool_input || {},
-            })
-            if (approved) {
-              streamText.value = fullContent + '\n\n✅ 操作已授权，等待执行...'
-            } else {
-              streamText.value = fullContent + '\n\n❌ 操作已拒绝'
+          // Human-in-the-loop: intercept approval_required → inline message
+          if (chunk.type === 'approval_required') {
+            // Save current assistant message if any
+            if (fullContent) {
+              messages.value.push({ role: 'assistant', content: fullContent })
+              fullContent = ''
             }
-            continue
+            // Push approval request as a special message
+            messages.value.push({
+              role: 'assistant' as const,
+              content: `🔔 **${chunk.tool_label}**\n\n${chunk.summary}\n\n请确认是否执行此操作。`,
+              _approval: { task_id: chunk.task_id, tool_name: chunk.tool_name, status: 'pending' as const },
+            })
+            saveMessages()
+            scrollDown()
+            streamText.value = ''
+            streaming.value = false
+            return  // exit SSE loop, wait for user decision
           }
 
           // Approval result notification
           if (chunk.type === 'approval_result') {
-            continue  // Modal already shows result
+            continue
           }
 
           const delta = chunk.choices?.[0]?.delta?.content
@@ -794,6 +815,19 @@ watch(streaming, (val) => {
 .image-preview-close:hover {
   background: rgba(255,255,255,.25);
 }
+
+/* Inline approval buttons */
+.agent-approval-btns {
+  display: flex;
+  gap: 8px;
+  padding: 8px 14px 0;
+}
+.agent-approval-done {
+  font-size: 12px;
+  padding: 4px 14px 0;
+}
+.agent-approval-done.approved { color: var(--color-success); }
+.agent-approval-done.rejected { color: var(--color-danger); }
 .agent-msg-meta {
   font-size: 11px;
   color: var(--color-text-secondary);
