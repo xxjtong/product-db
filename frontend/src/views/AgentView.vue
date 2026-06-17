@@ -81,7 +81,6 @@
           <button class="agent-img-remove" @click="removeFile(i)" title="移除">✕</button>
         </div>
       </div>
-      <div class="agent-input-hint">支持粘贴/拖拽/上传文件及图片</div>
       <div class="agent-input-bar" :class="{ 'drag-over': dragOver }"
         @dragover.prevent="dragOver = true"
         @dragleave="dragOver = false"
@@ -90,7 +89,7 @@
         <textarea
           ref="inputEl"
           v-model="input"
-          placeholder="输入消息... (Enter 发送，Shift+Enter 换行)"
+          placeholder="输入消息... (Enter 发送，Shift+Enter 换行)&#10;支持粘贴/拖拽/上传文件及图片"
           @keydown.enter.exact.prevent="send()"
           :disabled="streaming"
           rows="1"
@@ -735,13 +734,6 @@ watch(streaming, (val) => {
 /* Input area */
 .agent-input-area {
   flex-shrink: 0;
-}
-.agent-input-hint {
-  font-size: 11px;
-  color: var(--color-text-secondary);
-  text-align: center;
-  padding: 6px 20px 0;
-  background: var(--color-card);
 }
 .agent-img-previews {
   display: flex;
