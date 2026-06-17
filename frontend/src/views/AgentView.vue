@@ -405,10 +405,6 @@ async function send(question?: string) {
     for (const f of files) {
       if (f.type.startsWith('image/')) {
         if (f.dataUrl) userContent.push({ type: 'image_url', image_url: { url: f.dataUrl } })
-      } else {
-        const fu = fileUrls.find(u => u.name === f.name)
-        const uuid = fu?.url ? fu.url.split('/').pop() : ''
-        userContent.push({ type: 'text', text: `\n\n📎 ${f.name} (UPLOAD_DIR/${uuid || '?'})` })
       }
     }
   }
@@ -417,11 +413,22 @@ async function send(question?: string) {
   saveMessages()
   scrollDown()
 
+  // Build file context for system prompt
+  let fileCtx = ''
+  if (fileUrls.length) {
+    const parts = fileUrls.filter(fu => fu.url).map(fu => {
+      const uuid = fu.url.split('/').pop()
+      return `${fu.name}: ${uploadDir.value || 'UPLOAD_DIR'}/${uuid}`
+    })
+    if (parts.length) fileCtx = '\n\n用户已上传文件:\n' + parts.join('\n')
+  }
+
   let systemPrompt = (agentPrompt.value || '你是 pdb，产品数据库 AI 助手。')
     .replace(/\{\{DB_PATH\}\}/g, dbPath.value)
     .replace(/\{\{API_BASE\}\}/g, apiBase.value)
     .replace(/\{\{TOKEN\}\}/g, localStorage.getItem('token') || '')
     .replace(/\{\{UPLOAD_DIR\}\}/g, uploadDir.value)
+  if (fileCtx) systemPrompt += fileCtx
   const apiMessages: { role: string; content: string | any[] }[] = [
     { role: 'system', content: systemPrompt },
     ...messages.value.map(m => ({ role: m.role, content: m.content })),
