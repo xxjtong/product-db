@@ -409,8 +409,7 @@ async function send(question?: string) {
       } else {
         const fu = fileUrls.find(u => u.name === f.name)
         const uuid = fu?.url ? fu.url.split('/').pop() : ''
-        const path = uuid ? `${uploadDir.value}/${uuid}` : ''
-        userContent.push({ type: 'text', text: `\n\n📎 ${f.name} (${path})` })
+        userContent.push({ type: 'text', text: `\n\n📎 ${f.name} (UPLOAD_DIR/${uuid || '?'})` })
       }
     }
   }
