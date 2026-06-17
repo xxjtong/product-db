@@ -182,6 +182,7 @@ const streaming = ref(false)
 const showHistory = ref(false)
 const dbPath = ref('/opt/product-db/backend/product_db.db')  // loaded from /api/agent/config
 const apiBase = ref('http://127.0.0.1:8000/product-db/api')    // loaded from /api/agent/config
+const uploadDir = ref('/opt/product-db/backend/app/uploads')   // loaded from /api/agent/config
 
 const { attachedFiles, dragOver, onFileSelect, onDrop, onPaste, removeFile, clearFiles } = useFileDrop()
 
@@ -406,7 +407,10 @@ async function send(question?: string) {
         if (f.dataUrl) userContent.push({ type: 'image_url', image_url: { url: f.dataUrl } })
       } else {
         const fu = fileUrls.find(u => u.name === f.name)
-        userContent.push({ type: 'text', text: `\n\n[已上传文件: ${f.name}]` })
+        // Extract UUID filename from URL: .../uploads/abc123.xlsx → abc123.xlsx
+        const uuidName = fu?.url ? fu.url.split('/').pop() : ''
+        const localPath = uuidName ? `${uploadDir.value}/${uuidName}` : ''
+        userContent.push({ type: 'text', text: `\n\n[已上传文件: ${f.name}，路径: ${localPath || fu?.url || ''}]` })
       }
     }
   }
@@ -567,6 +571,7 @@ onMounted(async () => {
       const data = await res.json()
       if (data.db_path) dbPath.value = data.db_path
       if (data.api_base) apiBase.value = data.api_base
+      if (data.upload_dir) uploadDir.value = data.upload_dir
     }
     // Load Hermes system prompt from backend
     const promptRes = await fetch('/product-db/api/agent/prompt', {
