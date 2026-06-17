@@ -199,13 +199,132 @@ async def agent_test_approval(user=Depends(get_current_user)):
     return {"task_id": task.task_id}
 
 
-async def _call_hermes(client, model: str, messages: list, stream: bool = True):
+# ── Product-db tool definitions for Hermes ──────────────
+
+AGENT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_products",
+            "description": "在产品数据库中搜索产品。可按关键词、品类、通讯方式、价格等条件筛选。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keyword": {"type": "string", "description": "搜索关键词(匹配产品名称/型号/描述)"},
+                    "category_id": {"type": "integer", "description": "品类ID"},
+                    "comm_method_id": {"type": "integer", "description": "通讯方式ID: 1=Ethernet,2=RS485,8=LoRaWAN,9=WiFi,10=4G,11=5G,13=Zigbee"},
+                    "manufacturer_name": {"type": "string", "description": "厂商名称"},
+                    "min_price": {"type": "number", "description": "最低价格"},
+                    "max_price": {"type": "number", "description": "最高价格"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_product_detail",
+            "description": "获取单个产品的完整规格参数。",
+            "parameters": {
+                "type": "object",
+                "properties": {"product_id": {"type": "integer", "description": "产品ID"}},
+                "required": ["product_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_quotation",
+            "description": "从方案创建报价单。⚠️ 写操作，需要用户审批才能执行。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "solution_id": {"type": "integer", "description": "方案ID"},
+                    "customer_name": {"type": "string", "description": "客户名称"},
+                    "items": {"type": "array", "items": {"type": "object"}, "description": "报价项目列表"},
+                },
+                "required": ["solution_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_solution",
+            "description": "创建新的IoT解决方案。⚠️ 写操作，需要用户审批才能执行。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "方案名称"},
+                    "description": {"type": "string", "description": "方案描述"},
+                    "product_ids": {"type": "array", "items": {"type": "integer"}, "description": "产品ID列表"},
+                },
+                "required": ["name"],
+            },
+        },
+    },
+]
+
+_WRITE_TOOLS = {"create_quotation", "create_solution"}
+
+
+async def _execute_tool(tool_name: str, tool_args: dict, user_id: int) -> dict:
+    """Execute a read-only tool against the product database. Returns result dict."""
+    from app.database import SessionLocal
+    from app.models.product import Product
+    from app.models.dictionary import Manufacturer, DictCommMethod
+    from sqlalchemy import or_
+
+    db = SessionLocal()
+    try:
+        if tool_name == "search_products":
+            q = db.query(Product)
+            keyword = tool_args.get("keyword", "").strip()
+            if keyword:
+                like = f"%{keyword}%"
+                q = q.filter(or_(
+                    Product.name.ilike(like),
+                    Product.model.ilike(like),
+                    Product.description.ilike(like),
+                ))
+            if tool_args.get("category_id"):
+                q = q.filter(Product.category_id == tool_args["category_id"])
+            if tool_args.get("manufacturer_name"):
+                mfgs = db.query(Manufacturer.id).filter(Manufacturer.name.ilike(f"%{tool_args['manufacturer_name']}%")).all()
+                q = q.filter(Product.manufacturer_id.in_([m[0] for m in mfgs]))
+            if tool_args.get("min_price") is not None:
+                q = q.filter(Product.base_price >= tool_args["min_price"])
+            if tool_args.get("max_price") is not None:
+                q = q.filter(Product.base_price <= tool_args["max_price"])
+            if tool_args.get("comm_method_id"):
+                q = q.filter(Product.comm_methods.any(method_id=tool_args["comm_method_id"]))
+            products = q.limit(20).all()
+            return {
+                "total": len(products),
+                "items": [{"id": p.id, "name": p.name, "model": p.model or "", "base_price": p.base_price, "description": (p.description or "")[:200], "manufacturer": p.manufacturer.name if p.manufacturer else "", "category": p.category.name if p.category else ""} for p in products],
+            }
+
+        elif tool_name == "get_product_detail":
+            p = db.query(Product).filter_by(id=tool_args["product_id"]).first()
+            if p:
+                return {"id": p.id, "name": p.name, "model": p.model, "base_price": p.base_price, "cost_price": p.cost_price, "description": p.description, "specs": p.specs, "comm_methods": [{"method_id": m.method_id, "method_name": (db.query(DictCommMethod).filter_by(id=m.method_id).first().name if db.query(DictCommMethod).filter_by(id=m.method_id).first() else "")} for m in p.comm_methods]}
+            return {"error": "Product not found"}
+
+        return {"error": f"Unknown tool: {tool_name}"}
+    finally:
+        db.close()
+
+
+async def _call_hermes(client, model: str, messages: list, stream: bool = True, tools: list | None = None):
     """Single pass: call Hermes and stream bytes back. Creates httpx client if None."""
     headers = {
         "Content-Type": "application/json",
         **_build_auth_header(),
     }
     payload = {"model": model, "messages": messages, "stream": stream}
+    if tools:
+        payload["tools"] = tools
 
     try:
         if client is None:
@@ -291,13 +410,13 @@ async def agent_chat(
                 yield "data: [DONE]\n\n"
                 return
             # Continue to Hermes
-            async for chunk in _call_hermes(client, model, messages, stream):
+            async for chunk in _call_hermes(None, model, messages, stream):
                 yield chunk
 
         return StreamingResponse(_stream_approval(), media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
-    # Normal chat — single pass, streaming
+    # Normal chat — single pass, streaming with tool definitions
     logger.info("agent_chat: proxying %d messages to %s", len(messages), HERMES_CHAT_URL)
     return StreamingResponse(_call_hermes(None, model, messages, stream), media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
