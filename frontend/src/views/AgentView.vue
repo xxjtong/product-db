@@ -182,6 +182,7 @@ const streaming = ref(false)
 const showHistory = ref(false)
 const dbPath = ref('/opt/product-db/backend/product_db.db')  // loaded from /api/agent/config
 const apiBase = ref('http://127.0.0.1:8000/product-db/api')    // loaded from /api/agent/config
+const uploadDir = ref('')   // loaded from /api/agent/config
 
 const { attachedFiles, dragOver, onFileSelect, onDrop, onPaste, removeFile, clearFiles } = useFileDrop()
 
@@ -408,8 +409,8 @@ async function send(question?: string) {
       } else {
         const fu = fileUrls.find(u => u.name === f.name)
         const uuid = fu?.url ? fu.url.split('/').pop() : ''
-        const path = uuid ? `${uploadDir.value}/${uuid}` : (fu?.url || '')
-        userContent.push({ type: 'text', text: `\n\n📎 ${f.name}\n文件路径: ${path}` })
+        const path = uuid ? `${uploadDir.value}/${uuid}` : ''
+        userContent.push({ type: 'text', text: `\n\n📎 ${f.name} (${path})` })
       }
     }
   }
@@ -422,6 +423,7 @@ async function send(question?: string) {
     .replace(/\{\{DB_PATH\}\}/g, dbPath.value)
     .replace(/\{\{API_BASE\}\}/g, apiBase.value)
     .replace(/\{\{TOKEN\}\}/g, localStorage.getItem('token') || '')
+    .replace(/\{\{UPLOAD_DIR\}\}/g, uploadDir.value)
   const apiMessages: { role: string; content: string | any[] }[] = [
     { role: 'system', content: systemPrompt },
     ...messages.value.map(m => ({ role: m.role, content: m.content })),
@@ -571,6 +573,7 @@ onMounted(async () => {
       const data = await res.json()
       if (data.db_path) dbPath.value = data.db_path
       if (data.api_base) apiBase.value = data.api_base
+      if (data.upload_dir) uploadDir.value = data.upload_dir
     }
     // Load Hermes system prompt from backend
     const promptRes = await fetch('/product-db/api/agent/prompt', {
