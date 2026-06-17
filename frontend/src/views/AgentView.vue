@@ -48,7 +48,7 @@
               <template v-if="Array.isArray(m.content)">
                 <div v-for="(part, pi) in (m.content as any[])" :key="pi">
                   <span v-if="part.type === 'text'">{{ part.text }}</span>
-                  <img v-else-if="part.type === 'image_url'" :src="part.image_url?.url" class="agent-msg-img" />
+                  <img v-else-if="part.type === 'image_url'" :src="part.image_url?.url" class="agent-msg-img" @click="previewImage = part.image_url?.url" />
                 </div>
               </template>
               <template v-else>{{ m.content }}</template>
@@ -113,6 +113,14 @@
         >发送</button>
       </div>
     </div>
+
+    <!-- Image preview modal -->
+    <Teleport to="body">
+      <div v-if="previewImage" class="image-preview-overlay" @click="previewImage = ''">
+        <img :src="previewImage" @click.stop />
+        <button class="image-preview-close" @click="previewImage = ''">✕</button>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -161,6 +169,8 @@ const dbPath = ref('/opt/product-db/backend/product_db.db')  // loaded from /api
 const apiBase = ref('http://127.0.0.1:8000/product-db/api')    // loaded from /api/agent/config
 
 const { attachedFiles, dragOver, onFileSelect, onDrop, onPaste, removeFile, clearFiles } = useFileDrop()
+
+const previewImage = ref('')  // full-size image preview modal
 
 const chats = ref<ChatMeta[]>([])
 const activeChatId = ref<string | null>(null)
@@ -636,6 +646,48 @@ watch(streaming, (val) => {
   max-height: 150px;
   border-radius: 6px;
   margin-top: 4px;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+.agent-msg-img:hover {
+  opacity: .85;
+}
+
+/* Image preview modal */
+.image-preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.85);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.image-preview-overlay img {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.image-preview-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.15);
+  color: #fff;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.image-preview-close:hover {
+  background: rgba(255,255,255,.25);
 }
 .agent-msg-meta {
   font-size: 11px;
