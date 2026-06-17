@@ -2,45 +2,53 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-06-17, R16)
+## 最新变更 (2026-06-18, R17)
 
-### R16: Agent prompt DB 化 + API 查询 + 动画 + ICP 页脚
+### R17: Agent 全功能完善 — 文件上传 + 审批 + API 认证 + 工具定义
 
-**Agent 提示词 DB 化:**
-- System prompt 从 AgentView.vue 硬编码 → 管理页 AI 设置可编辑
-- 后端 `GET /agent/prompt` 从 `system_settings.agent_prompt` 读取，fallback `_PROMPT_DEFAULTS`
-- 前端 onMounted 拉取 prompt，替换 `{{DB_PATH}}` / `{{API_BASE}}` 占位符
-- 管理页新增 "Hermes Agent 提示词" 输入框，存 DB，实时生效
-- Prompt 优先引导 Hermes 调 REST API（备选 Python sqlite3）
+**文件上传 & 处理:**
+- `POST /agent/upload` — 文件保存到 `uploads/` 目录，UUID 重命名，返回公开 URL
+- 支持图片粘贴/拖拽/选择三种方式，`useFileDrop.ts` composable 复用（AgentView + AiExtractCard）
+- 非图片文件显示文档图标 chip，图片显示缩略图
+- 文件路径自动注入 system prompt（`{{UPLOAD_DIR}}`），Hermes 用 terminal 直接读
+- 气泡下方显示可点击文件链接 chip，消息正文不显示文件路径
+- `POST /agent/cleanup-uploads` — 清理 >7 天旧文件
 
-**Agent 配置端点:**
-- `GET /agent/config` 返回 `db_path` + `api_base`
-- `config.py` 新增 `AGENT_API_BASE`、`DATABASE_PATH` 配置项
-- pdb 环境 `AGENT_API_BASE=https://product-db.cn`（Hermes web 工具禁 localhost）
+**Human-in-the-loop 审批:**
+- `approval_manager.py` — asyncio.Event 挂起等待，120s 超时
+- `POST /agent/approval/{task_id}` — 人类决策端点
+- 审批以对话内嵌消息形式呈现（授权执行/拒绝按钮），非弹窗
+- 测试触发词 "测试审批" 模拟 `create_quotation` 完整审批链
+- Hermes 设 `yolo` 模式，内部工具自动批准
 
-**Agent 流式动画优化:**
-- 头像移除 pulse 动画，改为静态
-- 新增 `.ai-cursor` 0.8s step-end 高频闪烁光标 ▊
-- 空 streamText 时显示 "思考中" 淡入淡出
-- SSE 完成后 streaming div 移除，光标自动消失
+**Agent 工具定义:**
+- `AGENT_TOOLS` 4 个工具：search_products / get_product_detail / create_quotation / create_solution
+- `_execute_tool()` 读工具直接执行（SQLite 查询），写工具需审批
+- `_call_hermes()` 支持 `tools` 参数透传
 
-**部署修复:**
-- 前端 dist 工程化：`FRONTEND_DIST=frontend/dist`，部署到 `/opt/product-db/frontend/dist/`
+**REST API 认证 & 查询:**
+- prompt 中 `{{TOKEN}}` 替换为用户 JWT，API 请求带 `?token=` 参数
+- prompt 加入方案/报价单完整 CRUD 指引
+- 厂商查询链路：先获取厂商 ID → 再按 `manufacturer_id` 查询产品
+
+**UI 优化:**
+- ICP 页脚：全站 `position: static` 文档流底部
+- Agent 流式：静态头像 + ▊ 高频闪烁光标 + "思考中" 淡入淡出
+- 文件上传按钮：通用附件图标，不限文件类型
+- 登录页无需滚动即可见 ICP 页脚
+
+**部署 & 配置:**
+- `config.py` 新增：`AGENT_API_BASE`, `DATABASE_PATH`, `AGENT_UPLOAD_DIR`
+- `GET /agent/config` 返回：`db_path`, `api_base`, `upload_dir`
 - pdb Hermes `command_allowlist` + `execute_code`
-- DB 路径修复：pdb `DATABASE_PATH=/opt/product-db/backend/product_db.db`
+- 前端部署：`rm -rf assets/` 后 `scp dist/*` 到 `frontend/dist/`
+- coming-soon.html 添加 ICP 页脚
 
-**其他:**
-- 页脚 ICP 备案号：`陕ICP备2026015306号`
-- `product-db/scripts/fix-hermes-pdb.sh` — pdb Hermes 修复脚本
+## 历史变更 (2026-06-17, R16)
 
-## 历史变更 (2026-06-16, R15)
+### R16: Agent prompt DB 化 + API 查询引导 + 流式动画 + ICP 页脚
 
-### R15: Hermes Agent 全屏对话页
-
-**Hermes Agent 集成:**
-- 新建 `AgentView.vue` — 全屏独立对话页面，路由 `/agent`
-- 后端 `agent.py` 纯代理转发 Hermes API Server（SSE 流）
-- System prompt 原为硬编码 product-db 上下文（R16 已改为 DB 化）
+### R15: Hermes Agent 全屏对话页 (2026-06-16)
 - DOMPurify XSS 防护
 
 **交互功能:**
