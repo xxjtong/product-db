@@ -309,7 +309,7 @@ async def _execute_tool(tool_name: str, tool_args: dict, user_id: int) -> dict:
         elif tool_name == "get_product_detail":
             p = db.query(Product).filter_by(id=tool_args["product_id"]).first()
             if p:
-                return {"id": p.id, "name": p.name, "model": p.model, "base_price": p.base_price, "cost_price": p.cost_price, "description": p.description, "specs": p.specs, "comm_methods": [{"method_id": m.method_id, "method_name": (db.query(DictCommMethod).filter_by(id=m.method_id).first().name if db.query(DictCommMethod).filter_by(id=m.method_id).first() else "")} for m in p.comm_methods]}
+                return {"id": p.id, "name": p.name, "model": p.model, "base_price": p.base_price, "description": p.description, "specs": p.specs, "comm_methods": [{"method_id": m.method_id, "method_name": (db.query(DictCommMethod).filter_by(id=m.method_id).first().name if db.query(DictCommMethod).filter_by(id=m.method_id).first() else "")} for m in p.comm_methods]}
             return {"error": "Product not found"}
 
         return {"error": f"Unknown tool: {tool_name}"}

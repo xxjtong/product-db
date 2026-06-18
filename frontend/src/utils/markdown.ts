@@ -9,6 +9,31 @@ export function escapeHtml(str: string): string {
     .replace(/'/g, '&#039;')
 }
 
+/** Flatten a tree structure into a flat array. */
+export function flattenTree(nodes: any[], result: any[] = []): any[] {
+  for (const n of nodes) {
+    result.push(n)
+    if (n.children?.length) flattenTree(n.children, result)
+  }
+  return result
+}
+
+/** Combine product description and specs into display string. Strips URLs from description. */
+export function formatDescriptionWithSpecs(description: string, specs: Record<string, any> | null | undefined): string {
+  const parts: string[] = []
+  if (description) {
+    const clean = description.replace(/https?:\/\/\S+/g, '').trim()
+    if (clean) parts.push(clean)
+  }
+  if (specs && Object.keys(specs).length > 0) {
+    const specItems = Object.entries(specs)
+      .filter(([, v]) => v !== null && v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0))
+      .map(([k, v]) => `${k}: ${v}`)
+    if (specItems.length > 0) parts.push(specItems.join(' | '))
+  }
+  return parts.join(' | ')
+}
+
 /** Strip tool call XML blocks from AI response. */
 export function stripToolCalls(text: string): string {
   return text.replace(/<｜｜DSML｜｜tool_calls>[\s\S]*?<\/｜｜DSML｜｜tool_calls>/g, '')

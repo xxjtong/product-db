@@ -163,7 +163,7 @@ async function save() {
 function exportXlsx() {
   if (props.quotationId) {
     const token = localStorage.getItem('token') || ''
-    window.open(`/product-db/api/quotations/${props.quotationId}/export-xlsx?token=${token}`, '_blank')
+    window.open(`/product-db/api/quotations/${props.quotationId}/export-xlsx?token=${encodeURIComponent(token)}`, '_blank')
   } else if (props.solutionId) {
     window.open(bomExportUrl(props.solutionId), '_blank')
   }

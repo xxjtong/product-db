@@ -4,7 +4,52 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 
 ## 最新变更 (2026-06-18, R17)
 
-### R17: Agent 全功能完善 — 文件上传 + 审批 + API 认证 + 工具定义
+### R17: 功能描述增强 + 安全加固 + E2E 测试 + 代码优化
+
+**功能: 功能描述包含全部规格参数**
+- `format_description_with_specs()` 统一 helper（后端 Python + 前端 TypeScript）
+- 方案页/报价单 HTML 预览表格"功能描述"列 = 描述文字 + 全部规格参数（`K:V | K:V` 格式）
+- 自动剥离描述中产品 URL（`https?://\S+`）
+- HTML 单行截断（`nowrap + ellipsis`），tooltip 显示全内容
+- 下载 Excel 保留完整功能描述（移除 `[:200]` 截断）
+- 3 种导出覆盖：报价单/产品清单/BOM
+
+**安全加固 (4 项):**
+- passlib → bcrypt 直接调用（passlib 停止维护，bcrypt 5.0 不兼容）
+- Excel 图片嵌入 SSRF：`_resolve_image()` 加 `validate_url()`
+- Agent 工具 `get_product_detail` 移除 `cost_price`（`agent.py` + `ai_tools.py` 双处）
+- 移除 `requirements.txt` 中 passlib 依赖
+
+**代码优化:**
+- 删除 `univer-bom-main.js` 死代码（897 行）+ 18 Univer npm 包（-73 依赖）
+- `flattenTree` 去重 → 提取到 `markdown.ts`，ProductFormView/ProductsView 共享
+- `BOMSpreadsheet.vue` token `encodeURIComponent`
+- `SolutionItem.to_dict()` 移除未使用的 `product_specs` 字段
+- 后端/前端分隔符统一为 `|`（原 `\n` vs `|` 不一致）
+- Python `import re` 移至模块顶部
+- TypeScript `getDesc()` 移除 `any` 类型
+
+**测试框架:**
+- Playwright E2E 框架搭建（`playwright.config.ts` + `e2e/core-flows.spec.ts`）
+- E2E 测试：产品列表 → 方案 → 报价单 → 功能描述验证 → 导出按钮
+- 关键技术：`addInitScript` 在 SPA 加载前注入 token
+
+**全量代码评审:**
+- 后端：6 严重 / 17 中等 / 7 性能
+- 前端：2 严重 / 12 中等 / 10 新发现
+- 评审报告：`docs/review-R17-2026-06-18.md`
+
+**测试结果:**
+- Backend pytest: 84/84 pass
+- Frontend vitest: 38/38 pass
+- vue-tsc: 0 errors
+- Playwright E2E: 1/1 pass (6.3s)
+
+**变更统计:** 23 文件, +370/-3915 行
+
+## 历史变更 (2026-06-17, R17-prior)
+
+### R17-prior: Agent 全功能完善 — 文件上传 + 审批 + API 认证 + 工具定义
 
 **文件上传 & 处理:**
 - `POST /agent/upload` — 文件保存到 `uploads/` 目录，UUID 重命名，返回公开 URL

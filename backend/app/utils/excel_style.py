@@ -231,6 +231,10 @@ def _resolve_image(source: str, upload_dir: str = None):
 
     # Absolute URL
     if source.startswith("http://") or source.startswith("https://"):
+        from app.utils.security import validate_url
+        if not validate_url(source):
+            import logging; logging.getLogger("uvicorn").warning(f"SSRF blocked: {source}")
+            return None
         try:
             r = requests.get(source, timeout=5)
             if r.status_code == 200:

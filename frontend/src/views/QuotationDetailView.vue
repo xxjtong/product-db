@@ -23,7 +23,7 @@
           <td>{{ idx + 1 }}</td>
           <td>{{ item.product_snapshot?.name || '—' }}</td>
           <td class="font-mono text-sm">{{ (item.product_snapshot?.model || '') + (item.product_snapshot?.sku ? ' / ' + item.product_snapshot.sku : '') || '—' }}</td>
-          <td class="text-sm text-muted" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="item.product_snapshot?.description">{{ item.product_snapshot?.description || '—' }}</td>
+          <td class="text-sm text-muted" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="getDesc(item)">{{ getDesc(item) || '—' }}</td>
           <td>{{ item.quantity }}</td>
           <td class="font-mono">{{ item.unit_price }}</td>
           <td>{{ item.discount_rate }}</td>
@@ -56,6 +56,7 @@ import AsyncContainer from '../components/AsyncContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import BOMSpreadsheet from '../components/BOMSpreadsheet.vue'
 import { fetchQuotation, quotationExportUrl } from '../api'
+import { formatDescriptionWithSpecs } from '../utils/markdown'
 import type { Quotation } from '../types'
 
 const route = useRoute()
@@ -64,6 +65,11 @@ const loading = ref(false)
 const loadError = ref('')
 const showBom = ref(false)
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
+
+function getDesc(item: { product_snapshot?: { description?: string; specs?: Record<string, unknown> } }): string {
+  const snap = item.product_snapshot || {}
+  return formatDescriptionWithSpecs(snap.description || '', snap.specs || {}) || '—'
+}
 
 function openExport() { if (quotation.value) window.open(quotationExportUrl(quotation.value.id), '_blank') }
 

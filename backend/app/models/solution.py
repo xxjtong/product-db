@@ -60,17 +60,24 @@ class SolutionItem(Base):
     product = relationship("Product")
 
     def to_dict(self, product_map=None):
+        from app.utils.helpers import format_description_with_specs
+
         product_name = ""
         product_model = ""
         product_sku = ""
         product_description = ""
+        product_specs = {}
         if self.product_id and product_map:
             product_name = product_map.get(self.product_id, "")
         elif self.product:
             product_name = self.product.name
             product_model = self.product.model or ""
             product_sku = self.product.sku or ""
-            product_description = (self.product.description or "")[:200]
+            product_specs = self.product.specs or {}
+            product_description = format_description_with_specs(
+                self.product.description or "",
+                product_specs,
+            )
         return {
             "id": self.id,
             "solution_id": self.solution_id,

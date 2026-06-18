@@ -1,4 +1,6 @@
 """Shared utility helpers for route handlers."""
+import re
+from typing import Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
@@ -24,3 +26,20 @@ def paginate(query, page: int = 1, per_page: int = 20):
     total = query.count()
     items = query.offset((page - 1) * per_page).limit(per_page).all()
     return items, total
+
+
+def format_description_with_specs(description: str = "", specs: Optional[dict] = None) -> str:
+    """Combine product description and spec parameters into single display string.
+
+    Strips URLs from description. Example: "光照传感器 | 防护等级:IP67 | 尺寸:100×80×30mm"
+    """
+    parts = []
+    if description:
+        clean = re.sub(r'https?://\S+', '', description).strip()
+        if clean:
+            parts.append(clean)
+    if specs:
+        spec_items = [f"{k}: {v}" for k, v in specs.items() if v not in (None, "", [])]
+        if spec_items:
+            parts.append(" | ".join(spec_items))
+    return " | ".join(parts)

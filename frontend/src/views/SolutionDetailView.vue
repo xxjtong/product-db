@@ -85,7 +85,7 @@
           <tr v-for="item in solution.items" :key="item.id">
             <td><router-link :to="`/products/${item.product_id}`" class="text-sm">{{ item.product_name }}</router-link></td>
             <td class="font-mono text-sm text-muted">{{ item.product_model || '—' }}</td>
-            <td class="text-sm text-muted" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="item.product_description">{{ item.product_description || '—' }}</td>
+            <td class="text-sm text-muted" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="item.product_description">{{ item.product_description || '—' }}</td>
             <td><input v-model.number="item.quantity" type="number" min="1" style="width:60px" @change="updateItem(item)" /></td>
             <td class="font-mono text-sm">{{ item.unit_price }}</td>
             <td><input v-model.number="item.discount_rate" type="number" style="width:60px" @change="updateItem(item)" /></td>

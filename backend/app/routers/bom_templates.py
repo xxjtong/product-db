@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.utils.helpers import get_or_404, apply_partial_update
+from app.utils.helpers import get_or_404, apply_partial_update, format_description_with_specs
 from app.models.bom_template import BOMTemplate, SolutionBOMSnapshot
 from app.models.solution import Solution, SolutionItem
 from app.models.product import Product
@@ -398,7 +398,7 @@ def _write_basic_bom(ws, sol, solution_id: int, db: Session):
             p.name if p else "",
             (p.model or "") if p else "",
             (p.model or "") if p else "",
-            (p.description or "")[:200] if p else "",
+            format_description_with_specs(p.description or "", p.specs or {}) if p else "",
             price,
             qty,
             price * qty,  # H placeholder

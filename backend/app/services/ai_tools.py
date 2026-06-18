@@ -258,7 +258,6 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
             "manufacturer": p.manufacturer.name if p.manufacturer else "",
             "supplier": p.supplier.name if p.supplier else "",
             "price": float(p.base_price) if p.base_price else 0,
-            "cost_price": float(p.cost_price) if p.cost_price else 0,
             "description": p.description or "",
             "comm_methods": comms,
             "comm_protocols": protocols,

@@ -1,5 +1,5 @@
 import hashlib
-from passlib.context import CryptContext
+import bcrypt as _bcrypt
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, Query, status
@@ -11,19 +11,20 @@ from sqlalchemy.orm import Session
 
 security = HTTPBearer(auto_error=False)
 
-pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 def hash_password(password: str) -> str:
     # bcrypt has a 72-byte limit on password length
-    return pwd_ctx.hash(password.encode()[:72])
+    return _bcrypt.hashpw(
+        password.encode()[:72],
+        _bcrypt.gensalt(),
+    ).decode()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    # Try bcrypt/passlib first
+    # Try bcrypt first
     if hashed.startswith("$2"):
         try:
-            return pwd_ctx.verify(plain, hashed)
+            return _bcrypt.checkpw(plain.encode(), hashed.encode())
         except (ValueError, TypeError):
             return False
     # Legacy SHA256 hash format: salt$hexdigest

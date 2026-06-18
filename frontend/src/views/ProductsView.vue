@@ -117,6 +117,7 @@ import { PlusIcon, PencilIcon, Trash2Icon, InboxIcon, DownloadIcon } from 'lucid
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../components/PageHeader.vue'
 import SearchInput from '../components/SearchInput.vue'
+import { flattenTree } from '../utils/markdown'
 import TagBadge from '../components/TagBadge.vue'
 import Pagination from '../components/Pagination.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
@@ -179,13 +180,7 @@ const filters = reactive<Record<string, any>>({
   manufacturer_id: null,
 })
 
-function flattenTree(nodes: any[], result: any[] = []) {
-  for (const n of nodes) {
-    result.push(n)
-    if (n.children?.length) flattenTree(n.children, result)
-  }
-  return result
-}
+
 
 function toggleCategory(id: number) {
   filters.category_id = filters.category_id === id ? null : id

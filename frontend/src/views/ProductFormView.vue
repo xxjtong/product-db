@@ -234,6 +234,7 @@ import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { UploadIcon, DownloadIcon, XIcon, Trash2Icon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import { flattenTree } from '../utils/markdown'
 import { fetchCategories, fetchSuppliers, fetchProducts, fetchProduct, createProduct, updateProduct, uploadProductImage, downloadProductImage,
   fetchCommMethods, fetchCommProtocols, fetchPowerSupplies, fetchSensorMetrics, fetchManufacturers, fetchSpecDefinitions } from '../api'
 
@@ -379,14 +380,6 @@ function onAiFill(p: Record<string, any>) {
   } catch (err: any) {
     showToast(err.message || '填入表单失败', 'error')
   }
-}
-
-function flattenTree(nodes: any[], result: any[] = []): any[] {
-  for (const n of nodes) {
-    result.push(n)
-    if (n.children?.length) flattenTree(n.children, result)
-  }
-  return result
 }
 
 const form = ref<any>({

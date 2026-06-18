@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 from app.database import get_db
-from app.utils.helpers import get_or_404, apply_partial_update
+from app.utils.helpers import get_or_404, apply_partial_update, format_description_with_specs
 from app.models.quotation import Quotation, QuotationItem
 from app.models.product import Product
 from app.models.solution import Solution, SolutionItem
@@ -321,7 +321,7 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
             snap.get("name", ""),
             snap.get("model", "") or snap.get("sku", ""),
             snap.get("model", ""),
-            (snap.get("description", "") or "")[:200],
+            format_description_with_specs((snap.get("description", "") or ""), snap.get("specs", {})),
             price,
             qty,
             price * qty,  # H placeholder, replaced by formula below

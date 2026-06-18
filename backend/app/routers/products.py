@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import select, text, case
 from sqlalchemy import or_
 from app.database import get_db
-from app.utils.helpers import get_or_404, apply_partial_update
+from app.utils.helpers import get_or_404, apply_partial_update, format_description_with_specs
 from app.models.product import Product
 from app.models.category import Category, CategorySpecDefinition
 from app.models.dependency import ProductDependency
@@ -265,7 +265,7 @@ def export_products(
             p.name,
             p.model or "",
             p.model or "",
-            (p.description or "")[:200],
+            format_description_with_specs(p.description or "", p.specs or {}),
             float(p.base_price or 0),
             cat_name,
             p.manufacturer.name if p.manufacturer else "",
