@@ -295,10 +295,10 @@ def upload_image(file: UploadFile = File(...), user=Depends(get_current_user)):
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(400, "File must be an image")
     # Check size before reading to avoid memory exhaustion
-    if file.size and file.size > 5 * 1024 * 1024:
+    if file.size and file.size > settings.IMAGE_MAX_SIZE:
         raise HTTPException(400, "Image must be under 5MB")
     content = file.file.read()
-    if len(content) > 5 * 1024 * 1024:
+    if len(content) > settings.IMAGE_MAX_SIZE:
         raise HTTPException(400, "Image must be under 5MB")
 
     from app.services.storage import ALLOWED_EXTENSIONS, VALID_SIGNATURES
@@ -590,7 +590,7 @@ async def ai_fetch_file(file: UploadFile = File(...), db: Session = Depends(get_
         raise HTTPException(400, "No text content extracted from file")
 
     usage: list = []
-    result = _extract_product_info(text, filename, db, usage)
+    result = await _extract_product_info(text, filename, db, usage)
     if usage:
         _log_ai_usage(user.id, 'ai_fetch_file', usage[0], usage[1], usage[2])
     if ocr_usage:
@@ -602,7 +602,7 @@ async def _ocr_image(image_bytes: bytes, db: Session, _usage: list = None) -> st
     """Send image to vision LLM for OCR text extraction.
     If _usage list is provided, [tokens_in, tokens_out, duration_ms] is appended.
     """
-    import asyncio, base64, concurrent.futures, time as _time
+    import base64, time as _time
     from app.routers.admin_routes import _load_llm_config
 
     cfg = _load_llm_config(db).get("vision", {})
@@ -619,22 +619,22 @@ async def _ocr_image(image_bytes: bytes, db: Session, _usage: list = None) -> st
     b64 = base64.b64encode(image_bytes).decode()
     data_url = f"data:{mime_type};base64,{b64}"
 
-    def _sync_call():
-        import requests
-        t0 = _time.time()
-        resp = requests.post(
-            f"{cfg['base_url']}/chat/completions",
-            headers={"Authorization": f"Bearer {cfg['api_key']}", "Content-Type": "application/json"},
-            json={
-                "model": cfg.get("model", "mimo-v2-omni"),
-                "messages": [{"role": "user", "content": [
-                    {"type": "text", "text": "请仔细OCR识别这张产品规格图片中的所有文字内容，包括产品名称、型号、规格参数、技术指标等。直接输出识别到的文字，不要添加额外说明。"},
-                    {"type": "image_url", "image_url": {"url": data_url}},
-                ]}],
-                "max_tokens": 2000,
-            },
-            timeout=60,
-        )
+    import httpx
+    t0 = _time.time()
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                f"{cfg['base_url']}/chat/completions",
+                headers={"Authorization": f"Bearer {cfg['api_key']}", "Content-Type": "application/json"},
+                json={
+                    "model": cfg.get("model", "mimo-v2-omni"),
+                    "messages": [{"role": "user", "content": [
+                        {"type": "text", "text": "请仔细OCR识别这张产品规格图片中的所有文字内容，包括产品名称、型号、规格参数、技术指标等。直接输出识别到的文字，不要添加额外说明。"},
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                    ]}],
+                    "max_tokens": 2000,
+                },
+            )
         resp.raise_for_status()
         data = resp.json()
         if _usage is not None:
@@ -643,13 +643,11 @@ async def _ocr_image(image_bytes: bytes, db: Session, _usage: list = None) -> st
             _usage.append(u.get("completion_tokens", 0))
             _usage.append(int((_time.time() - t0) * 1000))
         return data["choices"][0]["message"]["content"] or ""
-
-    loop = asyncio.get_event_loop()
-    with concurrent.futures.ThreadPoolExecutor() as pool:
-        return await loop.run_in_executor(pool, _sync_call)
+    except Exception:
+        raise HTTPException(500, "Vision LLM OCR failed")
 
 
-def _extract_product_info(text: str, source: str, db: Session, _usage: list = None) -> dict:
+async def _extract_product_info(text: str, source: str, db: Session, _usage: list = None) -> dict:
     """Extract product info from text using AI or regex fallback.
     If _usage list is provided, [tokens_in, tokens_out, duration_ms] is appended on success.
     """
@@ -658,13 +656,13 @@ def _extract_product_info(text: str, source: str, db: Session, _usage: list = No
         from app.services.ai_extract import build_extraction_prompt
         system_prompt = build_extraction_prompt(db)
         user_msg = f"来源: {source}\n\n规格文本:\n{text}\n\n请提取产品的结构化信息。"
-        import asyncio, re as _re, time as _time
+        import re as _re, time as _time
         try:
             t0 = _time.time()
-            result = asyncio.run(engine.chat([
+            result = await engine.chat([
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_msg},
-            ], temperature=0.1, max_tokens=3000))
+            ], temperature=0.1, max_tokens=3000)
             elapsed_ms = int((_time.time() - t0) * 1000)
             u = result.get("usage", {})
             if _usage is not None:
@@ -678,6 +676,8 @@ def _extract_product_info(text: str, source: str, db: Session, _usage: list = No
         except Exception:
             pass
     return regex_extract_from_text("", text, db)
+
+
 
 
 @router.get("/products/{product_id}/spec-sheet")
@@ -774,5 +774,3 @@ def delete_dependency(product_id: int, dep_id: int, db: Session = Depends(get_db
     db.delete(dep)
     db.commit()
     return {"ok": True}
-
-

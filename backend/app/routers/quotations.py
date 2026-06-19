@@ -245,10 +245,7 @@ def update_quotation_item(quotation_id: int, item_id: int, data: QuotationItemUp
     qi = db.get(QuotationItem, item_id)
     if not qi or qi.quotation_id != quotation_id:
         raise HTTPException(404, "Item not found")
-    for f in ["product_id", "quantity", "unit_price", "amount", "discount_rate", "remark", "sort_order"]:
-        val = getattr(data, f, None)
-        if val is not None:
-            setattr(qi, f, val)
+    apply_partial_update(qi, data, ["product_id", "quantity", "unit_price", "amount", "discount_rate", "remark", "sort_order"])
     db.commit()
     qt = db.get(Quotation, quotation_id)
     _recalc_total(qt, db)

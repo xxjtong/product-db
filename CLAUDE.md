@@ -47,6 +47,30 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 
 **变更统计:** 23 文件, +370/-3915 行
 
+### R17.1: 后端 Bug 修复 + E2E 测试全覆盖 (2026-06-19)
+
+**Bug 修复 (4 项):**
+- **`_extract_product_info` async bug**（严重）: `products.py` 中 `_extract_product_info` 从 `ai_fetch_file`（async route）调用时使用 `asyncio.run()`，在已有事件循环中抛 `RuntimeError`，被 `except Exception: pass` 静默吞掉 → 文件上传的 AI 提取从未真正调用 LLM，始终静默降级到 regex。修复：函数改为 `async def`，`asyncio.run()` → `await engine.chat()`
+- **`_ocr_image` 同步阻塞**: 去掉 `requests.post` + `ThreadPoolExecutor`，改用 `httpx.AsyncClient`
+- **图片上传硬编码 5MB**: 两处 `5 * 1024 * 1024` → `settings.IMAGE_MAX_SIZE`
+- **`update_quotation_item` 一致性**: 手动 `for f in [...]` + `setattr` → `apply_partial_update()`
+
+**E2E 测试全覆盖:**
+- 3 个测试套件，**75 个测试，100% 通过**
+- `e2e/full-regression.spec.ts`（51 tests）：17 个功能组全覆盖
+- `e2e/api-health.spec.ts`（19 tests）：19 个 API 端点直连验证
+- `e2e/perf-check.spec.ts`（4 tests）：性能 + 可访问性 + console 错误检测
+
+**测试结果:**
+- Backend pytest: 84/84 pass
+- Frontend vitest: 38/38 pass
+- vue-tsc: 0 errors
+- Playwright E2E: 75/75 pass（全功能 2.6m + API 1.4s + Perf 14.6s）
+
+**变更统计:** 4 文件, +560/-40 行
+
+## 历史变更 (2026-06-17, R17-prior)
+
 ## 历史变更 (2026-06-17, R17-prior)
 
 ### R17-prior: Agent 全功能完善 — 文件上传 + 审批 + API 认证 + 工具定义
@@ -344,7 +368,7 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 | XSS | DOMPurify (所有 v-html 已清洗) |
 | SSRF | validate_url() + 手动重定向验证 |
 | Logging | loguru (structured + rotation) |
-| Testing | pytest 78 tests + vitest 22 tests |
+| Testing | pytest 84 tests + vitest 38 tests + Playwright 75 tests (3 套件: E2E+API+Perf) |
 | Deployment | Docker Compose + Nginx |
 
 ## 开发命令
@@ -360,6 +384,12 @@ cd frontend
 npx vite --host 0.0.0.0 --port 5173
 npx vitest run
 npx vue-tsc --noEmit
+
+# E2E 测试
+npx playwright test e2e/full-regression.spec.ts --reporter=list   # 全功能 (51 tests)
+npx playwright test e2e/api-health.spec.ts --reporter=list        # API 端点 (19 tests)
+npx playwright test e2e/perf-check.spec.ts --reporter=list        # 性能+可访问性 (4 tests)
+npx playwright test --reporter=list                               # 全部套件
 ```
 
 ## 路径前缀配置

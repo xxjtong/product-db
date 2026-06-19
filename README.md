@@ -31,6 +31,20 @@ npx vite --host 0.0.0.0 --port 5173
 
 浏览器访问 `http://localhost:5173`。DEV_MODE 下自动创建 admin/admin 账号。
 
+## 测试
+
+```bash
+# Backend
+cd backend && pytest tests/ -v                    # 84 单元测试
+
+# Frontend
+cd frontend && npx vitest run                     # 38 组件测试
+cd frontend && npx vue-tsc --noEmit               # 类型检查
+
+# E2E (需要先启动前后端服务)
+cd frontend && npx playwright test                # 75 tests (3 套件)
+```
+
 ## Docker 部署
 
 ```bash
@@ -58,7 +72,8 @@ product-db/
 │   ├── src/
 │   │   ├── components/          # 通用组件 (10 个)
 │   │   └── views/               # 页面视图 (14 个)
-│   └── src/__tests__/           # vitest 前端测试
+│   ├── src/__tests__/           # vitest 前端测试 (38 tests)
+│   └── e2e/                     # Playwright E2E + API + Perf (75 tests)
 ├── docker-compose.yml
 └── .github/workflows/ci.yml     # CI/CD
 ```
