@@ -4,7 +4,7 @@ import json
 import logging
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -18,6 +18,7 @@ from app.models.system_setting import SystemSetting
 from app.services.ai_engine import engine, DEFAULT_MODEL
 from app.services.ai_tools import TOOL_DEFINITIONS, execute_tool
 from app.services.product_helpers import product_eager_loads
+from app.schemas.ai import AiChatRequest
 
 router = APIRouter()
 
@@ -680,11 +681,10 @@ async def run_agent(messages: list, db: Session, conv_id: int):
 # --- Routes ---
 
 @router.post("/ai/chat")
-async def ai_chat(request: Request, db: Session = Depends(get_db), user=Depends(get_current_user)):
+async def ai_chat(data: AiChatRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """SSE chat endpoint with tool calling and conversation persistence."""
-    body = await request.json()
-    user_input = body.get("input", "").strip()
-    conv_id = body.get("conversation_id")
+    user_input = data.input.strip()
+    conv_id = data.conversation_id
 
     if not user_input:
         raise HTTPException(400, "Input is required")
@@ -728,7 +728,7 @@ async def ai_chat(request: Request, db: Session = Depends(get_db), user=Depends(
             # Update conversation timestamp
             sse_conv = sse_db.get(AIConversation, cid)
             if sse_conv:
-                sse_conv.updated_at = datetime.now()
+                sse_conv.updated_at = datetime.now(timezone.utc)
                 sse_db.commit()
         except Exception as e:
             success = False

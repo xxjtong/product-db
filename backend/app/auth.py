@@ -1,8 +1,8 @@
 import hashlib
 import bcrypt as _bcrypt
 from datetime import datetime, timedelta, timezone
-from jose import JWTError, jwt
-from fastapi import Depends, HTTPException, Query, status
+import jwt
+from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.config import settings
 from app.database import get_db
@@ -28,7 +28,10 @@ def verify_password(plain: str, hashed: str) -> bool:
         except (ValueError, TypeError):
             return False
     # Legacy SHA256 hash format: salt$hexdigest
+    # Auto-upgraded to bcrypt on successful login (see auth_routes.py)
     try:
+        from loguru import logger
+        logger.warning("SHA256 legacy password hash used — will auto-upgrade to bcrypt on login")
         salt, h = hashed.split("$", 1)
         return h == hashlib.sha256((salt + plain).encode()).hexdigest()
     except (ValueError, AttributeError):
@@ -45,15 +48,23 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
     token: str = Query(None),
+    request: Request = None,
 ) -> User:
     if not credentials and token:
+        # Token in query string: only allowed for GET (read-only) requests.
+        # Passing JWT in URL exposes it to logs, referrers, and proxies.
+        if request and request.method != "GET":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token auth only allowed for GET requests",
+            )
         try:
             payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
             user_id = int(payload.get("sub"))
             user = db.get(User, user_id)
             if user and user.is_active:
                 return user
-        except (JWTError, ValueError, TypeError):
+        except (jwt.PyJWTError, ValueError, TypeError):
             pass
     if not credentials:
         if not settings.DEV_MODE:
@@ -61,8 +72,10 @@ def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Not authenticated",
             )
+        from loguru import logger
         user = db.query(User).filter_by(username="admin").first()
         if not user:
+            logger.warning("DEV_MODE: auto-creating admin/admin user — NEVER use in production")
             user = User(username="admin", password_hash=hash_password("admin"), role="admin")
             db.add(user)
             db.commit()
@@ -73,7 +86,7 @@ def get_current_user(
             credentials.credentials, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
         )
         user_id = int(payload.get("sub"))
-    except (JWTError, ValueError, TypeError):
+    except (jwt.PyJWTError, ValueError, TypeError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     user = db.get(User, user_id)
     if not user or not user.is_active:
@@ -114,16 +127,20 @@ def filter_by_ownership(query, model, user, strict: bool = False):
 def check_ownership(resource, user, strict: bool = False):
     """Raise 403 if user doesn't own this resource.
 
-    strict=False (default): admin always passes, NULL=legacy allowed, admin(id=1) allowed.
-    strict=True: admin always passes, others can only access their own.
+    strict=False (default): admin always passes, NULL=legacy allowed, admin-owned allowed.
+    strict=True: admin always passes, others can only access their own (NULL denied).
     """
     if user.role == "admin":
         return
     created_by = getattr(resource, 'created_by', None)
-    if created_by is None and not strict:
+    if created_by is None:
+        if strict:
+            raise HTTPException(403, "Access denied: legacy resource requires admin")
         return
-    if created_by is not None and created_by != user.id:
-        if not strict and created_by == 1:
-            return
-        from fastapi import HTTPException
+    if created_by != user.id:
+        if not strict:
+            from sqlalchemy.orm import object_session
+            sess = object_session(resource)
+            if sess and created_by in _get_admin_ids(sess):
+                return
         raise HTTPException(403, "Access denied: not your resource")

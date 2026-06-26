@@ -15,7 +15,7 @@ from app.auth import get_current_user, check_ownership
 from app.models.user import User
 from app.schemas.bom_template import BOMTemplateCreate, BOMTemplateUpdate, SaveAsTemplateRequest
 from app.schemas.solution import BOMSnapshotSave
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 
 router = APIRouter()
@@ -29,7 +29,7 @@ def list_templates(db: Session = Depends(get_db), user=Depends(get_current_user)
     return {"templates": [t.to_dict() for t in templates]}
 
 
-@router.post("/bom-templates")
+@router.post("/bom-templates", status_code=201)
 def create_template(data: BOMTemplateCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     t = BOMTemplate(
         name=data.name,
@@ -56,7 +56,7 @@ def update_template(template_id: int, data: BOMTemplateUpdate, db: Session = Dep
     t = get_or_404(db, BOMTemplate, template_id, "Template not found")
     check_ownership(t, user)
     apply_partial_update(t, data, ["name", "description", "sheet_name", "snapshot", "is_default"])
-    t.updated_at = datetime.now()
+    t.updated_at = datetime.now(timezone.utc)
     db.commit()
     return {"template": t.to_dict()}
 
@@ -64,12 +64,13 @@ def update_template(template_id: int, data: BOMTemplateUpdate, db: Session = Dep
 @router.delete("/bom-templates/{template_id}")
 def delete_template(template_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     t = get_or_404(db, BOMTemplate, template_id, "Template not found")
+    check_ownership(t, user, strict=True)
     db.delete(t)
     db.commit()
     return {"ok": True}
 
 
-@router.post("/bom-templates/{template_id}/duplicate")
+@router.post("/bom-templates/{template_id}/duplicate", status_code=201)
 def duplicate_template(template_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     t = get_or_404(db, BOMTemplate, template_id, "Template not found")
     new_t = BOMTemplate(
@@ -91,6 +92,7 @@ def duplicate_template(template_id: int, db: Session = Depends(get_db), user=Dep
 @router.get("/solutions/{solution_id}/bom-snapshot")
 def get_bom_snapshot(solution_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
+    check_ownership(sol, user, strict=False)
 
     existing = db.query(SolutionBOMSnapshot).filter_by(solution_id=solution_id).first()
     if existing:
@@ -118,11 +120,12 @@ def get_bom_snapshot(solution_id: int, db: Session = Depends(get_db), user=Depen
 @router.put("/solutions/{solution_id}/bom-snapshot")
 def save_bom_snapshot(solution_id: int, data: BOMSnapshotSave, db: Session = Depends(get_db), user=Depends(get_current_user)):
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
+    check_ownership(sol, user, strict=True)
 
     existing = db.query(SolutionBOMSnapshot).filter_by(solution_id=solution_id).first()
     if existing:
         existing.snapshot = data.snapshot if data.snapshot else existing.snapshot
-        existing.updated_at = datetime.now()
+        existing.updated_at = datetime.now(timezone.utc)
     else:
         existing = SolutionBOMSnapshot(
             solution_id=solution_id,
@@ -205,8 +208,10 @@ def _sync_snapshot_to_items(solution_id: int, snapshot: dict, db: Session):
         db.commit()
 
 
-@router.post("/solutions/{solution_id}/bom-snapshot/save-as-template")
+@router.post("/solutions/{solution_id}/bom-snapshot/save-as-template", status_code=201)
 def save_as_template(solution_id: int, data: SaveAsTemplateRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    sol = get_or_404(db, Solution, solution_id, "Solution not found")
+    check_ownership(sol, user, strict=False)
     snap = db.query(SolutionBOMSnapshot).filter_by(solution_id=solution_id).first()
     if not snap:
         raise HTTPException(404, "No BOM snapshot found for this solution")
@@ -232,6 +237,7 @@ def export_bom_xlsx(solution_id: int, db: Session = Depends(get_db), user=Depend
     from openpyxl.utils import get_column_letter
 
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
+    check_ownership(sol, user, strict=False)
 
     snap = db.query(SolutionBOMSnapshot).filter_by(solution_id=solution_id).first()
 

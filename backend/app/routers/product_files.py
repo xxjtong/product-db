@@ -6,8 +6,9 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.utils.helpers import get_or_404
-from app.auth import get_current_user
+from app.auth import get_current_user, filter_by_ownership, check_ownership
 from app.models.product_file import ProductFile
+from app.models.product import Product
 from app.services.storage import save_file, delete_file, UPLOAD_DIR
 
 router = APIRouter()
@@ -15,6 +16,8 @@ router = APIRouter()
 
 @router.get("/products/{product_id}/files")
 def list_files(product_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    prod = get_or_404(db, Product, product_id, "Product not found")
+    check_ownership(prod, user, strict=False)
     files = db.query(ProductFile).filter_by(product_id=product_id)\
         .order_by(ProductFile.sort_order, ProductFile.id).all()
     return {"files": [f.to_dict() for f in files]}
@@ -28,6 +31,8 @@ async def upload_file(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+    prod = get_or_404(db, Product, product_id, "Product not found")
+    check_ownership(prod, user, strict=True)
     content = await file.read()
     try:
         file_url = save_file(content, file.filename or "file")
@@ -51,6 +56,8 @@ async def upload_file(
 @router.get("/products/files/{file_id}")
 def download_file(file_id: int, inline: bool = False, db: Session = Depends(get_db), user=Depends(get_current_user)):
     pf = get_or_404(db, ProductFile, file_id, "File not found")
+    prod = get_or_404(db, Product, pf.product_id, "Product not found")
+    check_ownership(prod, user, strict=False)
 
     fname = pf.file_url.split("/")[-1]
     filepath = os.path.join(UPLOAD_DIR, fname)
@@ -82,6 +89,8 @@ def download_file(file_id: int, inline: bool = False, db: Session = Depends(get_
 @router.delete("/products/files/{file_id}")
 def delete_product_file(file_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     pf = get_or_404(db, ProductFile, file_id, "File not found")
+    prod = get_or_404(db, Product, pf.product_id, "Product not found")
+    check_ownership(prod, user, strict=True)
     try:
         delete_file(pf.file_url)
     except Exception:

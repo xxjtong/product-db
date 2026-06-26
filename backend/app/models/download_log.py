@@ -1,7 +1,7 @@
 """Download ticket and log models for secure download tracking."""
 from app.database import Base
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class DownloadTicket(Base):
@@ -10,9 +10,9 @@ class DownloadTicket(Base):
     id = Column(Integer, primary_key=True)
     ticket = Column(String(64), unique=True, nullable=False, index=True)
     file_path = Column(String(500), nullable=False)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
         return {
@@ -31,7 +31,7 @@ class DownloadLog(Base):
     file_type = Column(String(50), nullable=False)  # quotation, spec-sheet, bom, export
     entity_id = Column(Integer, nullable=True)
     ip_address = Column(String(50), nullable=True)
-    created_at = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
         return {

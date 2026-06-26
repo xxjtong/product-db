@@ -30,6 +30,12 @@ logger.add(
     level="INFO",
 )
 
+if settings.DEV_MODE:
+    logger.warning("=" * 60)
+    logger.warning("⚠️  DEV_MODE=true — auto-creates admin/admin, skips auth checks")
+    logger.warning("    NEVER use in production. Set DEV_MODE=false in .env")
+    logger.warning("=" * 60)
+
 app = FastAPI(title="物联网产品中心", version="2.0.0")
 
 

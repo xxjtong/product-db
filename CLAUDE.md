@@ -2,7 +2,41 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-06-18, R17)
+## 最新变更 (2026-06-26, R18)
+
+### R18: 安全加固 — 权限收敛 + 漏洞修复 + 代码质量
+
+**权限收敛 (5 项):**
+- products.py PUT/DELETE: `check_ownership(strict=True)` — 普通用户只能改/删自己产品
+- product_files.py 4 端点: 全部加产品所有权检查（读→view, 写→strict）
+- bom_templates.py 5 端点: BOM 模板/快照加所有权检查
+- system_settings.py GET: 加 admin 检查
+- cleanup-uploads: 加 admin 检查
+
+**安全漏洞修复 (5 项):**
+- S2: JWT `?token=` 限制仅 GET 请求
+- S5: SHA256 遗留哈希加 warning log（自动升级已在 auth_routes）
+- S7: BOM 模板删除缺 `check_ownership` → 已补
+- agent.py LIKE 注入: keyword + manufacturer_name 加 `escape_like()`
+- `check_ownership` strict 模式修复: NULL 旧数据拒绝写入，admin 判断改用 `_get_admin_ids()`
+
+**代码质量 (6 项):**
+- M1: 10 model 文件 + 6 router 文件 `datetime.now()` → `datetime.now(timezone.utc)`
+- D1: python-jose → PyJWT 2.13, 移除 ecdsa/rsa/pyasn1 依赖
+- B1: 17 个 POST 创建端点 → `status_code=201`
+- B3: AI/Agent 3 端点 raw dict → Pydantic schema (`schemas/ai.py`)
+- F6: api.ts 23 处 `data: any` → `Record<string, unknown>`, 返回类型修正
+- M2: 8 张表 `created_by` 列加 `index=True`
+
+**前端 (3 项):**
+- F10: AiChat.vue 删除 48 行死代码 `mdToHtml`
+- F15: 404 路由 + NotFoundView.vue
+- F17: SolutionDetailView 流式渲染 50ms 节流（减少 ~90% 重渲染）
+- 登录页: 注册字段填写说明 + 注册关闭时隐藏链接
+
+**测试:** backend pytest 84/84, frontend vue-tsc 0 errors
+
+**变更统计:** 36 文件, ~250 insertions, ~240 deletions
 
 ### R17: 功能描述增强 + 安全加固 + E2E 测试 + 代码优化
 

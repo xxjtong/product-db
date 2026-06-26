@@ -45,7 +45,7 @@ import httpx
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter()
 
@@ -353,7 +353,7 @@ def get_product(product_id: int, db: Session = Depends(get_db), user=Depends(get
     return {"product": result}
 
 
-@router.post("/products")
+@router.post("/products", status_code=201)
 def create_product(data: ProductCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     # Validate specs if category has definitions
     if data.specs and data.category_id:
@@ -384,8 +384,8 @@ def create_product(data: ProductCreate, db: Session = Depends(get_db), user=Depe
         created_by=user.id,
     )
     p.pinyin_search = build_pinyin(f"{p.name} {p.model or ''}")
-    p.created_at = datetime.now()
-    p.updated_at = datetime.now()
+    p.created_at = datetime.now(timezone.utc)
+    p.updated_at = datetime.now(timezone.utc)
 
     db.add(p)
     db.flush()  # get p.id
@@ -410,7 +410,7 @@ def create_product(data: ProductCreate, db: Session = Depends(get_db), user=Depe
 @router.put("/products/{product_id}")
 def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     p = get_or_404(db, Product, product_id)
-    check_ownership(p, user)
+    check_ownership(p, user, strict=True)
 
     from app.utils.helpers import apply_partial_update
     apply_partial_update(p, data, ["model", "name", "sku", "category_id", "manufacturer_id",
@@ -425,7 +425,7 @@ def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(g
         p.custom_fields = data.custom_fields
 
     p.pinyin_search = build_pinyin(f"{p.name} {p.model or ''}")
-    p.updated_at = datetime.now()
+    p.updated_at = datetime.now(timezone.utc)
 
     # Update multi-category if provided
     if data.category_ids is not None:
@@ -451,7 +451,7 @@ def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(g
 @router.delete("/products/{product_id}")
 def delete_product(product_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     p = get_or_404(db, Product, product_id)
-    check_ownership(p, user)
+    check_ownership(p, user, strict=True)
     # Delete local image files before removing DB rows
     from app.services.product_helpers import _cleanup_image_files
     _cleanup_image_files(product_id, db)
@@ -740,7 +740,7 @@ def get_dependencies(product_id: int, db: Session = Depends(get_db), user=Depend
     return {"dependencies": [d.to_dict() for d in deps]}
 
 
-@router.post("/products/{product_id}/dependencies")
+@router.post("/products/{product_id}/dependencies", status_code=201)
 def create_dependency(product_id: int, data: ProductDependencyCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     dep = ProductDependency(
         product_id=product_id,

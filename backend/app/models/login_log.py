@@ -12,7 +12,7 @@ class LoginLog(Base):
     user_agent = Column(String(500), nullable=True)
     region = Column(String(100), nullable=True)  # IP geolocation
     success = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
         return {

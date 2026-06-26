@@ -3,14 +3,27 @@
     <div class="login-card">
       <h1>产品数据库</h1>
       <p class="text-muted">{{ isRegister ? '注册新账号' : '登录以继续' }}</p>
-      <div v-if="isRegister" class="form-group"><input v-model="email" placeholder="邮箱（选填）" /></div>
-      <div class="form-group"><input v-model="username" placeholder="用户名" @keyup.enter="submit" /></div>
-      <div class="form-group"><input v-model="password" type="password" placeholder="密码" @keyup.enter="submit" /></div>
+      <div v-if="isRegister" class="form-group">
+        <input v-model="email" placeholder="邮箱（选填）" />
+        <p class="field-hint">用于账号找回，选填</p>
+      </div>
+      <div class="form-group">
+        <input v-model="username" placeholder="用户名" @keyup.enter="submit" />
+        <p v-if="isRegister" class="field-hint">2-20位字母、数字或下划线</p>
+      </div>
+      <div class="form-group">
+        <input v-model="password" type="password" placeholder="密码" @keyup.enter="submit" />
+        <p v-if="isRegister" class="field-hint">至少8位，建议包含字母和数字</p>
+      </div>
       <p v-if="error" class="text-sm" style="color:var(--color-danger)">{{ error }}</p>
       <button class="btn-primary" style="width:100%;margin-top:16px;justify-content:center" @click="submit" :disabled="loading">{{ loading ? '提交中...' : isRegister ? '注册' : '登录' }}</button>
       <p class="text-sm" style="text-align:center;margin-top:16px;color:var(--color-text-secondary)">
-        {{ isRegister ? '已有账号？' : '没有账号？' }}
-        <a href="#" @click.prevent="isRegister = !isRegister; error = ''">{{ isRegister ? '去登录' : '注册新账号' }}</a>
+        <template v-if="isRegister">
+          已有账号？<a href="#" @click.prevent="isRegister = false; error = ''">去登录</a>
+        </template>
+        <template v-else-if="regOpen">
+          没有账号？<a href="#" @click.prevent="isRegister = true; error = ''">注册新账号</a>
+        </template>
       </p>
     </div>
   </div>
@@ -65,4 +78,5 @@ async function submit() {
 .login-card p { text-align:center; margin-bottom:28px; }
 .form-group { margin-bottom:16px; }
 .form-group input { width:100%; padding:10px 12px; font-size:14px; }
+.field-hint { text-align:left; margin:4px 0 0 4px; font-size:12px; color:var(--color-text-secondary); }
 </style>

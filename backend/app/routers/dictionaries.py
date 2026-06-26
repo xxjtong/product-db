@@ -29,7 +29,7 @@ def get_manufacturer(mfg_id: int, db: Session = Depends(get_db), user=Depends(ge
     return {"manufacturer": m.to_dict()}
 
 
-@router.post("/dicts/manufacturers")
+@router.post("/dicts/manufacturers", status_code=201)
 def create_manufacturer(data: ManufacturerCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     m = Manufacturer(name=data.name, website=data.website, description=data.description, created_by=user.id)
     db.add(m)
@@ -133,7 +133,7 @@ def _dict_update(item, data: dict, db: Session):
 
 # --- Comm Methods CRUD ---
 
-@router.post("/dicts/comm-methods")
+@router.post("/dicts/comm-methods", status_code=201)
 def create_comm_method(data: CommMethodCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     return {"comm_method": _dict_create(DictCommMethod, data.model_dump(), db, user)}
 
@@ -153,7 +153,7 @@ def delete_comm_method(item_id: int, db: Session = Depends(get_db), user=Depends
 
 # --- Comm Protocols CRUD ---
 
-@router.post("/dicts/comm-protocols")
+@router.post("/dicts/comm-protocols", status_code=201)
 def create_comm_protocol(data: CommProtocolCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     return {"comm_protocol": _dict_create(DictCommProtocol, data.model_dump(), db, user)}
 
@@ -173,7 +173,7 @@ def delete_comm_protocol(item_id: int, db: Session = Depends(get_db), user=Depen
 
 # --- Power Supplies CRUD ---
 
-@router.post("/dicts/power-supplies")
+@router.post("/dicts/power-supplies", status_code=201)
 def create_power_supply(data: PowerSupplyCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     return {"power_supply": _dict_create(DictPowerSupply, data.model_dump(), db, user)}
 
@@ -193,7 +193,7 @@ def delete_power_supply(item_id: int, db: Session = Depends(get_db), user=Depend
 
 # --- Sensor Metrics CRUD ---
 
-@router.post("/dicts/sensor-metrics")
+@router.post("/dicts/sensor-metrics", status_code=201)
 def create_sensor_metric(data: SensorMetricCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     return {"sensor_metric": _dict_create(DictSensorMetric, data.model_dump(), db, user)}
 

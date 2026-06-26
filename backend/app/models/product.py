@@ -24,7 +24,7 @@ class Product(Base):
     product_url = Column(String(500), nullable=True)  # 官方详情页链接
     status = Column(String(20), default="active", index=True)
     parent_id = Column(Integer, ForeignKey("products.id", ondelete="SET NULL"), nullable=True, index=True)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
     specs = Column(JSONBType, default=dict)  # 物理特性兜底: 尺寸/重量/IP等级/材质等
     urls = Column(JSONBType, default=dict)

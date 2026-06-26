@@ -57,7 +57,7 @@ def category_tree(db: Session = Depends(get_db), user=Depends(get_current_user))
     return {"tree": build_tree(None)}
 
 
-@router.post("/categories")
+@router.post("/categories", status_code=201)
 def create_category(data: CategoryCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     slug = data.slug or data.name.lower().replace(" ", "-")
     # Ensure uniqueness
@@ -131,7 +131,7 @@ def list_spec_defs(cat_id: int, db: Session = Depends(get_db), user=Depends(get_
     return {"spec_definitions": [sd.to_dict() for sd in defs]}
 
 
-@router.post("/categories/{cat_id}/spec-definitions")
+@router.post("/categories/{cat_id}/spec-definitions", status_code=201)
 def create_spec_def(cat_id: int, data: SpecDefinitionCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     cat = get_or_404(db, Category, cat_id, "Category not found")
     sd = CategorySpecDefinition(

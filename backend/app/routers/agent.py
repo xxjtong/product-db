@@ -16,6 +16,8 @@ from fastapi.responses import StreamingResponse
 
 from app.auth import get_current_user
 from app.config import settings, DB_FILESYSTEM_PATH
+from app.schemas.ai import AgentChatRequest, AgentApprovalRequest
+from app.utils.escape import escape_like
 from app.database import get_db
 from app.services.storage import save_file, UPLOAD_DIR
 from app.services.approval_manager import approval_manager
@@ -58,6 +60,8 @@ def _get_agent_prompt(db):
 @router.post("/agent/cleanup-uploads")
 async def agent_cleanup_uploads(user=Depends(get_current_user)):
     """Delete upload files older than 7 days."""
+    if user.role != "admin":
+        raise HTTPException(403, "Admin only")
     import time
     cutoff = time.time() - 7 * 86400
     cleaned = 0
@@ -154,13 +158,12 @@ async def agent_upload(
 @router.post("/agent/approval/{task_id}")
 async def agent_approval(
     task_id: str,
-    request: Request,
+    data: AgentApprovalRequest,
     user=Depends(get_current_user),
 ):
     """Human decision on a pending agent tool call."""
-    body = await request.json()
-    approved = body.get("approved", False)
-    reason = body.get("reason", "")
+    approved = data.approved
+    reason = data.reason
 
     ok = approval_manager.decide(task_id, approved, reason)
     if not ok:
@@ -283,7 +286,7 @@ async def _execute_tool(tool_name: str, tool_args: dict, user_id: int) -> dict:
             q = db.query(Product)
             keyword = tool_args.get("keyword", "").strip()
             if keyword:
-                like = f"%{keyword}%"
+                like = f"%{escape_like(keyword)}%"
                 q = q.filter(or_(
                     Product.name.ilike(like),
                     Product.model.ilike(like),
@@ -292,7 +295,7 @@ async def _execute_tool(tool_name: str, tool_args: dict, user_id: int) -> dict:
             if tool_args.get("category_id"):
                 q = q.filter(Product.category_id == tool_args["category_id"])
             if tool_args.get("manufacturer_name"):
-                mfgs = db.query(Manufacturer.id).filter(Manufacturer.name.ilike(f"%{tool_args['manufacturer_name']}%")).all()
+                mfgs = db.query(Manufacturer.id).filter(Manufacturer.name.ilike(f"%{escape_like(tool_args['manufacturer_name'])}%")).all()
                 q = q.filter(Product.manufacturer_id.in_([m[0] for m in mfgs]))
             if tool_args.get("min_price") is not None:
                 q = q.filter(Product.base_price >= tool_args["min_price"])
@@ -357,27 +360,20 @@ async def _call_hermes(client, model: str, messages: list, stream: bool = True, 
 
 @router.post("/agent/chat")
 async def agent_chat(
-    request: Request,
+    data: AgentChatRequest,
     user=Depends(get_current_user),
 ):
     """Proxy a chat request to Hermes, intercepting write-op tool calls for approval.
 
-    Body (JSON):
-        messages: list of {"role": "...", "content": "..."}
-        stream: true/false (default true for SSE streaming)
-        model: optional model name override
-
     Returns: SSE text/event-stream from Hermes /v1/chat/completions,
              with approval_required events injected for write-op tool calls.
     """
-    body = await request.json()
-
-    messages = body.get("messages")
+    messages = data.messages
     if not messages or not isinstance(messages, list):
         raise HTTPException(status_code=400, detail="Missing or invalid 'messages' field")
 
-    stream = body.get("stream", True)
-    model = body.get("model", "hermes-agent")
+    stream = data.stream
+    model = data.model
 
     # Test trigger: inject approval for "测试审批" before calling Hermes
     last_user_msg = ""

@@ -2,7 +2,7 @@ from app.database import Base, JSONBType
 from sqlalchemy import (Column, Integer, String, Boolean, DateTime,
                         ForeignKey, Text, Numeric)
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class BOMTemplate(Base):
@@ -14,9 +14,9 @@ class BOMTemplate(Base):
     sheet_name = Column(String(100), default="Sheet1")
     snapshot = Column(JSONBType, nullable=False)
     is_default = Column(Boolean, default=False)
-    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
         return {
@@ -40,8 +40,8 @@ class SolutionBOMSnapshot(Base):
     template_id = Column(Integer, ForeignKey("bom_templates.id", ondelete="CASCADE"), nullable=True)
     snapshot = Column(JSONBType, nullable=False)
     exported_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     solution = relationship("Solution", back_populates="bom_snapshot")
     template = relationship("BOMTemplate")

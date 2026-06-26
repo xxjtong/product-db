@@ -14,7 +14,7 @@ class Category(Base):
     level = Column(Integer, default=1)  # 1=大类, 2=子类, 3=孙子类
     sort_order = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
     parent = relationship("Category", remote_side=[id], backref="children")
     spec_definitions = relationship(

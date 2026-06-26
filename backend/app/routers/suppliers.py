@@ -38,7 +38,7 @@ def get_supplier(supplier_id: int, db: Session = Depends(get_db), user=Depends(g
     return {"supplier": s.to_dict()}
 
 
-@router.post("/suppliers")
+@router.post("/suppliers", status_code=201)
 def create_supplier(data: SupplierCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     s = Supplier(
         name=data.name,

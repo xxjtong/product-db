@@ -2,7 +2,7 @@
 from app.database import Base
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class AIConversation(Base):
@@ -11,8 +11,8 @@ class AIConversation(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     title = Column(String(200), nullable=True)
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     messages = relationship("AIMessage", backref="conversation", cascade="all, delete-orphan",
                             order_by="AIMessage.created_at")
@@ -36,7 +36,7 @@ class AIMessage(Base):
     content = Column(Text, nullable=True)
     tool_calls = Column(Text, nullable=True)  # JSON
     tool_call_id = Column(String(50), nullable=True)
-    created_at = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
         return {

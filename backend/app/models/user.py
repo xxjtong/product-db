@@ -1,6 +1,6 @@
 from app.database import Base
 from sqlalchemy import Column, Integer, String, Boolean, DateTime
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class User(Base):
@@ -12,7 +12,7 @@ class User(Base):
     role = Column(String(10), default="user")
     is_active = Column(Boolean, default=True)
     email = Column(String(200), nullable=True)
-    created_at = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     last_login = Column(DateTime, nullable=True)
 
     def to_dict(self):

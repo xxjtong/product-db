@@ -20,6 +20,7 @@ const router = createRouter({
     { path: '/quotations', name: 'quotations', component: () => import('./views/QuotationsView.vue') },
     { path: '/quotations/:id', name: 'quotation-detail', component: () => import('./views/QuotationDetailView.vue') },
     { path: '/agent', name: 'agent', component: () => import('./views/AgentView.vue') },
+    { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('./views/NotFoundView.vue') },
   ],
 })
 

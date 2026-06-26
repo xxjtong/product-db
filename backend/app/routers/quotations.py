@@ -16,7 +16,7 @@ from app.models.user import User
 from app.utils.escape import escape_like
 from app.schemas.quotation import QuotationCreate, QuotationUpdate, QuotationItemCreate, QuotationItemUpdate
 from app.schemas.solution import BatchDeleteRequest
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 
 router = APIRouter()
@@ -24,7 +24,7 @@ router = APIRouter()
 
 def _generate_quote_number(db: Session) -> str:
     """Generate quote number: QT-YYYYMMDD-NNN."""
-    today = datetime.now().strftime("%Y%m%d")
+    today = datetime.now(timezone.utc).strftime("%Y%m%d")
     prefix = f"QT-{today}-"
     last = db.query(Quotation).filter(Quotation.quote_number.like(f"{prefix}%"))\
         .order_by(Quotation.id.desc()).with_for_update().first()
@@ -81,7 +81,7 @@ def list_quotations(
     }
 
 
-@router.post("/quotations")
+@router.post("/quotations", status_code=201)
 def create_quotation(data: QuotationCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     qt = Quotation(
         solution_id=data.solution_id,
@@ -184,7 +184,7 @@ def update_quotation(quotation_id: int, data: QuotationUpdate, db: Session = Dep
     qt = get_or_404(db, Quotation, quotation_id, "Quotation not found")
     check_ownership(qt, user, strict=True)
     apply_partial_update(qt, data, ["title", "client_name", "client_contact", "valid_days", "tax_rate", "status", "notes"])
-    qt.updated_at = datetime.now()
+    qt.updated_at = datetime.now(timezone.utc)
     db.commit()
     qt = db.scalar(select(Quotation).options(
         selectinload(Quotation.items),
@@ -212,7 +212,7 @@ def list_quotation_items(quotation_id: int, db: Session = Depends(get_db), user=
     return {"items": [i.to_dict() for i in items]}
 
 
-@router.post("/quotations/{quotation_id}/items")
+@router.post("/quotations/{quotation_id}/items", status_code=201)
 def add_quotation_item(quotation_id: int, data: QuotationItemCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     qt = get_or_404(db, Quotation, quotation_id, "Quotation not found")
     check_ownership(qt, user, strict=True)

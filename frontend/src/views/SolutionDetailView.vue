@@ -327,6 +327,8 @@ async function sendChat() {
   let curContent = ''
   let curProducts: any[] = []
   let curComponents: any[] = []
+  let lastRender = 0
+  const RENDER_INTERVAL = 50  // throttle reactive updates to every 50ms
   try {
     for await (const text of streamAiChat(question, chatCid.value)) {
       if (typeof text === 'string' && text.startsWith('[CONVERSATION:')) {
@@ -335,7 +337,7 @@ async function sendChat() {
         continue
       }
       if (typeof text === 'string' && text.startsWith('[TOOL:')) {
-        const toolText = text.slice(6, -1)  // strip [TOOL:...]
+        const toolText = text.slice(6, -1)
         chatMessages.value.push({ role: 'tool', content: toolText, products: [], components: [] })
         scrollChat()
         continue
@@ -353,13 +355,15 @@ async function sendChat() {
       }
       if (typeof text === 'string' && text.startsWith('[COMPONENT:')) {
         try {
-          const json = text.slice(11, -1)
-          curComponents.push(JSON.parse(json))
+          curComponents.push(JSON.parse(text.slice(11, -1)))
         } catch { /* skip */ }
         continue
       }
       curContent += text
-      // Update or create assistant bubble as text streams in
+      // Throttle: only update reactive state every RENDER_INTERVAL ms
+      const now = Date.now()
+      if (now - lastRender < RENDER_INTERVAL) continue
+      lastRender = now
       const last = chatMessages.value[chatMessages.value.length - 1]
       if (last && last.role === 'assistant') {
         last.content = formatContent(curContent, 'assistant')
@@ -370,14 +374,15 @@ async function sendChat() {
       }
       scrollChat()
     }
-    // Finalize assistant message
+    // Final render to flush any remaining content
+    const finalContent = formatContent(curContent, 'assistant')
     const last = chatMessages.value[chatMessages.value.length - 1]
     if (last && last.role === 'assistant') {
-      last.content = formatContent(curContent, 'assistant')
+      last.content = finalContent
       last.products = curProducts
       last.components = curComponents
     } else if (curContent || curProducts.length || curComponents.length) {
-      chatMessages.value.push({ role: 'assistant', content: formatContent(curContent || '查询完成', 'assistant'), products: curProducts, components: curComponents })
+      chatMessages.value.push({ role: 'assistant', content: finalContent || '查询完成', products: curProducts, components: curComponents })
     }
   } catch (e: any) {
     chatMessages.value.push({ role: 'assistant', content: `错误: ${escapeHtml(e.message)}`, products: [], components: [] })

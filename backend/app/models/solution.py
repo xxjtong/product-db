@@ -2,7 +2,7 @@ from app.database import Base, JSONBType
 from sqlalchemy import (Column, Integer, String, DateTime,
                         ForeignKey, Text, Numeric)
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class Solution(Base):
@@ -17,9 +17,9 @@ class Solution(Base):
     total_cost = Column(Numeric(14, 2), default=0)
     total_price = Column(Numeric(14, 2), default=0)
     notes = Column(Text, nullable=True)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     items = relationship("SolutionItem", back_populates="solution",
                          cascade="all, delete-orphan", order_by="SolutionItem.sort_order")

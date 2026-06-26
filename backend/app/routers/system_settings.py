@@ -16,6 +16,8 @@ def get_setting(db: Session, key: str, default: str = "") -> str:
 
 @router.get("/settings")
 def list_settings(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Admin only")
     items = db.query(SystemSetting).order_by(SystemSetting.key).all()
     return {"settings": [s.to_dict() for s in items]}
 
@@ -36,4 +38,6 @@ def update_setting(key: str, data: SystemSettingUpdate, db: Session = Depends(ge
 
 @router.get("/settings/{key}")
 def get_one_setting(key: str, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(403, "Admin only")
     return {"value": get_setting(db, key)}

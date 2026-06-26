@@ -2,7 +2,7 @@
 from __future__ import annotations
 import html
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.models.product import Product
 from app.models.category import Category, CategorySpecDefinition
@@ -138,5 +138,5 @@ td:first-child {{ color: #475569; width: 160px; }}
 
 {desc_html}
 
-<div class="footer">© 产品数据库 — 生成于 {datetime.now().strftime("%Y-%m-%d %H:%M")}</div>
+<div class="footer">© 产品数据库 — 生成于 {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")}</div>
 </body></html>"""

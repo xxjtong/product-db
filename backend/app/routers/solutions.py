@@ -15,7 +15,7 @@ from app.auth import get_current_user, filter_by_ownership, check_ownership
 from app.utils.escape import escape_like
 from app.models.user import User
 from app.schemas.solution import SolutionCreate, SolutionUpdate, SolutionItemCreate, SolutionItemUpdate, BatchDeleteRequest
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter()
 
@@ -86,7 +86,7 @@ def batch_delete_solutions(data: BatchDeleteRequest, db: Session = Depends(get_d
     return {"ok": True, "deleted": deleted}
 
 
-@router.post("/solutions")
+@router.post("/solutions", status_code=201)
 def create_solution(data: SolutionCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     sol = Solution(
         name=data.name,
@@ -119,7 +119,7 @@ def update_solution(solution_id: int, data: SolutionUpdate, db: Session = Depend
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
     check_ownership(sol, user, strict=True)
     apply_partial_update(sol, data, ["name", "description", "client_name", "project_name", "status", "notes"])
-    sol.updated_at = datetime.now()
+    sol.updated_at = datetime.now(timezone.utc)
     db.commit()
     sol = db.scalar(select(Solution).options(
         selectinload(Solution.items).selectinload(SolutionItem.product),
@@ -149,7 +149,7 @@ def list_items(solution_id: int, db: Session = Depends(get_db), user=Depends(get
     return {"items": [i.to_dict() for i in items]}
 
 
-@router.post("/solutions/{solution_id}/items")
+@router.post("/solutions/{solution_id}/items", status_code=201)
 def add_item(solution_id: int, data: SolutionItemCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
     check_ownership(sol, user, strict=True)

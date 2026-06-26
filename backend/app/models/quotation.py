@@ -2,7 +2,7 @@ from app.database import Base, JSONBType
 from sqlalchemy import (Column, Integer, String, DateTime,
                         ForeignKey, Text, Numeric)
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class Quotation(Base):
@@ -20,9 +20,9 @@ class Quotation(Base):
     total_amount = Column(Numeric(14, 2), default=0)
     notes = Column(Text, nullable=True)
     download_count = Column(Integer, default=0)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     items = relationship("QuotationItem", back_populates="quotation",
                          cascade="all, delete-orphan", order_by="QuotationItem.sort_order")

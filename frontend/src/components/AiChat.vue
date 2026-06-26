@@ -325,55 +325,6 @@ function formatContent(text: string, role: string): string {
 }
 
 
-function mdToHtml(text: string): string {
-  // Escape HTML entities before markdown conversion to prevent XSS
-  let html = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    // Headings
-    .replace(/^#### (.+)$/gm, '<h5>$1</h5>')
-    .replace(/^### (.+)$/gm, '<h4>$1</h4>')
-    .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-    // Bold
-    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
-    // Italic
-    .replace(/\*(.+?)\*/g, '<i>$1</i>')
-    // Horizontal rule
-    .replace(/^---$/gm, '<hr>')
-    // Numbered lists: wrap lines starting with "1. " in proper tags
-    .replace(/^(\d+)[.、]\s+(.+)$/gm, '<div class="ai-li"><span class="ai-li-num">$1.</span> $2</div>')
-    // Bullet lists
-    .replace(/^[-−]\s+(.+)$/gm, '<div class="ai-li">• $1</div>')
-    // Inline code
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    // URLs
-    .replace(/(https?:\/\/[^\s<>]+)/g, '<a href="$1" target="_blank">$1</a>')
-    // Newlines to <br>
-    .replace(/\n/g, '<br>')
-
-  // Group consecutions ai-li into a list block
-  html = html.replace(/(<div class="ai-li">.*?<\/div>(<br>)?)+/g, '<div class="ai-list">$&</div>')
-  // Clean up double <div> wrapping
-  html = html.replace(/<div class="ai-list">(<br>)?<div class="ai-list">/g, '<div class="ai-list">')
-  html = html.replace(/<\/div><\/div>/g, '</div>')
-
-  // Simple table: | a | b | -> inline styled table
-  if (html.includes('|') && html.includes('---')) {
-    html = html.replace(/(\|[^\n]+\|\n\|[-:\|\s]+\|\n((?:\|[^\n]+\|\n?)+))/g, (match) => {
-      const lines = match.trim().split('\n').filter(l => !l.includes('---'))
-      if (lines.length < 2) return match
-      const rows = lines.map(line =>
-        '<tr>' + line.split('|').filter(c => c.trim()).map(c => `<td>${c.trim()}</td>`).join('') + '</tr>'
-      ).join('')
-      return `<table class="ai-table">${rows}</table>`
-    })
-  }
-
-  return html
-}
-
 function parseToolProducts(resultStr: string): any[] {
   try {
     const d = JSON.parse(resultStr)

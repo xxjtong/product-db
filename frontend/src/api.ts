@@ -41,45 +41,45 @@ export const fetchPowerSupplies = (page = 1, perPage = 500) => api<{ power_suppl
 export const fetchSensorMetrics = (page = 1, perPage = 500) => api<{ sensor_metrics: { id: number; name: string; unit?: string; accuracy?: string; resolution?: string; description?: string }[]; total: number }>(`/dicts/sensor-metrics?page=${page}&per_page=${perPage}`)
 
 // Dict CRUD
-export const createCommMethod = (data: any) => api('/dicts/comm-methods', { method: 'POST', body: JSON.stringify(data) })
-export const updateCommMethod = (id: number, data: any) => api(`/dicts/comm-methods/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+export const createCommMethod = (data: Record<string, unknown>) => api('/dicts/comm-methods', { method: 'POST', body: JSON.stringify(data) })
+export const updateCommMethod = (id: number, data: Record<string, unknown>) => api(`/dicts/comm-methods/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteCommMethod = (id: number) => api(`/dicts/comm-methods/${id}`, { method: 'DELETE' })
-export const createCommProtocol = (data: any) => api('/dicts/comm-protocols', { method: 'POST', body: JSON.stringify(data) })
-export const updateCommProtocol = (id: number, data: any) => api(`/dicts/comm-protocols/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+export const createCommProtocol = (data: Record<string, unknown>) => api('/dicts/comm-protocols', { method: 'POST', body: JSON.stringify(data) })
+export const updateCommProtocol = (id: number, data: Record<string, unknown>) => api(`/dicts/comm-protocols/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteCommProtocol = (id: number) => api(`/dicts/comm-protocols/${id}`, { method: 'DELETE' })
-export const createPowerSupply = (data: any) => api('/dicts/power-supplies', { method: 'POST', body: JSON.stringify(data) })
-export const updatePowerSupply = (id: number, data: any) => api(`/dicts/power-supplies/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+export const createPowerSupply = (data: Record<string, unknown>) => api('/dicts/power-supplies', { method: 'POST', body: JSON.stringify(data) })
+export const updatePowerSupply = (id: number, data: Record<string, unknown>) => api(`/dicts/power-supplies/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deletePowerSupply = (id: number) => api(`/dicts/power-supplies/${id}`, { method: 'DELETE' })
-export const createSensorMetric = (data: any) => api('/dicts/sensor-metrics', { method: 'POST', body: JSON.stringify(data) })
-export const updateSensorMetric = (id: number, data: any) => api(`/dicts/sensor-metrics/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+export const createSensorMetric = (data: Record<string, unknown>) => api('/dicts/sensor-metrics', { method: 'POST', body: JSON.stringify(data) })
+export const updateSensorMetric = (id: number, data: Record<string, unknown>) => api(`/dicts/sensor-metrics/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteSensorMetric = (id: number) => api(`/dicts/sensor-metrics/${id}`, { method: 'DELETE' })
 export const fetchManufacturers = (page = 1, perPage = 500) => api<{ manufacturers: Manufacturer[]; total: number }>(`/dicts/manufacturers?page=${page}&per_page=${perPage}`)
-export const createManufacturer = (data: any) => api('/dicts/manufacturers', { method: 'POST', body: JSON.stringify(data) })
-export const updateManufacturer = (id: number, data: any) => api(`/dicts/manufacturers/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+export const createManufacturer = (data: Record<string, unknown>) => api('/dicts/manufacturers', { method: 'POST', body: JSON.stringify(data) })
+export const updateManufacturer = (id: number, data: Record<string, unknown>) => api(`/dicts/manufacturers/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteManufacturer = (id: number) => api(`/dicts/manufacturers/${id}`, { method: 'DELETE' })
 
 // --- Categories ---
 export const fetchCategories = (params: string = 'per_page=1000') => api<{ categories: Category[]; total?: number }>(`/categories?${params}`)
-export const fetchCategoryTree = () => api<{ tree: any[] }>('/categories/tree')
-export const createCategory = (data: any) => api('/categories', { method: 'POST', body: JSON.stringify(data) })
-export const updateCategory = (id: number, data: any) => api(`/categories/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+export const fetchCategoryTree = () => api<{ tree: Category[] }>('/categories/tree')
+export const createCategory = (data: Record<string, unknown>) => api('/categories', { method: 'POST', body: JSON.stringify(data) })
+export const updateCategory = (id: number, data: Record<string, unknown>) => api(`/categories/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteCategory = (id: number) => api(`/categories/${id}`, { method: 'DELETE' })
 
 export const fetchSpecDefinitions = (catId: number) =>
-  api<{ spec_definitions: any[] }>(`/categories/${catId}/spec-definitions`)
-export const createSpecDefinition = (catId: number, data: any) =>
+  api<{ spec_definitions: SpecDefinition[] }>(`/categories/${catId}/spec-definitions`)
+export const createSpecDefinition = (catId: number, data: Record<string, unknown>) =>
   api(`/categories/${catId}/spec-definitions`, { method: 'POST', body: JSON.stringify(data) })
-export const updateSpecDefinition = (catId: number, specId: number, data: any) =>
+export const updateSpecDefinition = (catId: number, specId: number, data: Record<string, unknown>) =>
   api(`/categories/${catId}/spec-definitions/${specId}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteSpecDefinition = (catId: number, specId: number) =>
   api(`/categories/${catId}/spec-definitions/${specId}`, { method: 'DELETE' })
 
 // --- Products ---
 export const fetchProducts = (params: string = '') =>
-  api<{ products: any[]; total: number; page: number; per_page: number }>(`/products${params ? '?' + params : ''}`)
+  api<{ products: Product[]; total: number; page: number; per_page: number }>(`/products${params ? '?' + params : ''}`)
 export const fetchProduct = (id: number) => api<{ product: Product }>(`/products/${id}`)
-export const createProduct = (data: any) => api('/products', { method: 'POST', body: JSON.stringify(data) })
-export const updateProduct = (id: number, data: any) => api(`/products/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+export const createProduct = (data: Record<string, unknown>) => api('/products', { method: 'POST', body: JSON.stringify(data) })
+export const updateProduct = (id: number, data: Record<string, unknown>) => api(`/products/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteProduct = (id: number) => api(`/products/${id}`, { method: 'DELETE' })
 export const compareProducts = (ids: string) =>
   api<{ products: Record<number, any>; matrix: Record<string, Record<number, any>>; display_names: Record<string, string> }>(`/products/compare?product_ids=${ids}`)
@@ -118,21 +118,21 @@ export const fetchSuppliers = (search = '', all = false) =>
 
 export const fetchSuppliersPaginated = (params: string = '') =>
   api<{ suppliers: Supplier[]; total: number }>(`/suppliers${params ? '?' + params : ''}`)
-export const createSupplier = (data: any) => api('/suppliers', { method: 'POST', body: JSON.stringify(data) })
-export const updateSupplier = (id: number, data: any) => api(`/suppliers/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+export const createSupplier = (data: Record<string, unknown>) => api('/suppliers', { method: 'POST', body: JSON.stringify(data) })
+export const updateSupplier = (id: number, data: Record<string, unknown>) => api(`/suppliers/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteSupplier = (id: number) => api(`/suppliers/${id}`, { method: 'DELETE' })
 
 // --- Solutions ---
 export const fetchSolutions = (params: string = '') =>
   api<{ solutions: Solution[]; total: number; page: number; per_page: number }>(`/solutions${params ? '?' + params : ''}`)
 export const fetchSolution = (id: number) => api<{ solution: Solution }>(`/solutions/${id}`)
-export const createSolution = (data: any) => api<{ solution: { id: number } }>('/solutions', { method: 'POST', body: JSON.stringify(data) })
-export const updateSolution = (id: number, data: any) => api(`/solutions/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+export const createSolution = (data: Record<string, unknown>) => api<{ solution: { id: number } }>('/solutions', { method: 'POST', body: JSON.stringify(data) })
+export const updateSolution = (id: number, data: Record<string, unknown>) => api(`/solutions/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteSolution = (id: number) => api(`/solutions/${id}`, { method: 'DELETE' })
 export const batchDeleteSolutions = (ids: number[]) => api('/solutions/batch-delete', { method: 'POST', body: JSON.stringify({ ids }) })
-export const addSolutionItem = (solId: number, data: any) =>
+export const addSolutionItem = (solId: number, data: Record<string, unknown>) =>
   api(`/solutions/${solId}/items`, { method: 'POST', body: JSON.stringify(data) })
-export const updateSolutionItem = (solId: number, itemId: number, data: any) =>
+export const updateSolutionItem = (solId: number, itemId: number, data: Record<string, unknown>) =>
   api(`/solutions/${solId}/items/${itemId}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteSolutionItem = (solId: number, itemId: number) =>
   api(`/solutions/${solId}/items/${itemId}`, { method: 'DELETE' })
@@ -140,9 +140,9 @@ export const checkSolution = (solId: number) => api<{ warnings: any[]; ok: boole
 export const suggestSolution = (solId: number) => api<{ suggestions: any[] }>(`/solutions/${solId}/suggest`)
 export const fetchBomSnapshot = (solId: number) => api<{ bom_snapshot: any }>(`/solutions/${solId}/bom-snapshot`)
 export const fetchQuotationBom = (qid: number) => api<{ rows: any[]; total: number }>(`/quotations/${qid}/bom`)
-export const saveQuotationBom = (qid: number, data: any) =>
+export const saveQuotationBom = (qid: number, data: Record<string, unknown>) =>
   api(`/quotations/${qid}/bom`, { method: 'PUT', body: JSON.stringify(data) })
-export const saveBomSnapshot = (solId: number, data: any) =>
+export const saveBomSnapshot = (solId: number, data: Record<string, unknown>) =>
   api(`/solutions/${solId}/bom-snapshot`, { method: 'PUT', body: JSON.stringify(data) })
 export const bomExportUrl = (solId: number) => {
   const token = localStorage.getItem('token') || ''
@@ -153,13 +153,13 @@ export const bomExportUrl = (solId: number) => {
 export const fetchQuotations = (params: string = '') =>
   api<{ quotations: Quotation[]; total: number; page: number; per_page: number }>(`/quotations${params ? '?' + params : ''}`)
 export const fetchQuotation = (id: number) => api<{ quotation: Quotation }>(`/quotations/${id}`)
-export const createQuotation = (data: any) => api('/quotations', { method: 'POST', body: JSON.stringify(data) })
-export const updateQuotation = (id: number, data: any) => api(`/quotations/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+export const createQuotation = (data: Record<string, unknown>) => api('/quotations', { method: 'POST', body: JSON.stringify(data) })
+export const updateQuotation = (id: number, data: Record<string, unknown>) => api(`/quotations/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteQuotation = (id: number) => api(`/quotations/${id}`, { method: 'DELETE' })
 export const batchDeleteQuotations = (ids: number[]) => api('/quotations/batch-delete', { method: 'POST', body: JSON.stringify({ ids }) })
-export const addQuotationItem = (qtId: number, data: any) =>
+export const addQuotationItem = (qtId: number, data: Record<string, unknown>) =>
   api(`/quotations/${qtId}/items`, { method: 'POST', body: JSON.stringify(data) })
-export const updateQuotationItem = (qtId: number, itemId: number, data: any) =>
+export const updateQuotationItem = (qtId: number, itemId: number, data: Record<string, unknown>) =>
   api(`/quotations/${qtId}/items/${itemId}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteQuotationItem = (qtId: number, itemId: number) =>
   api(`/quotations/${qtId}/items/${itemId}`, { method: 'DELETE' })
@@ -169,7 +169,7 @@ export const quotationExportUrl = (qtId: number) => {
 }
 
 // --- AI ---
-export async function* streamAiChat(input: string, conversationId?: number | null) {
+export async function* streamAiChat(input: string, conversationId?: number | null): AsyncGenerator<string> {
   const token = localStorage.getItem('token')
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) headers['Authorization'] = `Bearer ${token}`
@@ -195,20 +195,19 @@ export async function* streamAiChat(input: string, conversationId?: number | nul
         try {
           const parsed = JSON.parse(data)
           if (parsed.event === 'conversation_id') {
-            yield `[CONVERSATION:${parsed.conversation_id}]` as any
+            yield `[CONVERSATION:${parsed.conversation_id}]`
           } else if (parsed.event === 'component') {
-            yield `[COMPONENT:${JSON.stringify(parsed)}]` as any
+            yield `[COMPONENT:${JSON.stringify(parsed)}]`
           } else if (parsed.event === 'products' && parsed.data) {
-            const pkg: any = parsed.data
             if (parsed.solution_name) {
-              yield `[SOLUTION:${JSON.stringify({name: parsed.solution_name, desc: parsed.solution_desc || '', products: parsed.data})}]` as any
+              yield `[SOLUTION:${JSON.stringify({name: parsed.solution_name, desc: parsed.solution_desc || '', products: parsed.data})}]`
             } else {
-              yield `[PRODUCTS:${JSON.stringify(parsed.data)}]` as any
+              yield `[PRODUCTS:${JSON.stringify(parsed.data)}]`
             }
           } else if (parsed.event === 'tool') {
-            yield `[TOOL:${parsed.text || ''}]` as any
+            yield `[TOOL:${parsed.text || ''}]`
           } else if (parsed.text || parsed.event === 'text') {
-            yield (parsed.text || '') as any
+            yield (parsed.text || '') as string
           }
         } catch { /* skip */ }
       }
