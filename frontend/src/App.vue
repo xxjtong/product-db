@@ -47,6 +47,7 @@
       <router-view />
       <footer class="app-footer">
         <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">陕ICP备2026015306号</a>
+        <a href="https://beian.mps.gov.cn/#/query/webSearch?code=61019002004032" rel="noreferrer" target="_blank">陕公网安备61019002004032号</a>
       </footer>
     </main>
   </div>
