@@ -27,7 +27,7 @@
       <div v-if="!convId && convs.length" class="ai-convs">
         <div v-for="c in convs" :key="c.id" class="ai-conv-item" @click="loadConv(c.id)">
           <span>{{ c.title || '新对话' }}</span>
-          <span class="text-muted text-sm">{{ c.updated_at }}</span>
+          <span class="text-muted text-sm">{{ formatTime(c.updated_at) }}</span>
           <button class="btn-icon btn-sm" @click.stop="deleteConv(c.id)">✕</button>
         </div>
       </div>
@@ -100,6 +100,7 @@ import QuoteDraftCard from './GenUI/QuoteDraftCard.vue'
 import { fetchConversations, fetchConversation, deleteConversation, createSolution, addSolutionItem } from '../api'
 import DOMPurify from 'dompurify'
 import { formatAiContent, escapeHtml, extractProducts } from '../utils/markdown'
+import { formatTime } from '../utils/time'
 
 function sanitize(html: string): string { return DOMPurify.sanitize(html) as string }
 function stripCalls(text: string): string { return text.replace(/调用.*?\.\.\./g, '').replace(/<｜｜DSML｜｜tool_calls>[\s\S]*?<\/｜｜DSML｜｜tool_calls>/g, '').trim() }

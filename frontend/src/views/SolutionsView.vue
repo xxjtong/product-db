@@ -41,7 +41,7 @@
             </select>
           </td>
           <td class="font-mono">¥{{ Number(s.total_price).toLocaleString() }}</td>
-          <td class="text-sm">{{ s.updated_at }}</td>
+          <td class="text-sm">{{ formatTime(s.updated_at) }}</td>
           <td>
             <button class="btn-icon btn-sm" title="查看" @click="$router.push(`/solutions/${s.id}`)"><EyeIcon style="width:14px;height:14px" /></button>
             <button class="btn-icon btn-sm" title="编辑" @click="openEdit(s)"><PencilIcon style="width:14px;height:14px" /></button>
@@ -75,6 +75,7 @@
 import { ref, onMounted, inject, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { PlusIcon, PencilIcon, Trash2Icon, InboxIcon, EyeIcon } from 'lucide-vue-next'
+import { formatTime } from '../utils/time'
 import PageHeader from '../components/PageHeader.vue'
 import Modal from '../components/Modal.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'

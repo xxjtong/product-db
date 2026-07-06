@@ -27,7 +27,7 @@
             <td class="font-mono">{{ r.tokens_out || 0 }}</td>
             <td class="font-mono">{{ r.duration_ms }}ms</td>
             <td :style="{color: r.success ? 'var(--color-success)' : 'var(--color-danger)'}">{{ r.success ? '✓' : '✗' }}</td>
-            <td class="text-xs">{{ r.created_at }}</td>
+            <td class="text-xs">{{ formatTime(r.created_at) }}</td>
           </tr>
         </tbody>
       </table>
@@ -40,6 +40,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatTime } from '../utils/time'
 defineProps<{ usage: any }>()
 defineEmits(['refresh'])
 

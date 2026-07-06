@@ -30,7 +30,7 @@
       </div>
       <div v-if="showConvs && convs.length" style="max-height:160px;overflow-y:auto;margin-bottom:8px">
         <div v-for="c in convs" :key="c.id" class="ai-conv-item" @click="loadConv(c.id)" style="padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--color-border);font-size:12px;display:flex;justify-content:space-between">
-          <span>{{ c.title || '新对话' }}</span><span class="text-muted text-sm">{{ c.updated_at }}</span>
+          <span>{{ c.title || '新对话' }}</span><span class="text-muted text-sm">{{ formatTime(c.updated_at) }}</span>
         </div>
       </div>
       <!-- Chat messages — bubble style -->
@@ -131,6 +131,7 @@
 import { ref, onMounted, inject, computed, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Trash2Icon, PlusIcon, InboxIcon } from 'lucide-vue-next'
+import { formatTime } from '../utils/time'
 import PageHeader from '../components/PageHeader.vue'
 
 import Modal from '../components/Modal.vue'

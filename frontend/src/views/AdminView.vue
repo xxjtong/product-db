@@ -117,7 +117,7 @@
       <thead><tr><th>用户</th><th>类型</th><th>实体ID</th><th>IP</th><th>时间</th></tr></thead>
       <tbody>
         <tr v-for="l in dlogs" :key="l.id">
-          <td>{{ l.username || l.user_id }}</td><td>{{ l.file_type }}</td><td>{{ l.entity_id }}</td><td>{{ l.ip_address || '—' }}</td><td>{{ l.created_at }}</td>
+          <td>{{ l.username || l.user_id }}</td><td>{{ l.file_type }}</td><td>{{ l.entity_id }}</td><td>{{ l.ip_address || '—' }}</td><td>{{ formatTime(l.created_at) }}</td>
         </tr>
       </tbody>
     </table>
@@ -133,7 +133,7 @@
       <tbody>
         <tr v-for="l in logs" :key="l.id">
           <td>{{ l.username || l.user_id }}</td><td>{{ l.ip_address }}</td><td>{{ l.region || '—' }}</td>
-          <td>{{ l.success ? '✓' : '✕' }}</td><td>{{ l.created_at }}</td>
+          <td>{{ l.success ? '✓' : '✕' }}</td><td>{{ formatTime(l.created_at) }}</td>
         </tr>
       </tbody>
     </table>
@@ -170,6 +170,7 @@ import { ref, onMounted, inject } from 'vue'
 import { PencilIcon, Trash2Icon, KeyIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import Modal from '../components/Modal.vue'
+import { formatTime } from '../utils/time'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import AsyncContainer from '../components/AsyncContainer.vue'
 import Pagination from '../components/Pagination.vue'

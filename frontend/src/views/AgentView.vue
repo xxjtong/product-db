@@ -142,6 +142,7 @@ import { ref, nextTick, onMounted, watch } from 'vue'
 import { useFileDrop } from '../composables/useFileDrop'
 import { BotIcon, PlusIcon, HistoryIcon } from 'lucide-vue-next'
 import DOMPurify from 'dompurify'
+import { formatTime } from '../utils/time'
 
 // ── Types ──────────────────────────────────────────────
 interface Message {
@@ -282,14 +283,6 @@ function bumpChat() {
   }
 }
 
-function formatTime(ts: number): string {
-  const d = new Date(ts)
-  const now = new Date()
-  if (d.toDateString() === now.toDateString()) {
-    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-  }
-  return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
-}
 
 // ── Markdown rendering ─────────────────────────────────
 const RE_CODE_BLOCK = /```(\w*)\n([\s\S]*?)```/g

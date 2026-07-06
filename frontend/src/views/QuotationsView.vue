@@ -44,7 +44,7 @@
           </td>
           <td class="font-mono">¥{{ Number(q.total_amount).toLocaleString() }}</td>
           <td class="text-sm text-muted">{{ q.download_count || 0 }}</td>
-          <td class="text-sm">{{ q.created_at }}</td>
+          <td class="text-sm">{{ formatTime(q.created_at) }}</td>
           <td>
             <button class="btn-icon btn-sm" title="查看" @click="$router.push(`/quotations/${q.id}`)"><EyeIcon style="width:14px;height:14px" /></button>
             <button class="btn-icon btn-sm" title="删除" @click="confirmDelete(q)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
@@ -64,6 +64,7 @@
 import { ref, onMounted, inject, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { PlusIcon, Trash2Icon, InboxIcon, EyeIcon } from 'lucide-vue-next'
+import { formatTime } from '../utils/time'
 import PageHeader from '../components/PageHeader.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import AsyncContainer from '../components/AsyncContainer.vue'

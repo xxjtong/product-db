@@ -32,7 +32,7 @@
       <div class="info-item"><label>供应商</label><span>{{ product.supplier_name || '—' }}</span></div>
       <div class="info-item"><label>价格</label><span class="font-mono">{{ product.base_price || '—' }}</span></div>
       <div class="info-item"><label>成本</label><span class="font-mono">{{ product.cost_price || '—' }}</span></div>
-      <div class="info-item"><label>修改时间</label><span>{{ product.updated_at || '—' }}</span></div>
+      <div class="info-item"><label>修改时间</label><span>{{ product.updated_at ? formatTime(product.updated_at) : '—' }}</span></div>
       <div class="info-item"><label>浏览</label><span>{{ product.view_count || 0 }} 次</span></div>
     </div>
     <div class="info-bar" style="margin-top:4px">
@@ -186,6 +186,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { PencilIcon, FileTextIcon } from 'lucide-vue-next'
+import { formatTime } from '../utils/time'
 import PageHeader from '../components/PageHeader.vue'
 import TagBadge from '../components/TagBadge.vue'
 import DependencyEditor from '../components/DependencyEditor.vue'

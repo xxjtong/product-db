@@ -2,7 +2,26 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-07-06, R20)
+## 最新变更 (2026-07-06, R21)
+
+### R21: 时区显示修复 + 端口统一 + 环境配置完善
+
+**时区显示修复:**
+- 新增 `frontend/src/utils/time.ts` — `formatTime()` 统一将 UTC 时间转本地时区显示
+- 10 处 raw `created_at`/`updated_at` → `formatTime()`（用户看到的时间不再晚 8 小时）
+- AgentView 删除本地 `formatTime`，统一用共享版
+
+**端口统一 (8002→8000):**
+- 生产 systemd + Nginx 端口改为 8000，与开发环境一致
+- CLAUDE.md 同步更新
+
+**环境配置:**
+- `.env.example` 补全 24 个配置项（含注释），新机器 `cp .env.example .env` 即可
+- Vite 启动命令改为 `npm run dev`，锁定项目 Vite 6.x（全局 Vite 8 不兼容）
+
+**测试:** vue-tsc 0 errors / vitest 60/60
+
+## 历史变更 (2026-07-06, R20)
 
 ### R20: API Key 统一 + 搜索评分优化 + UX 增强
 
@@ -448,7 +467,7 @@ pytest tests/ -v
 
 # 前端
 cd frontend
-npx vite --host 0.0.0.0 --port 5173
+npm run dev -- --host 0.0.0.0 --port 5173   # 本地 vite (^6.3)，不用 npx vite（可能拿全局 v8）
 npx vitest run
 npx vue-tsc --noEmit
 
@@ -461,7 +480,7 @@ npx playwright test --reporter=list                               # 全部套件
 
 ## 路径前缀配置
 
-生产部署在 Nginx 反向代理子路径 `/product-db/`。Nginx 配置 `proxy_pass http://127.0.0.1:8002;`（**无**末尾斜杠）保留前缀透传。
+生产部署在 Nginx 反向代理子路径 `/product-db/`。Nginx 配置 `proxy_pass http://127.0.0.1:8000;`（**无**末尾斜杠）保留前缀透传。
 
 | 组件 | 配置 |
 |------|------|
