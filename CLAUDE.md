@@ -8,11 +8,14 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 
 **时区显示修复:**
 - 新增 `frontend/src/utils/time.ts` — `formatTime()` 统一将 UTC 时间转本地时区显示
-- 10 处 raw `created_at`/`updated_at` → `formatTime()`（用户看到的时间不再晚 8 小时）
+- 10 处 raw `created_at`/`updated_at` → `formatTime()`
+- SQLite 存 UTC 但返回 naive datetime（无时区戳），JS 按本地时区解析 → 显示晚 8 小时
+- 修复：`formatTime` 检测 naive ISO 自动追加 `Z` 后缀，强制 UTC 解释
 - AgentView 删除本地 `formatTime`，统一用共享版
 
 **端口统一 (8002→8000):**
 - 生产 systemd + Nginx 端口改为 8000，与开发环境一致
+- CLAUDE.md 同步更新
 - CLAUDE.md 同步更新
 
 **环境配置:**
