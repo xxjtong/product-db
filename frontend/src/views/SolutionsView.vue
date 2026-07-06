@@ -56,9 +56,9 @@
 
   <Modal :title="editing ? '编辑方案' : '新增方案'" :visible="modalVisible" @close="modalVisible = false">
     <div class="form-grid">
-      <div class="form-group full"><label>名称 *</label><input v-model="form.name" /></div>
-      <div class="form-group"><label>客户</label><input v-model="form.client_name" /></div>
-      <div class="form-group"><label>项目</label><input v-model="form.project_name" /></div>
+      <div class="form-group"><label>客户</label><input v-model="form.client_name" @input="onClientProjectChange" /></div>
+      <div class="form-group"><label>项目</label><input v-model="form.project_name" @input="onClientProjectChange" /></div>
+      <div class="form-group full"><label>名称 *</label><input v-model="form.name" @input="onNameManualEdit" /></div>
       <div class="form-group full"><label>备注</label><textarea v-model="form.notes" rows="2" /></div>
     </div>
     <template #footer>
@@ -96,6 +96,7 @@ const perPage = ref(20)
 const modalVisible = ref(false)
 const editing = ref<any>(null)
 const form = ref<any>({ name: '', client_name: '', project_name: '', notes: '' })
+const nameManual = ref(false) // true when user has edited name manually
 const deleteTarget = ref<any>(null)
 const selectedIds = ref<Set<number>>(new Set())
 const showBatchConfirm = ref(false)
@@ -165,13 +166,29 @@ async function doBatchDelete() {
 function openAdd() {
   editing.value = null
   form.value = { name: '', client_name: '', project_name: '', notes: '' }
+  nameManual.value = false
   modalVisible.value = true
 }
 
 function openEdit(s: any) {
   editing.value = s
   form.value = { name: s.name, client_name: s.client_name, project_name: s.project_name, notes: s.notes }
+  nameManual.value = true // editing existing solution, treat name as manual
   modalVisible.value = true
+}
+
+function onClientProjectChange() {
+  if (nameManual.value) return
+  const c = form.value.client_name?.trim() || ''
+  const p = form.value.project_name?.trim() || ''
+  if (c && p) form.value.name = `${c}-${p}`
+  else if (c) form.value.name = c
+  else if (p) form.value.name = p
+  else form.value.name = ''
+}
+
+function onNameManualEdit() {
+  nameManual.value = true
 }
 
 async function save() {

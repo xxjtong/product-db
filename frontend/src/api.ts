@@ -206,6 +206,8 @@ export async function* streamAiChat(input: string, conversationId?: number | nul
             }
           } else if (parsed.event === 'tool') {
             yield `[TOOL:${parsed.text || ''}]`
+          } else if (parsed.event === 'warning') {
+            yield `[WARNING:${parsed.text || ''}]`
           } else if (parsed.text || parsed.event === 'text') {
             yield (parsed.text || '') as string
           }

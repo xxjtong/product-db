@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     AI_MAX_REDIRECTS: int = 3
     AI_CONTEXT_CACHE_TTL: int = 300  # seconds
     AI_EXTRACT_MAX_CHARS: int = 12000
+    VISION_BASE_URL: str = "https://api.xiaomimimo.com/v1"
+    VISION_MODEL: str = "mimo-v2.5"
+    VISION_API_KEY: str = ""
 
     class Config:
         env_file = ".env"

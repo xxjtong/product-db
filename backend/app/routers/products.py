@@ -603,11 +603,11 @@ async def _ocr_image(image_bytes: bytes, db: Session, _usage: list = None) -> st
     If _usage list is provided, [tokens_in, tokens_out, duration_ms] is appended.
     """
     import base64, time as _time
-    from app.routers.admin_routes import _load_llm_config
+    from app.config import settings as app_settings
 
-    cfg = _load_llm_config(db).get("vision", {})
-    if not cfg.get("api_key"):
-        raise HTTPException(400, "Vision LLM API key not configured")
+    vision_key = app_settings.VISION_API_KEY
+    if not vision_key:
+        raise HTTPException(400, "VISION_API_KEY not configured in .env")
 
     mime_map = {b'\xff\xd8\xff': 'image/jpeg', b'\x89PNG': 'image/png',
                 b'GIF8': 'image/gif', b'RIFF': 'image/webp', b'BM': 'image/bmp'}
@@ -624,10 +624,10 @@ async def _ocr_image(image_bytes: bytes, db: Session, _usage: list = None) -> st
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
-                f"{cfg['base_url']}/chat/completions",
-                headers={"Authorization": f"Bearer {cfg['api_key']}", "Content-Type": "application/json"},
+                f"{app_settings.VISION_BASE_URL}/chat/completions",
+                headers={"Authorization": f"Bearer {vision_key}", "Content-Type": "application/json"},
                 json={
-                    "model": cfg.get("model", "mimo-v2-omni"),
+                    "model": app_settings.VISION_MODEL,
                     "messages": [{"role": "user", "content": [
                         {"type": "text", "text": "请仔细OCR识别这张产品规格图片中的所有文字内容，包括产品名称、型号、规格参数、技术指标等。直接输出识别到的文字，不要添加额外说明。"},
                         {"type": "image_url", "image_url": {"url": data_url}},

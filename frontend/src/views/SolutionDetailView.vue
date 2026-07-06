@@ -108,15 +108,16 @@
   <!-- Batch product picker modal -->
   <Modal title="批量选品" :visible="pickerOpen" @close="pickerOpen = false">
     <div class="flex gap-8 mb-12">
-      <input v-model="pickerSearch" style="flex:1" placeholder="搜索产品..." />
-      <span class="text-sm text-muted">已选 {{ pickerSelected.length }} / 6</span>
+      <input v-model="pickerSearch" style="flex:1" placeholder="搜索：名称、型号、厂商、品类..." />
+      <span class="text-sm text-muted">已选 {{ pickerSelected.length }}</span>
     </div>
     <div style="max-height:400px;overflow-y:auto">
       <div v-for="p in pickerFiltered" :key="p.id" class="picker-row flex items-center gap-8" style="padding:6px 0;border-bottom:1px solid var(--color-border)">
         <input type="checkbox" :checked="pickerSelected.includes(p.id)" @change="togglePick(p.id)" />
         <span style="flex:1;font-size:13px">{{ p.name }} <span class="text-muted text-sm">{{ p.model }}</span></span>
-        <span class="font-mono text-sm" v-if="p.base_price">¥{{ p.base_price }}</span>
-        <span class="text-sm text-muted">{{ p.category_name }}</span>
+        <span class="text-sm text-muted" style="min-width:60px" v-if="p.manufacturer_name">{{ p.manufacturer_name }}</span>
+        <span class="font-mono text-sm" v-if="p.base_price" style="min-width:70px;text-align:right">¥{{ p.base_price }}</span>
+        <span class="text-sm text-muted" style="min-width:50px;text-align:right">{{ p.category_name }}</span>
       </div>
     </div>
     <template #footer>
@@ -153,7 +154,7 @@ const allProducts = ref<Product[]>([])
 
 // AI chat
 interface ChatMessage {
-  role: 'user' | 'assistant' | 'tool'
+  role: 'user' | 'assistant' | 'tool' | 'warning'
   content: string
   products: any[]
   components: any[]
@@ -175,7 +176,10 @@ const pickerFiltered = computed(() => {
   if (!pickerSearch.value) return allProducts.value.slice(0, 100)
   const s = pickerSearch.value.toLowerCase()
   return allProducts.value.filter((p: any) =>
-    p.name.toLowerCase().includes(s) || p.model?.toLowerCase().includes(s) || p.category_name?.includes(s)
+    p.name.toLowerCase().includes(s) ||
+    p.model?.toLowerCase().includes(s) ||
+    p.category_name?.toLowerCase().includes(s) ||
+    p.manufacturer_name?.toLowerCase().includes(s)
   ).slice(0, 100)
 })
 
@@ -218,7 +222,7 @@ async function saveInfo() {
 function togglePick(id: number) {
   const idx = pickerSelected.value.indexOf(id)
   if (idx >= 0) pickerSelected.value.splice(idx, 1)
-  else if (pickerSelected.value.length < 6) pickerSelected.value.push(id)
+  else pickerSelected.value.push(id)
 }
 
 async function batchAdd() {
@@ -342,6 +346,12 @@ async function sendChat() {
         scrollChat()
         continue
       }
+      if (typeof text === 'string' && text.startsWith('[WARNING:')) {
+        const warnText = text.slice(9, -1)
+        chatMessages.value.push({ role: 'warning', content: warnText, products: [], components: [] })
+        scrollChat()
+        continue
+      }
       if (typeof text === 'string' && text.startsWith('[PRODUCTS:')) {
         try { curProducts = JSON.parse(text.slice(10)) } catch { /* skip */ }
         continue
@@ -426,6 +436,11 @@ onMounted(load)
   padding: 2px 8px; background: var(--color-hover); border-radius: 10px;
 }
 .sol-chat-msg.tool .sol-chat-bubble { padding: 2px 4px; }
+.sol-chat-msg.warning {
+  align-self: flex-start; font-size: 12px; color: #b45309;
+  padding: 6px 10px; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px;
+}
+.sol-chat-msg.warning .sol-chat-bubble { padding: 2px 4px; }
 .sol-chat-bubble {
   padding: 8px 10px; line-height: 1.5; word-break: break-word;
 }

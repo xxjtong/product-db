@@ -2,12 +2,40 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-07-01, R19)
+## 最新变更 (2026-07-06, R20)
 
-- footer 增加公安备案号: 陕公网安备61019002004032号 (App.vue + main.css)
-- footer 改为 flexbox 布局，双链接并排显示，gap: 12px
+### R20: API Key 统一 + 搜索评分优化 + UX 增强
 
-## 历史变更 (2026-06-26, R18)
+**API Key 统一管理 (.env only):**
+- `ai_engine.py`: 删除 DB 查 key 逻辑，仅用构造参数 → `.env` `AI_GATEWAY_KEY`
+- `admin_routes.py`: `_LLM_CONFIG_DEFAULTS` 去 `api_key`；`_load_llm_config` 过滤 key；`update_llm_config` 保存前剔除；`test_llm_config` vision 测试用 `VISION_API_KEY`
+- `products.py` `_ocr_image`: 改用 `.env` `VISION_API_KEY`（不再 fallback 到主 key）
+- `config.py`: 新增 `VISION_BASE_URL`/`VISION_MODEL`/`VISION_API_KEY`
+- DB `llm_config`: 清除存储的 `api_key`
+- 前端 AdminView: API Key 输入框改为禁用 + `.env` 提示
+
+**AI 搜索评分优化:**
+- `ai.py` Round 0 关键词提取：prompt 加优先级规则（name>品类标签>描述）；LLM 匹配后 thin(≤3)时补 SQL 搜索合并
+- `ai.py` mock agent: 拆分复合词为多关键词（"lorawan网关"→["lorawan","网关"]）
+- `ai_tools.py`: 多关键词改评分制（name=3/model=2/desc=1）替代交错合并；候选池扩大到 limit×3；单关键词也加评分排序
+- 搜索"lorawan网关"之前返回智能开关面板(描述含"兼容LoRaWAN网关")，现在返回真正的网关产品
+
+**401 降级提示:**
+- `ai.py`: LLM 401 时 yield warning 事件
+- `api.ts` + `SolutionDetailView.vue`: 前端消费 warning 事件，黄色警告条展示
+
+**UX 增强:**
+- `SolutionsView.vue`: 新增方案对话框名称字段下移，客户+项目联动生成名称（`客户-项目`），手动编辑后断开联动
+- `SolutionDetailView.vue` 批量选品: 搜索支持厂商/品类/名称/型号过滤；移除 6 项上限；产品行新增厂商列
+
+**Bug 修复:**
+- 首页 404: 服务器 `/opt/product-db/static/` 目录丢失，`git clean -fd` 清掉 untracked 目录 → `static/coming-soon.html` 入 git
+- `admin_routes.py` `cfg[k].pop()` 加 `isinstance` 检查防类型错误
+- `ai_tools.py:185` `escape_like(kw)` 错误用于 Python 字符串匹配 → 改用 `kw.lower()`
+
+**测试:** Backend import OK / Frontend vue-tsc 0 errors / AI 对话 3 场景验证通过
+
+## 历史变更 (2026-07-01, R19)
 
 ### R18: 安全加固 — 权限收敛 + 漏洞修复 + 代码质量
 

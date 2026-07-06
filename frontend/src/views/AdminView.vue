@@ -23,7 +23,7 @@
           <div class="form-group"><label>Name</label><input v-model="p.data.name" style="font-size:12px" /></div>
           <div class="form-group"><label>Provider</label><input v-model="p.data.provider" style="font-size:12px" /></div>
           <div class="form-group"><label>Base URL</label><input v-model="p.data.base_url" style="font-size:12px;font-family:monospace" /></div>
-          <div class="form-group"><label>API Key</label><input v-model="p.data.api_key" type="password" style="font-size:12px" placeholder="sk-..." /></div>
+          <div class="form-group"><label>API Key</label><input style="font-size:12px" value="在 .env 中配置" disabled title="API Key 统一在 .env 文件中配置，不存储在数据库" /></div>
           <template v-if="p.key === 'vision'">
             <div class="form-group"><label>Model</label>
               <select v-model="p.data.model" style="font-size:12px">

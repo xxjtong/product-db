@@ -199,19 +199,19 @@ def update_ai_settings(data: dict, db: Session = Depends(get_db), user=Depends(g
 _LLM_CONFIG_DEFAULTS = {
     "primary": {
         "provider": "deepseek", "name": "DeepSeek",
-        "base_url": "https://api.deepseek.com", "api_key": "",
+        "base_url": "https://api.deepseek.com",
         "chat_model": "deepseek-v4-flash", "keyword_model": "deepseek-chat",
         "extract_model": "deepseek-chat",
     },
     "vision": {
         "provider": "xiaomi", "name": "Xiaomi Mimo",
-        "base_url": "https://api.xiaomimimo.com/v1", "api_key": "",
-        "model": "mimo-v2-omni",
+        "base_url": "https://api.xiaomimimo.com/v1",
+        "model": "mimo-v2.5",
     },
 }
 
 def _load_llm_config(db: Session) -> dict:
-    """Load LLM config from system_settings, merge with defaults."""
+    """Load LLM config from system_settings, merge with defaults. API key comes from .env only."""
     from app.models.system_setting import SystemSetting
     s = db.query(SystemSetting).filter_by(key="llm_config").first()
     if s and s.value:
@@ -219,11 +219,13 @@ def _load_llm_config(db: Session) -> dict:
             stored = json.loads(s.value)
             result = {}
             for k in ("primary", "vision"):
-                result[k] = {**_LLM_CONFIG_DEFAULTS.get(k, {}), **stored.get(k, {})}
+                merged = {**_LLM_CONFIG_DEFAULTS.get(k, {}), **stored.get(k, {})}
+                merged.pop("api_key", None)  # never expose DB-stored key
+                result[k] = merged
             return result
         except (json.JSONDecodeError, TypeError):
             pass
-    return _LLM_CONFIG_DEFAULTS
+    return {k: dict(v) for k, v in _LLM_CONFIG_DEFAULTS.items()}
 
 
 @router.get("/admin/llm-config")
@@ -242,7 +244,12 @@ def update_llm_config(data: dict, db: Session = Depends(get_db), user=Depends(ge
     if not s:
         s = SystemSetting(key="llm_config", description="LLM provider configuration")
         db.add(s)
-    s.value = json.dumps(data.get("config", {}), ensure_ascii=False)
+    # Strip api_key — it comes from .env only, never stored in DB
+    cfg = data.get("config", {})
+    for k in cfg:
+        if isinstance(cfg[k], dict):
+            cfg[k].pop("api_key", None)
+    s.value = json.dumps(cfg, ensure_ascii=False)
     db.commit()
     return {"ok": True}
 
@@ -254,12 +261,12 @@ def test_llm_config(data: dict, db: Session = Depends(get_db), user=Depends(get_
         raise HTTPException(403, "Admin only")
     cfg = data.get("config", {})
     provider = data.get("provider", "primary")
-    key = cfg.get("api_key", "")
-    if not key and provider == "primary":
-        from app.services.ai_engine import engine
-        key = engine.api_key  # uses DB fallback chain
+    # API key always comes from .env, never from request body
+    from app.services.ai_engine import engine
+    from app.config import settings as app_settings
+    key = app_settings.VISION_API_KEY if provider == "vision" else engine.api_key
     if not key:
-        raise HTTPException(400, "API Key not configured")
+        raise HTTPException(400, "AI_GATEWAY_KEY or VISION_API_KEY not configured in .env")
 
     import requests
     base = cfg["base_url"]

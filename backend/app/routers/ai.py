@@ -194,8 +194,12 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int):
     has_search_intent = any(k in inp for k in ["找", "搜索", "查", "推荐", "有没有", "列出", "哪些", "什么"])
     has_product_keyword = any(k in inp for k in ["网关", "传感器", "路由器", "温度", "湿度", "开关", "控制", "灯", "门禁", "空调", "表", "锁", "屏", "摄像", "控制器"])
     if has_search_intent or has_product_keyword:
-        keyword = user_input
-        args = {"keyword": keyword, "limit": 5}
+        # Split compound queries (e.g. "lorawan网关" → ["lorawan", "网关"])
+        # Remove leading +/- used for split syntax, then split on word boundaries
+        clean = re.sub(r'^[+]+', '', user_input.strip())
+        parts = re.split(r'[\s+，,、]+', clean)
+        keywords = [p for p in parts if p] if len(parts) > 1 else [clean]
+        args = {"keywords": keywords, "limit": 5}
 
         yield {"event": "tool", "text": "搜索产品..."}
         result_str = execute_tool("search_products", args, db)
@@ -237,10 +241,11 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int):
 
     else:
         yield {"event": "tool", "text": "搜索产品..."}
-        search_terms = [user_input]
-        if len(user_input) > 2:
-            words = re.split(r'[+，,、\s]+', user_input)
-            search_terms = [user_input] + [w for w in words if len(w) >= 1]
+        # Split compound queries into keywords, use multi-keyword search
+        clean = re.sub(r'^[+]+', '', user_input.strip())
+        parts = re.split(r'[\s+，,、]+', clean)
+        keywords = [p for p in parts if p] if len(parts) > 1 else [clean]
+        search_terms = [user_input] + keywords
         results = None
         result_str = ""
         for term in search_terms[:3]:
@@ -286,6 +291,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
     total_tokens = {"in": 0, "out": 0}
 
     # Round 0: keyword extraction with full DB context
+    auth_failed = False
     user_query = messages[-1]["content"] if messages else ""
     try:
         # Build/cache DB context for LLM matching (300s TTL)
@@ -353,9 +359,12 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             "查看数据库中的产品名称/型号/描述/品类标签，提取真实存在的关键词。\n"
             "category字段: 仅当用户明确说出品类名时才填，不要从产品名推测。\n"
             "重要：提取用户实际描述的产品关键词（最多4个），不要自己凭空扩展场景。\n\n"
-            "【产品匹配规则】\n"
-            "- 综合匹配产品类型/功能/通讯方式/供电方式/品牌，找最符合用户需求的产品\n"
-            "- 语义理解：如产品名无精确匹配，匹配功能相近产品\n"
+            "【产品匹配规则 — 按优先级】\n"
+            "1. 优先返回产品名称/型号中包含关键词的产品（精确匹配）\n"
+            "2. 其次返回品类标签匹配的产品\n"
+            "3. 最后才考虑仅在描述中提到关键词的产品\n"
+            "关键区分：用户搜\"网关\"要的是网关设备（如室内型基站网关、室外型基站网关），而不是描述里提到\"兼容网关\"的其他品类产品（如开关面板、传感器）\n"
+            "多关键词组合搜索（如\"lorawan网关\"→拆为lorawan+网关）：优先返回同时满足所有关键词的产品\n"
             "- 每个关键词最多匹配10个产品，按匹配度排序\n"
             "- 只返回产品列表中真实存在的 [ID:xxx] 编号\n"
             "- 未找到匹配则返回空数组 []\n\n"
@@ -369,7 +378,6 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             "- power: string|null — 供电方式\n"
             "- min_price: number|null, max_price: number|null — 价格区间\n"
             "- sort_by: \"price_asc\"|\"price_desc\"|null\n\n"
-            "信任LLM的语义理解和产品匹配能力，不要机械字符串匹配。\n\n"
             "只返回JSON，无其他内容。")
         kw_system = f"{kw_prompt}\n\n{db_ctx}"
         extract_prompt = [
@@ -474,60 +482,53 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                     # Per-keyword: top 10 from LLM → cross-keyword dedup → cap 5 per keyword → interleave
                     from app.models.product import Product as ProductModel
 
-                    seen_ids: set[int] = set()
-                    kw_products: dict[str, list] = {}
-
                     # Batch-load all product IDs across all keywords
                     all_pids: set[int] = set()
                     for kw in keywords:
                         for i in matches.get(kw, [])[:10]:
                             if str(i).isdigit():
                                 all_pids.add(int(i))
-                    # Single batch query
                     product_map = {}
                     if all_pids:
-                        products = db.query(ProductModel).options(*product_eager_loads()).filter(
+                        prods = db.query(ProductModel).options(*product_eager_loads()).filter(
                             ProductModel.id.in_(all_pids), ProductModel.status == 'active'
                         ).all()
-                        product_map = {p.id: p for p in products}
+                        product_map = {p.id: p for p in prods}
 
+                    # Score by match quality: name(3) > model(2) > description(1), per keyword
+                    scored: dict[int, tuple] = {}  # product_id → (item_dict, score)
+                    kw_products: dict[str, list] = {}
                     for kw in keywords:
-                        kw_ids = [int(i) for i in matches.get(kw, [])[:10] if str(i).isdigit()]
-                        matched = []
-                        for pid in kw_ids:
-                            if pid in seen_ids:
-                                continue
-                            seen_ids.add(pid)
+                        for i in matches.get(kw, [])[:10]:
+                            if not str(i).isdigit(): continue
+                            pid = int(i)
                             p = product_map.get(pid)
-                            if not p:
-                                continue
+                            if not p: continue
                             item = _product_to_dict(p)
                             # SQL-level price filter (db_ctx doesn't include price)
-                            if filter_args.get("min_price") is not None and item["price"] < filter_args["min_price"]:
-                                seen_ids.discard(pid)
-                                continue
-                            if filter_args.get("max_price") is not None and item["price"] > filter_args["max_price"]:
-                                seen_ids.discard(pid)
-                                continue
-                            matched.append(item)
-                            if len(matched) >= 5:
+                            if filter_args.get("min_price") is not None and item["price"] < filter_args["min_price"]: continue
+                            if filter_args.get("max_price") is not None and item["price"] > filter_args["max_price"]: continue
+                            # Score: name=3, model=2, description=1
+                            kw_lower = kw.lower()
+                            pts = 0
+                            if kw_lower in (p.name or '').lower(): pts += 3
+                            if kw_lower in (p.model or '').lower(): pts += 2
+                            if kw_lower in (p.description or '').lower(): pts += 1
+                            kw_products[kw] = kw_products.get(kw, []) + [item]
+                            if pid in scored:
+                                scored[pid] = (item, scored[pid][1] + pts)
+                            else:
+                                scored[pid] = (item, pts)
+                            if len(kw_products[kw]) >= 5:
                                 break
-                        if matched:
-                            kw_products[kw] = matched
 
-                    # Interleave: take 1 from each keyword in turn
+                    # Deduplicate and sort by score descending
+                    seen_ids: set[int] = set()
                     interleaved: list[dict] = []
-                    idx = 0
-                    while True:
-                        added = False
-                        for kw in keywords:
-                            items = kw_products.get(kw, [])
-                            if idx < len(items):
-                                interleaved.append(items[idx])
-                                added = True
-                        idx += 1
-                        if not added:
-                            break
+                    for item, _ in sorted(scored.values(), key=lambda x: x[1], reverse=True):
+                        if item["id"] not in seen_ids:
+                            seen_ids.add(item["id"])
+                            interleaved.append(item)
 
                     # Apply sort if specified
                     if filter_args.get("sort_by") == "price_asc":
@@ -548,6 +549,19 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                         yield {"event": "component", "component": "SolutionProductCard", "props": {"products": interleaved}}
                         max_turns = 1
 
+                        # Supplement LLM matches with SQL search when coverage is thin (≤3 results)
+                        if len(interleaved) <= 3:
+                            args = {"keywords": keywords or [], "limit": 10, **filter_args}
+                            result_str = execute_tool("search_products", args, db)
+                            sql_data, _ = _parse_tool_result(result_str)
+                            if sql_data:
+                                shown_ids = {p["id"] for p in interleaved}
+                                extra = [p for p in sql_data if p["id"] not in shown_ids]
+                                if extra:
+                                    merged = interleaved + extra[:8]
+                                    yield {"event": "products", "data": merged}
+                                    yield {"event": "component", "component": "SolutionProductCard", "props": {"products": merged}}
+
                 if not products_found:
                     # Fallback: LLM returned no matches → use SQL LIKE search
                     args = {"keywords": keywords or [], "limit": 5, **filter_args}
@@ -566,6 +580,10 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                     max_turns = 1
     except Exception as e:
         logging.getLogger("uvicorn").warning(f"Keyword extraction failed: {e}")
+        # Check for API key auth failure (401) — only warn once
+        auth_failed = '401' in str(e) or '401' in str(getattr(e, 'response', ''))
+        if auth_failed:
+            yield {"event": "warning", "text": "⚠️ AI API key 已过期或无效，使用本地搜索降级。请在管理后台更新 API key。"}
 
     # If keyword extraction already found products, skip chat LLM
     if products_found:
@@ -583,6 +601,10 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             total_tokens["out"] += usage.get("completion_tokens", 0)
         except Exception as e:
             logging.getLogger("uvicorn").warning(f"Chat LLM failed: {e}")
+            # Check for API key auth failure (401) — only warn if not already warned
+            if not auth_failed:
+                if '401' in str(e) or '401' in str(getattr(e, 'response', '')):
+                    yield {"event": "warning", "text": "⚠️ AI API key 已过期或无效，使用本地搜索降级。请在管理后台更新 API key。"}
             # If keyword extraction already found products, don't mock-re-search
             if products_found:
                 for event in _get_done_events(conv_id, db, total_tokens):

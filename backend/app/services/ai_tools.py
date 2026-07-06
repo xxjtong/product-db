@@ -154,11 +154,21 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
         has_filters = bool(category or manufacturer or comm_method or protocol or power or min_price is not None or max_price is not None)
 
         if len(keywords) <= 1:
-            # Single keyword — simple search
+            # Single keyword — simple search with relevance scoring
             kw = keywords[0] if keywords else ""
-            products = _search_kw(kw, base_q, limit) if kw else []
-            # Fallback: strip compound suffixes and retry with base word
-            # Keyword failed but filters active → return filtered results
+            products = _search_kw(kw, base_q, limit + 10) if kw else []
+            # Sort by match quality: name > model > description
+            if kw and products:
+                kw_lower = kw.lower()
+                def _score(p):
+                    pts = 0
+                    if kw_lower in (p.name or '').lower(): pts += 3
+                    if kw_lower in (p.model or '').lower(): pts += 2
+                    if kw_lower in (p.description or '').lower(): pts += 1
+                    return pts
+                products.sort(key=_score, reverse=True)
+                products = products[:limit]
+            # Fallback: no results but filters active → return filtered results
             if not products and has_filters:
                 products = base_q.options(
                     selectinload(Product.category), selectinload(Product.manufacturer),
@@ -166,31 +176,27 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
                     selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
                 ).limit(limit).all()
         else:
-            # Multi-keyword — search each independently, interleave results
-            per_kw_limit = 5
-            kw_results = []
-            seen_ids = set()
+            # Multi-keyword — search each independently, score by match quality
+            # Fetch more candidates than needed so scoring can pick the best ones
+            candidates_per_kw = max(limit * 3, 20)
+            scored: dict[int, tuple] = {}  # product_id → (product, score)
             for kw in keywords:
-                found = _search_kw(kw, base_q, per_kw_limit)
-                deduped = []
+                found = _search_kw(kw, base_q, candidates_per_kw)
+                kw_lower = kw.lower()
                 for p in found:
-                    if p.id not in seen_ids:
-                        seen_ids.add(p.id)
-                        deduped.append(p)
-                kw_results.append(deduped)
+                    # Score: name=3, model=2, description=1
+                    pts = 0
+                    if kw_lower in (p.name or '').lower(): pts += 3
+                    if kw_lower in (p.model or '').lower(): pts += 2
+                    if kw_lower in (p.description or '').lower(): pts += 1
+                    if p.id in scored:
+                        scored[p.id] = (p, scored[p.id][1] + pts)
+                    else:
+                        scored[p.id] = (p, pts)
 
-            # Interleave: take 1 from each keyword in turn
-            products = []
-            idx = 0
-            while True:
-                added = False
-                for pr in kw_results:
-                    if idx < len(pr):
-                        products.append(pr[idx])
-                        added = True
-                idx += 1
-                if not added:
-                    break
+            # Sort by score descending, take top results
+            products = [p for p, _ in sorted(scored.values(), key=lambda x: x[1], reverse=True)][:limit]
+
             # All keywords failed but filters active → return filtered
             if not products and has_filters:
                 products = base_q.options(
