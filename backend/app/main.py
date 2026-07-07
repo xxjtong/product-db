@@ -3,9 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi import HTTPException
-from slowapi import Limiter
+from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from app.database import Base
 from app.models import *  # noqa: ensure all models registered
 from app.routers import products, product_import, categories, suppliers, solutions, quotations, bom_templates, ai, dictionaries, auth_routes, admin_routes, system_settings, product_files, agent
@@ -53,6 +54,7 @@ app.add_exception_handler(RateLimitExceeded, lambda req, exc: JSONResponse(
     status_code=429,
     content={"detail": "Too many requests. Please try again later."},
 ))
+app.add_middleware(SlowAPIMiddleware)
 
 
 @app.middleware("http")
