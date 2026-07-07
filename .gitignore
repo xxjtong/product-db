@@ -30,5 +30,10 @@ backend/screenshots/
 *.db-shm
 *.db-wal
 backend/node_modules/
+# E2E test artifacts
+frontend/test-results/
+backend/test-results/
+frontend/playwright-report/
+
 scripts/
 runner.py

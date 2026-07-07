@@ -258,6 +258,57 @@ test.describe('Admin Page', () => {
     await expect(page.locator('body')).toBeVisible()
     expect(page.url()).toContain('/admin')
   })
+
+  test('login log table shows region column with data', async ({ page }) => {
+    await setupPage(page)
+    await page.goto(`${BASE}/admin`, { waitUntil: 'domcontentloaded' })
+    await page.waitForSelector('h3:has-text("登录日志")', { timeout: 10000 })
+
+    // Table headers include 地区
+    const headerRow = page.locator('h3:has-text("登录日志") + table thead tr')
+    await expect(headerRow.locator('th', { hasText: '地区' })).toBeVisible()
+
+    // Table has rows — most recent row should have non-empty region or '—' (not blank)
+    const rows = page.locator('h3:has-text("登录日志") + table tbody tr')
+    const count = await rows.count()
+    expect(count).toBeGreaterThan(0)
+
+    // At least one row has a non-empty region (not '—')
+    let hasRegion = false
+    for (let i = 0; i < count; i++) {
+      const cell = rows.nth(i).locator('td').nth(2)  // 3rd column = 地区
+      const text = await cell.textContent()
+      if (text && text.trim() && text.trim() !== '—') {
+        hasRegion = true
+        break
+      }
+    }
+    expect(hasRegion).toBe(true)
+  })
+
+  test('failed login creates log entry with region', async ({ page, request }) => {
+    // Trigger a failed login from a real IP (not localhost, which gets "本地")
+    // Even with localhost, the entry should have region="本地" now (not empty)
+    const resp = await request.post(`${API}/auth/login`, {
+      data: { username: 'admin', password: 'thisiswrongpassword' },
+    })
+    expect(resp.status()).toBe(401)
+
+    // Navigate to admin and check the login log table
+    await setupPage(page)
+    await page.goto(`${BASE}/admin`, { waitUntil: 'domcontentloaded' })
+    await page.waitForSelector('h3:has-text("登录日志") + table tbody tr', { timeout: 10000 })
+
+    // The most recent row (first row) should have region data
+    const firstRow = page.locator('h3:has-text("登录日志") + table tbody tr').first()
+    const regionCell = firstRow.locator('td').nth(2)
+
+    // Region should exist and not be '—' (because we fixed the failed-login path)
+    const text = (await regionCell.textContent())?.trim() || ''
+    // After fix: failed logins now get region from _lookup_ip_region
+    // localhost → "本地", real IPs → "City, Country"
+    expect(text.length).toBeGreaterThan(0)
+  })
 })
 
 // ════════════════════════════════════

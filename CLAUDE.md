@@ -2,6 +2,31 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
+## 最新变更 (2026-07-07, R22)
+
+### R22: 用户隔离 — Agent 历史 + 登录日志地区
+
+**Agent 会话历史用户隔离:**
+- `AgentView.vue`: localStorage 前缀 `agent_` → `agent_{userId}_`，不同用户独立存储
+- `inject('currentUser')` 获取当前用户 ID
+- 新增 E2E 测试 `e2e/agent-isolation.spec.ts` (2 tests)
+
+**登录日志地区补全:**
+- `auth_routes.py`: 失败登录 + 注册 补 `_lookup_ip_region(ip)`
+- 之前仅登录成功调用，失败/注册 → region=NULL → 前端显示"—"
+- 新增 E2E 测试 (admin 登录日志 2 tests +)
+
+**AI 助手用户隔离审计:**
+- AiChat.vue: 后端 `AIConversation` 表 `filter_by(user_id=user.id)` ✅
+- SolutionDetailView.vue: 同后端 ✅
+- AgentView.vue: localStorage `agent_{userId}_` ✅ 已修复
+- Agent 后端: 无状态代理 ✅
+- 后端 3 端点 (`GET/DELETE /ai/conversations`) 全部校验所有权
+
+**.gitignore:** 添加 `frontend/test-results/`, `backend/test-results/`, `frontend/playwright-report/`
+
+**测试:** backend pytest 129/129 / frontend vue-tsc 0 errors, vitest 60/60 / E2E: 96 tests (2 agent + 2 login-log + 2 error-scenarios + 75 full-regression + 19 API + 4 perf), 1 pre-existing failure (LLM config — R20 API key input removed)
+
 ## 最新变更 (2026-07-06, R21)
 
 ### R21: 时区显示修复 + 端口统一 + 环境配置完善

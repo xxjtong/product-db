@@ -138,7 +138,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, watch } from 'vue'
+import { ref, nextTick, onMounted, watch, inject } from 'vue'
 import { useFileDrop } from '../composables/useFileDrop'
 import { BotIcon, PlusIcon, HistoryIcon } from 'lucide-vue-next'
 import DOMPurify from 'dompurify'
@@ -157,6 +157,13 @@ interface ChatMeta {
   id: string
   title: string
   updatedAt: number
+}
+
+// ── User (injected from App.vue) ────────────────────────
+const currentUser = inject<any>('currentUser', ref(null))
+
+function storagePrefix() {
+  return 'agent_' + (currentUser.value?.id || 'anon') + '_'
 }
 
 // ── Constants ──────────────────────────────────────────
@@ -194,29 +201,29 @@ const activeChatId = ref<string | null>(null)
 let abortCtrl: AbortController | null = null
 
 // ── localStorage persistence ───────────────────────────
-const STORAGE_PREFIX = 'agent_'
+// STORAGE_PREFIX replaced by storagePrefix() — includes user ID for isolation
 
 function saveMessages() {
   if (!activeChatId.value) return
   localStorage.setItem(
-    STORAGE_PREFIX + 'msgs_' + activeChatId.value,
+    storagePrefix() + 'msgs_' + activeChatId.value,
     JSON.stringify(messages.value)
   )
 }
 
 function loadMessages(id: string): Message[] {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_PREFIX + 'msgs_' + id) || '[]')
+    return JSON.parse(localStorage.getItem(storagePrefix() + 'msgs_' + id) || '[]')
   } catch { return [] }
 }
 
 function saveChats() {
-  localStorage.setItem(STORAGE_PREFIX + 'chats', JSON.stringify(chats.value))
+  localStorage.setItem(storagePrefix() + 'chats', JSON.stringify(chats.value))
 }
 
 function loadChats(): ChatMeta[] {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_PREFIX + 'chats') || '[]')
+    return JSON.parse(localStorage.getItem(storagePrefix() + 'chats') || '[]')
   } catch { return [] }
 }
 
@@ -229,13 +236,13 @@ function cleanupOldChats() {
   let changed = false
   for (const c of chats) {
     if (c.updatedAt < cutoff) {
-      localStorage.removeItem(STORAGE_PREFIX + 'msgs_' + c.id)
+      localStorage.removeItem(storagePrefix() + 'msgs_' + c.id)
       changed = true
     }
   }
   if (changed) {
     const remaining = chats.filter(c => c.updatedAt >= cutoff)
-    localStorage.setItem(STORAGE_PREFIX + 'chats', JSON.stringify(remaining))
+    localStorage.setItem(storagePrefix() + 'chats', JSON.stringify(remaining))
   }
 }
 
@@ -257,7 +264,7 @@ function loadChat(id: string) {
 }
 
 function deleteChat(id: string) {
-  localStorage.removeItem(STORAGE_PREFIX + 'msgs_' + id)
+  localStorage.removeItem(storagePrefix() + 'msgs_' + id)
   chats.value = chats.value.filter(c => c.id !== id)
   saveChats()
   if (activeChatId.value === id) {

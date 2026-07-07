@@ -59,7 +59,8 @@ def login(data: LoginRequest, request: Request, db: Session = Depends(get_db)):
 
     if not user or not verify_password(data.password, user.password_hash):
         db.add(LoginLog(user_id=None, ip_address=ip, success=False,
-                        user_agent=request.headers.get("User-Agent", "")))
+                        user_agent=request.headers.get("User-Agent", ""),
+                        region=_lookup_ip_region(ip)))
         db.commit()
         raise HTTPException(401, "用户名或密码错误")
 
@@ -127,7 +128,8 @@ def register(data: RegistrationRequest, request: Request, db: Session = Depends(
     db.refresh(u)
     ip = request.client.host if request.client else ""
     db.add(LoginLog(user_id=u.id, ip_address=ip, success=True,
-                    user_agent=request.headers.get("User-Agent", "")))
+                    user_agent=request.headers.get("User-Agent", ""),
+                    region=_lookup_ip_region(ip)))
     db.commit()
     token = create_token(u.id, u.username)
     return {"token": token, "user": u.to_dict()}
