@@ -11,7 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse, HTMLResponse, Response
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import select, text, case
+from sqlalchemy import select, case, table, column
 from sqlalchemy import or_
 from app.database import get_db
 from app.utils.helpers import get_or_404, apply_partial_update, format_description_with_specs
@@ -82,6 +82,7 @@ def list_products(
 
     if search:
         search_lower = search.lower()
+        _pc = table('product_categories', column('product_id'), column('category_id'))
         q = q.filter(
             or_(
                 Product.name.ilike(f"%{escape_like(search)}%"),
@@ -91,11 +92,14 @@ def list_products(
                 Product.description.ilike(f"%{escape_like(search)}%"),
                 # Also search by category name via product_categories junction
                 Product.id.in_(
-                    select(text('pc.product_id')).select_from(text('product_categories pc JOIN device_categories c ON pc.category_id = c.id')).where(text('c.name LIKE :s')).params(s=f'%{escape_like(search)}%')
+                    select(_pc.c.product_id)
+                    .select_from(_pc.join(Category.__table__, _pc.c.category_id == Category.__table__.c.id))
+                    .where(Category.name.ilike(f"%{escape_like(search)}%"))
                 ),
                 # Also search by manufacturer name
                 Product.id.in_(
-                    select(text('p.id')).select_from(text('products p JOIN manufacturers m ON p.manufacturer_id = m.id')).where(text('m.name LIKE :s')).params(s=f'%{escape_like(search)}%')
+                    select(Product.id).join(Manufacturer, Product.manufacturer_id == Manufacturer.id)
+                    .where(Manufacturer.name.ilike(f"%{escape_like(search)}%"))
                 ),
             )
         )
@@ -224,12 +228,15 @@ def export_products(
             )
         )
     if search:
+        _pc2 = table('product_categories', column('product_id'), column('category_id'))
         q = q.filter(or_(
             Product.name.ilike(f"%{escape_like(search)}%"),
             Product.model.ilike(f"%{escape_like(search)}%"),
             Product.description.ilike(f"%{escape_like(search)}%"),
             Product.id.in_(
-                select(text('pc.product_id')).select_from(text('product_categories pc JOIN device_categories c ON pc.category_id = c.id')).where(text('c.name LIKE :s')).params(s=f'%{escape_like(search)}%')
+                select(_pc2.c.product_id)
+                .select_from(_pc2.join(Category.__table__, _pc2.c.category_id == Category.__table__.c.id))
+                .where(Category.name.ilike(f"%{escape_like(search)}%"))
             ),
         ))
     _mfg_pri_ids2 = [m.id for m in db.query(Manufacturer).filter(Manufacturer.sort_order < 100).all()]

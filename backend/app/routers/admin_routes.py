@@ -268,7 +268,7 @@ def test_llm_config(data: dict, db: Session = Depends(get_db), user=Depends(get_
     if not key:
         raise HTTPException(400, "AI_GATEWAY_KEY or VISION_API_KEY not configured in .env")
 
-    import requests
+    import httpx
     base = cfg["base_url"]
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     models = []
@@ -276,19 +276,19 @@ def test_llm_config(data: dict, db: Session = Depends(get_db), user=Depends(get_
     # 1) Chat test
     test_model = cfg.get("model") or cfg.get("chat_model", "gpt-3.5-turbo")
     try:
-        resp = requests.post(f"{base}/chat/completions", headers=headers,
+        resp = httpx.post(f"{base}/chat/completions", headers=headers,
             json={"model": test_model, "messages": [{"role":"user","content":"hi"}], "max_tokens":5}, timeout=15)
         if resp.status_code != 200:
             detail = resp.json().get("error", {}).get("message", resp.text[:100])
             raise HTTPException(400, f"API returned {resp.status_code}: {detail}")
-    except requests.exceptions.ConnectionError as e:
+    except httpx.ConnectError as e:
         raise HTTPException(400, f"Connection failed: {str(e)[:100]}")
-    except requests.exceptions.Timeout:
+    except httpx.TimeoutException:
         raise HTTPException(400, "Connection timed out")
 
     # 2) Fetch available models
     try:
-        mr = requests.get(f"{base}/models", headers=headers, timeout=15)
+        mr = httpx.get(f"{base}/models", headers=headers, timeout=15)
         if mr.status_code == 200:
             raw = mr.json().get("data", [])
             models = sorted([m["id"] for m in raw if m.get("id")], key=lambda x: x.lower())

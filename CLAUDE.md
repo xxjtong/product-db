@@ -2,7 +2,32 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-07-07, R22)
+## 最新变更 (2026-07-07, R23)
+
+### R23: 安全加固 + 代码质量 + Bug 修复
+
+**安全加固 (P0):**
+- Raw SQL → ORM: `products.py` 2 处 `text()` JOIN 查询替换为 SQLAlchemy Core `select()` + `.join()`，消除 SQL 注入面
+- 全局速率限制: 新增 `slowapi` 中间件，200 req/day + 60 req/min per IP
+- DEV_MODE 生产防护: 检测 systemd `INVOCATION_ID`，`DEV_MODE=true` 下拒绝启动，需 `FORCE_DEV_MODE=true` 覆盖
+
+**前端清理 (P0):**
+- `package.json`: 删除 `react`/`react-dom` 依赖（Vue 项目残留）
+
+**代码质量 (P1):**
+- `ai.py` `run_agent()`: 提取 `_build_db_context()` + `_score_and_dedup_products()`，429→336 lines (-22%)
+- `agent.py` `_execute_tool()`: `get_product_detail` batch 查询 DictCommMethod（消除 N+1）+ eager load manufacturer/category
+- `admin_routes.py` `test_llm_config`: 同步 `requests` → `httpx`（全项目统一 HTTP 库）
+- `main.py`: `import mimetypes` 移至文件顶部
+
+**Bug 修复:**
+- `ai_tools.py:313`: `create_quotation` 工具删除 `project_name=sol.project_name` 传参（`Quotation` 模型无此列，调必抛 `TypeError`）
+
+**测试:** backend pytest 129/129 / frontend vue-tsc 0 errors, vitest 60/60
+
+**变更统计:** 9 files, +159/-111
+
+## 历史变更 (2026-07-07, R22)
 
 ### R22: 用户隔离 — Agent 历史 + 登录日志地区
 

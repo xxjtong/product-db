@@ -279,11 +279,12 @@ async def _execute_tool(tool_name: str, tool_args: dict, user_id: int) -> dict:
     from app.models.product import Product
     from app.models.dictionary import Manufacturer, DictCommMethod
     from sqlalchemy import or_
+    from sqlalchemy.orm import joinedload
 
     db = SessionLocal()
     try:
         if tool_name == "search_products":
-            q = db.query(Product)
+            q = db.query(Product).options(joinedload(Product.manufacturer), joinedload(Product.category))
             keyword = tool_args.get("keyword", "").strip()
             if keyword:
                 like = f"%{escape_like(keyword)}%"
@@ -310,9 +311,22 @@ async def _execute_tool(tool_name: str, tool_args: dict, user_id: int) -> dict:
             }
 
         elif tool_name == "get_product_detail":
-            p = db.query(Product).filter_by(id=tool_args["product_id"]).first()
+            p = db.query(Product).options(
+                joinedload(Product.manufacturer), joinedload(Product.category), joinedload(Product.comm_methods)
+            ).filter_by(id=tool_args["product_id"]).first()
             if p:
-                return {"id": p.id, "name": p.name, "model": p.model, "base_price": p.base_price, "description": p.description, "specs": p.specs, "comm_methods": [{"method_id": m.method_id, "method_name": (db.query(DictCommMethod).filter_by(id=m.method_id).first().name if db.query(DictCommMethod).filter_by(id=m.method_id).first() else "")} for m in p.comm_methods]}
+                method_ids = [m.method_id for m in p.comm_methods]
+                method_map: dict[int, str] = {}
+                if method_ids:
+                    method_map = {m.id: m.name for m in db.query(DictCommMethod).filter(DictCommMethod.id.in_(method_ids)).all()}
+                return {
+                    "id": p.id, "name": p.name, "model": p.model,
+                    "base_price": p.base_price, "description": p.description, "specs": p.specs,
+                    "comm_methods": [
+                        {"method_id": m.method_id, "method_name": method_map.get(m.method_id, "")}
+                        for m in p.comm_methods
+                    ],
+                }
             return {"error": "Product not found"}
 
         return {"error": f"Unknown tool: {tool_name}"}

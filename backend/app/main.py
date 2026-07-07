@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi import HTTPException
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from app.database import Base
 from app.models import *  # noqa: ensure all models registered
 from app.routers import products, product_import, categories, suppliers, solutions, quotations, bom_templates, ai, dictionaries, auth_routes, admin_routes, system_settings, product_files, agent
@@ -11,6 +14,7 @@ from loguru import logger
 import os
 import sys
 import time
+import mimetypes
 
 # Table creation is handled by Alembic migrations.
 # Do NOT use Base.metadata.create_all here — always run alembic upgrade head.
@@ -31,12 +35,24 @@ logger.add(
 )
 
 if settings.DEV_MODE:
+    # Safety: refuse DEV_MODE under systemd unless explicitly forced
+    if os.environ.get('INVOCATION_ID') and not os.environ.get('FORCE_DEV_MODE'):
+        logger.error("DEV_MODE=true refused under systemd. Set FORCE_DEV_MODE=true to override.")
+        sys.exit(1)
     logger.warning("=" * 60)
     logger.warning("⚠️  DEV_MODE=true — auto-creates admin/admin, skips auth checks")
     logger.warning("    NEVER use in production. Set DEV_MODE=false in .env")
     logger.warning("=" * 60)
 
 app = FastAPI(title="物联网产品中心", version="2.0.0")
+
+# Global rate limiting: 200 req/day + 60 req/min per IP
+limiter = Limiter(key_func=get_remote_address, default_limits=["200/day", "60/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, lambda req, exc: JSONResponse(
+    status_code=429,
+    content={"detail": "Too many requests. Please try again later."},
+))
 
 
 @app.middleware("http")
@@ -90,7 +106,6 @@ _frontend_dist = settings.FRONTEND_DIST
 if not os.path.isabs(_frontend_dist):
     _frontend_dist = os.path.join(os.path.dirname(__file__), "..", "..", _frontend_dist)
 _frontend_dist = os.path.abspath(_frontend_dist)
-import mimetypes
 
 # Nginx no longer strips prefix — backend serves at /product-db/
 @app.get("/product-db/assets/{file_path:path}")

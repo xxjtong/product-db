@@ -171,6 +171,53 @@ def _parse_tool_result(result_str: str) -> tuple:
         return None, None
 
 
+def _score_and_dedup_products(
+    keywords: list[str], matches: dict, product_map: dict, filter_args: dict
+) -> list[dict]:
+    """Score LLM-matched products by keyword relevance, deduplicate, interleave, filter."""
+    scored: dict[int, tuple] = {}  # product_id → (item_dict, score)
+    kw_products: dict[str, list] = {}
+    for kw in keywords:
+        for i in matches.get(kw, [])[:10]:
+            if not str(i).isdigit(): continue
+            pid = int(i)
+            p = product_map.get(pid)
+            if not p: continue
+            item = _product_to_dict(p)
+            # SQL-level price filter
+            if filter_args.get("min_price") is not None and item["price"] < filter_args["min_price"]: continue
+            if filter_args.get("max_price") is not None and item["price"] > filter_args["max_price"]: continue
+            # Score: name=3, model=2, description=1
+            kw_lower = kw.lower()
+            pts = 0
+            if kw_lower in (p.name or '').lower(): pts += 3
+            if kw_lower in (p.model or '').lower(): pts += 2
+            if kw_lower in (p.description or '').lower(): pts += 1
+            kw_products[kw] = kw_products.get(kw, []) + [item]
+            if pid in scored:
+                scored[pid] = (item, scored[pid][1] + pts)
+            else:
+                scored[pid] = (item, pts)
+            if len(kw_products[kw]) >= 5:
+                break
+
+    # Deduplicate and sort by score descending
+    seen_ids: set[int] = set()
+    interleaved: list[dict] = []
+    for item, _ in sorted(scored.values(), key=lambda x: x[1], reverse=True):
+        if item["id"] not in seen_ids:
+            seen_ids.add(item["id"])
+            interleaved.append(item)
+
+    # Apply sort if specified
+    if filter_args.get("sort_by") == "price_asc":
+        interleaved.sort(key=lambda x: x["price"])
+    elif filter_args.get("sort_by") == "price_desc":
+        interleaved.sort(key=lambda x: x["price"], reverse=True)
+
+    return interleaved
+
+
 def _get_done_events(conv_id, db, total_tokens) -> list[dict]:
     """Return SSE event dicts signaling query completion with product results."""
     text = "查询完成。如需进一步筛选或对比，请告诉我。"
@@ -274,6 +321,64 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int):
     yield {"event": "quick_replies", "items": ["对比产品", "全部加入方案"]}
 
 
+def _build_db_context(db: Session) -> str:
+    """Build cached DB context string for LLM keyword matching (300s TTL)."""
+    _cache = getattr(_build_db_context, '_cache', {'ts': 0, 'value': ''})
+    now = time.time()
+    if now - _cache['ts'] <= 300:
+        return _cache['value']
+
+    from app.models.category import Category
+    from app.models.product import Product
+    from app.models.dictionary import Manufacturer, DictCommMethod, DictCommProtocol, DictPowerSupply, DictSensorMetric
+    cats = db.query(Category).filter(Category.is_active == True).order_by(Category.name).all()
+    mfgs = db.query(Manufacturer).order_by(Manufacturer.name).all()
+    methods = db.query(DictCommMethod).order_by(DictCommMethod.name).all()
+    protocols = db.query(DictCommProtocol).order_by(DictCommProtocol.name).all()
+    powers = db.query(DictPowerSupply).order_by(DictPowerSupply.name).all()
+    metrics = db.query(DictSensorMetric).order_by(DictSensorMetric.name).all()
+    products = db.query(Product.id, Product.name, Product.model, Product.description, Product.specs)\
+        .filter(Product.status == 'active').order_by(Product.name).all()
+
+    from app.services.product_category_helper import get_product_category_map
+    cat_id_to_name = {c.id: c.name for c in cats}
+    pc_id_map = get_product_category_map(db)
+    prod_cats: dict[int, list[str]] = {}
+    for pid, cids in pc_id_map.items():
+        prod_cats[pid] = [cat_id_to_name[cid] for cid in cids if cid in cat_id_to_name]
+
+    prod_parts = []
+    for p in products:
+        pid = p.id
+        part = f"[ID:{pid}] {p.name}"
+        if p.model: part += f"({p.model})"
+        cats_list = prod_cats.get(pid, [])
+        if cats_list:
+            part += f" [{', '.join(cats_list)}]"
+        if p.description:
+            desc = re.sub(r'https?://\S+', '', p.description).strip()
+            if desc:
+                part += f": {desc}"
+        if p.specs and isinstance(p.specs, dict):
+            spec_kv = [f"{k}={v}" for k, v in p.specs.items() if v]
+            if spec_kv:
+                part += f" | specs: {', '.join(spec_kv)}"
+        prod_parts.append(part)
+    products_text = '\n'.join(prod_parts)
+
+    _cache['value'] = f"""数据库现有数据：
+品类({len(cats)}): {', '.join(c.name for c in cats)}
+厂商({len(mfgs)}): {', '.join(m.name for m in mfgs)}
+通讯方式({len(methods)}): {', '.join(m.name for m in methods)}
+协议({len(protocols)}): {', '.join(p.name for p in protocols)}
+供电({len(powers)}): {', '.join(p.name for p in powers)}
+传感器指标({len(metrics)}): {', '.join(m.name for m in metrics)}
+产品列表(名称/型号/描述/specs):
+{products_text}"""
+    _cache['ts'] = now
+    return _cache['value']
+
+
 async def run_agent(messages: list, db: Session, conv_id: int):
     """Run agent loop with tool calling. Yields SSE event dicts."""
     yield {"event": "connect"}
@@ -294,61 +399,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
     auth_failed = False
     user_query = messages[-1]["content"] if messages else ""
     try:
-        # Build/cache DB context for LLM matching (300s TTL)
-        _db_ctx_cache = getattr(run_agent, '_db_ctx_cache', {'ts': 0, 'value': ''})
-        now = time.time()
-        if now - _db_ctx_cache['ts'] > 300:
-            from app.models.category import Category
-            from app.models.product import Product
-            from app.models.dictionary import Manufacturer, DictCommMethod, DictCommProtocol, DictPowerSupply, DictSensorMetric
-            from sqlalchemy import text as sa_text
-            cats = db.query(Category).filter(Category.is_active == True).order_by(Category.name).all()
-            mfgs = db.query(Manufacturer).order_by(Manufacturer.name).all()
-            methods = db.query(DictCommMethod).order_by(DictCommMethod.name).all()
-            protocols = db.query(DictCommProtocol).order_by(DictCommProtocol.name).all()
-            powers = db.query(DictPowerSupply).order_by(DictPowerSupply.name).all()
-            metrics = db.query(DictSensorMetric).order_by(DictSensorMetric.name).all()
-            products = db.query(Product.id, Product.name, Product.model, Product.description, Product.specs)\
-                .filter(Product.status == 'active').order_by(Product.name).all()
-            # Load per-product categories
-            from app.services.product_category_helper import get_product_category_map
-            cat_id_to_name = {c.id: c.name for c in cats}
-            pc_id_map = get_product_category_map(db)
-            prod_cats: dict[int, list[str]] = {}
-            for pid, cids in pc_id_map.items():
-                prod_cats[pid] = [cat_id_to_name[cid] for cid in cids if cid in cat_id_to_name]
-
-            prod_parts = []
-            for p in products:
-                pid = p.id
-                part = f"[ID:{pid}] {p.name}"
-                if p.model: part += f"({p.model})"
-                # Add category tags
-                cats_list = prod_cats.get(pid, [])
-                if cats_list:
-                    part += f" [{', '.join(cats_list)}]"
-                if p.description:
-                    desc = re.sub(r'https?://\S+', '', p.description).strip()
-                    if desc:
-                        part += f": {desc}"
-                if p.specs and isinstance(p.specs, dict):
-                    spec_kv = [f"{k}={v}" for k, v in p.specs.items() if v]
-                    if spec_kv:
-                        part += f" | specs: {', '.join(spec_kv)}"
-                prod_parts.append(part)
-            products_text = '\n'.join(prod_parts)
-
-            _db_ctx_cache['value'] = f"""数据库现有数据：
-品类({len(cats)}): {', '.join(c.name for c in cats)}
-厂商({len(mfgs)}): {', '.join(m.name for m in mfgs)}
-通讯方式({len(methods)}): {', '.join(m.name for m in methods)}
-协议({len(protocols)}): {', '.join(p.name for p in protocols)}
-供电({len(powers)}): {', '.join(p.name for p in powers)}
-传感器指标({len(metrics)}): {', '.join(m.name for m in metrics)}
-产品列表(名称/型号/描述/specs):
-{products_text}"""
-            _db_ctx_cache['ts'] = now
-        db_ctx = _db_ctx_cache['value']
+        db_ctx = _build_db_context(db)
 
         kw_model = _get_ai_setting(db, "ai_keyword_model", "deepseek-chat")
         kw_prompt = _get_ai_setting(db, "ai_keyword_prompt",
@@ -495,46 +546,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                         ).all()
                         product_map = {p.id: p for p in prods}
 
-                    # Score by match quality: name(3) > model(2) > description(1), per keyword
-                    scored: dict[int, tuple] = {}  # product_id → (item_dict, score)
-                    kw_products: dict[str, list] = {}
-                    for kw in keywords:
-                        for i in matches.get(kw, [])[:10]:
-                            if not str(i).isdigit(): continue
-                            pid = int(i)
-                            p = product_map.get(pid)
-                            if not p: continue
-                            item = _product_to_dict(p)
-                            # SQL-level price filter (db_ctx doesn't include price)
-                            if filter_args.get("min_price") is not None and item["price"] < filter_args["min_price"]: continue
-                            if filter_args.get("max_price") is not None and item["price"] > filter_args["max_price"]: continue
-                            # Score: name=3, model=2, description=1
-                            kw_lower = kw.lower()
-                            pts = 0
-                            if kw_lower in (p.name or '').lower(): pts += 3
-                            if kw_lower in (p.model or '').lower(): pts += 2
-                            if kw_lower in (p.description or '').lower(): pts += 1
-                            kw_products[kw] = kw_products.get(kw, []) + [item]
-                            if pid in scored:
-                                scored[pid] = (item, scored[pid][1] + pts)
-                            else:
-                                scored[pid] = (item, pts)
-                            if len(kw_products[kw]) >= 5:
-                                break
-
-                    # Deduplicate and sort by score descending
-                    seen_ids: set[int] = set()
-                    interleaved: list[dict] = []
-                    for item, _ in sorted(scored.values(), key=lambda x: x[1], reverse=True):
-                        if item["id"] not in seen_ids:
-                            seen_ids.add(item["id"])
-                            interleaved.append(item)
-
-                    # Apply sort if specified
-                    if filter_args.get("sort_by") == "price_asc":
-                        interleaved.sort(key=lambda x: x["price"])
-                    elif filter_args.get("sort_by") == "price_desc":
-                        interleaved.sort(key=lambda x: x["price"], reverse=True)
+                    interleaved = _score_and_dedup_products(keywords, matches, product_map, filter_args)
 
                     if interleaved:
                         products_found = True

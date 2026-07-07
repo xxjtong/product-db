@@ -310,7 +310,7 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
         total = sum(float(it.quantity or 0) * float(it.unit_price or 0) * (float(it.discount_rate or 100) / 100)
                     for it in items)
         qt = Quotation(solution_id=solution_id, title=sol.name,
-                       client_name=sol.client_name or "", project_name=sol.project_name or "",
+                       client_name=sol.client_name or "",
                        status="draft", total_amount=total)
         db.add(qt)
         db.commit()
