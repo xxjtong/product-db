@@ -93,6 +93,10 @@ def list_products(
                 Product.id.in_(
                     select(text('pc.product_id')).select_from(text('product_categories pc JOIN device_categories c ON pc.category_id = c.id')).where(text('c.name LIKE :s')).params(s=f'%{escape_like(search)}%')
                 ),
+                # Also search by manufacturer name
+                Product.id.in_(
+                    select(text('p.id')).select_from(text('products p JOIN manufacturers m ON p.manufacturer_id = m.id')).where(text('m.name LIKE :s')).params(s=f'%{escape_like(search)}%')
+                ),
             )
         )
 
