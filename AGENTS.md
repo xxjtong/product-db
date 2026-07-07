@@ -2,6 +2,37 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
+## 最新变更 (2026-07-07, R21)
+
+### R21: 测试覆盖率大幅提升 + Bug 发现 (2026-07-07)
+
+**测试覆盖率提升 (+212 tests, +17%):**
+
+后端从 129 tests / 62% 覆盖率提升至 341 tests / 79% 覆盖率。
+
+新增 5 个测试文件:
+- `test_auth_extended.py` (29 tests): SHA256→bcrypt 自动升级、JWT 过期/篡改/不存在用户、query token 仅限 GET、登录速率限制、密码修改、注册流程、权限隔离
+- `test_supplement.py` (56 tests): 产品边界(必填校验/特殊字符/分页/view_count)、存储服务(文件保存/删除/魔数校验/大小限制)、AI 工具执行(16 tests)、安全测试(SQL注入/XSS/路径遍历)、方案总价重算、报价单 BOM 编辑器、批量删除
+- `test_round2.py` (49 tests): 字典 CRUD 全覆盖(48%→95%)、规格生成器(51%→90%)、产品 helper(63%→76%)、Excel 样式(63%→79%)、产品导入、报价单导出边界
+- `test_round3.py` (43 tests): LLM 引擎 mock(54%→94%)、审批管理器(73%→100%)、AI 提取(38%→75%)、存储 upload_from_url(60%→91%)、Agent 工具执行、AI 聊天 LLM mock
+- `test_round4.py` (35 tests): AI 对话 CRUD、build_context、run_agent LLM mock(关键词匹配/多方案/工具调用/品牌过滤/价格排序/DSML)、Agent 文件上传、BOM 快照同步/导出、产品 AI 抓取 URL 重定向
+
+**覆盖率 >90% 的模块:**
+- approval_manager.py 100%, schemas/* 100%, utils/escape.py 100%
+- ai_engine.py 94%, dictionaries.py 95%, categories.py 95%
+- solutions.py 93%, storage.py 91%, spec_generator.py 90%
+
+**发现的 Bug (2 个):**
+1. `ai_tools.py:312` — `create_quotation` 工具传递 `project_name` 给 `Quotation()` 构造函数，但 Quotation 模型没有该字段，导致 TypeError。测试中记录为已知问题。
+2. `excel_style.py:274` — `num_to_chinese_uppercase()` 对 ≥1 亿的数字处理错误。`pos % 8` 导致第 9 位(亿)映射到 index 0，`100000000` 返回"壹万圆整"而非"壹亿圆整"。`_CN_RADICES` 只有 9 个元素但代码用 `pos % 8`。
+
+**测试结果:**
+- Backend pytest: **341/341 pass** (1 skipped, 4.5min)
+- Frontend vitest: 60/60 pass (unchanged)
+- Coverage: **79%** (from 62%)
+
+**变更统计:** 5 文件新增
+
 ## 最新变更 (2026-06-27, R20)
 
 ### R20: 测试覆盖率提升 + 生产环境 E2E 验证 (2026-06-27)
@@ -444,7 +475,7 @@ E2E 新增 17 测试 (`error-scenarios.spec.ts`):
 | XSS | DOMPurify (所有 v-html 已清洗) |
 | SSRF | validate_url() + 手动重定向验证 |
 | Logging | loguru (structured + rotation) |
-| Testing | pytest 84 tests + vitest 38 tests + Playwright 75 tests (3 套件: E2E+API+Perf) |
+| Testing | pytest 341 tests + vitest 60 tests + Playwright 92 tests |
 | Deployment | Docker Compose + Nginx |
 
 ## 开发命令
