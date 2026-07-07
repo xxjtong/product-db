@@ -16,6 +16,11 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 - 之前仅登录成功调用，失败/注册 → region=NULL → 前端显示"—"
 - 新增 E2E 测试 (admin 登录日志 2 tests +)
 
+**产品搜索增强 — 厂商名:**
+- `products.py`: 搜索 OR 条件新增厂商名 JOIN
+- 搜索"智嵌"（厂商名）从 1 条 → 6 条（之前仅 description 含"智嵌"的 1 条能匹配）
+- 搜索覆盖: name / model / sku / description / pinyin / 品类名 / **厂商名**（新增）
+
 **AI 助手用户隔离审计:**
 - AiChat.vue: 后端 `AIConversation` 表 `filter_by(user_id=user.id)` ✅
 - SolutionDetailView.vue: 同后端 ✅
