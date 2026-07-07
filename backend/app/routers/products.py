@@ -575,13 +575,19 @@ async def ai_fetch_file(file: UploadFile = File(...), db: Session = Depends(get_
     is_image = False
 
     if filename.endswith(".pdf"):
-        import io
-        from PyPDF2 import PdfReader
+        try:
+            import io
+            from PyPDF2 import PdfReader
+        except ImportError:
+            raise HTTPException(500, "PyPDF2 not installed. Run: pip install PyPDF2")
         reader = PdfReader(io.BytesIO(content))
         text = "\n".join(p.extract_text() or "" for p in reader.pages)
     elif filename.endswith(".docx"):
-        import io
-        from docx import Document
+        try:
+            import io
+            from docx import Document
+        except ImportError:
+            raise HTTPException(500, "python-docx not installed. Run: pip install python-docx")
         doc = Document(io.BytesIO(content))
         text = "\n".join(p.text for p in doc.paragraphs)
     elif filename.endswith(".txt") or filename.endswith(".csv"):
