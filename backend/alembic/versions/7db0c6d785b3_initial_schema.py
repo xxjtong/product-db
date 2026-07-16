@@ -21,12 +21,12 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """Create all tables from model metadata — fresh-install baseline."""
     from app.database import Base
-    from app.models import *  # noqa: F401, F403 — register all models
+    import app.models  # noqa: F401 — register all models
     Base.metadata.create_all(bind=op.get_bind())
 
 
 def downgrade() -> None:
     """Drop all tables — reverse of initial schema."""
     from app.database import Base
-    from app.models import *  # noqa: F401, F403
+    import app.models  # noqa: F401
     Base.metadata.drop_all(bind=op.get_bind())

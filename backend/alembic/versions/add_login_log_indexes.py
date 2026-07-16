@@ -12,7 +12,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = 'a1b2c3d4e5f6'
-down_revision = 'fix_create_all_to_explicit_ddl'
+down_revision = 'fix_explicit_ddl'
 branch_labels = None
 depends_on = None
 

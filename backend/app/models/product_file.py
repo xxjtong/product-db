@@ -1,5 +1,5 @@
 from app.database import Base
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, func
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, func
 
 
 class ProductFile(Base):
@@ -13,6 +13,8 @@ class ProductFile(Base):
     file_type = Column(String(50), default="")
     label = Column(String(100), default="")
     sort_order = Column(Integer, default=0)
+    is_link = Column(Boolean, default=False)
+    link_url = Column(String(500), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
     def to_dict(self):
@@ -25,5 +27,7 @@ class ProductFile(Base):
             "file_type": self.file_type or "",
             "label": self.label or "",
             "sort_order": self.sort_order or 0,
+            "is_link": bool(self.is_link),
+            "link_url": self.link_url or "",
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else "",
         }
