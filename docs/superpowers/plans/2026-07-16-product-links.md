@@ -1,3 +1,232 @@
+# Product Links — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Add URL link support to product files card, mixed display with existing files.
+
+**Architecture:** Extend ProductFile model with `is_link` + `link_url` columns. New POST endpoint for link creation, PATCH for editing. Frontend adds "添加链接" button + dialog, table rows adapt to show links.
+
+**Tech Stack:** FastAPI + SQLAlchemy + SQLite + Vue3 + TypeScript
+
+---
+
+### Task 1: Extend ProductFile model
+
+**Files:**
+- Modify: `backend/app/models/product_file.py`
+
+- [ ] **Step 1: Add `is_link` and `link_url` columns + to_dict()**
+
+```python
+from app.database import Base
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, func
+
+
+class ProductFile(Base):
+    __tablename__ = "product_files"
+
+    id = Column(Integer, primary_key=True)
+    product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
+    filename = Column(String(255), nullable=False)
+    file_url = Column(String(500), nullable=False)
+    file_size = Column(Integer, default=0)
+    file_type = Column(String(50), default="")
+    label = Column(String(100), default="")
+    sort_order = Column(Integer, default=0)
+    is_link = Column(Boolean, default=False)
+    link_url = Column(String(500), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "product_id": self.product_id,
+            "filename": self.filename,
+            "file_url": self.file_url,
+            "file_size": self.file_size,
+            "file_type": self.file_type or "",
+            "label": self.label or "",
+            "sort_order": self.sort_order or 0,
+            "is_link": bool(self.is_link),
+            "link_url": self.link_url or "",
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else "",
+        }
+```
+
+- [ ] **Step 2: Generate migration**
+
+```bash
+cd backend && source venv/bin/activate && alembic revision --autogenerate -m "add_product_file_links"
+```
+
+- [ ] **Step 3: Run migration**
+
+```bash
+cd backend && source venv/bin/activate && alembic upgrade head
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add backend/app/models/product_file.py backend/alembic/versions/*add_product_file_links*.py
+git commit -m "feat(product_files): add is_link + link_url columns to ProductFile model"
+```
+
+---
+
+### Task 2: Add link CRUD API endpoints
+
+**Files:**
+- Modify: `backend/app/routers/product_files.py`
+
+- [ ] **Step 1: Add POST /products/{product_id}/links endpoint**
+
+Insert after the `upload_file` endpoint (after line 53), before `download_file`:
+
+```python
+from pydantic import BaseModel
+
+
+class LinkCreate(BaseModel):
+    label: str = ""
+    link_url: str = ""
+
+
+class LinkUpdate(BaseModel):
+    label: str | None = None
+    link_url: str | None = None
+
+
+@router.post("/products/{product_id}/links")
+def create_link(
+    product_id: int,
+    body: LinkCreate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    prod = get_or_404(db, Product, product_id, "Product not found")
+    check_ownership(prod, user, strict=True)
+    if not body.link_url.strip():
+        raise HTTPException(400, "URL不能为空")
+    pf = ProductFile(
+        product_id=product_id,
+        filename=body.label or body.link_url,
+        file_url="",
+        is_link=True,
+        link_url=body.link_url.strip(),
+        label=body.label or "",
+        file_type="link",
+    )
+    db.add(pf)
+    db.commit()
+    db.refresh(pf)
+    return {"file": pf.to_dict()}
+```
+
+- [ ] **Step 2: Add PATCH /products/files/{file_id} endpoint**
+
+Insert after the `create_link` endpoint, before `download_file`:
+
+```python
+@router.patch("/products/files/{file_id}")
+def update_file_link(
+    file_id: int,
+    body: LinkUpdate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    pf = get_or_404(db, ProductFile, file_id, "File not found")
+    prod = get_or_404(db, Product, pf.product_id, "Product not found")
+    check_ownership(prod, user, strict=True)
+    if body.label is not None:
+        pf.label = body.label.strip()
+        if pf.is_link and not pf.label:
+            pf.label = pf.link_url or ""
+    if pf.is_link and body.link_url is not None:
+        if not body.link_url.strip():
+            raise HTTPException(400, "URL不能为空")
+        pf.link_url = body.link_url.strip()
+        if not pf.label:
+            pf.filename = body.link_url.strip()
+    db.commit()
+    db.refresh(pf)
+    return {"file": pf.to_dict()}
+```
+
+- [ ] **Step 3: Update DELETE endpoint — skip file delete for links**
+
+Replace the delete endpoint (lines 89-100):
+
+```python
+@router.delete("/products/files/{file_id}")
+def delete_product_file(file_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    pf = get_or_404(db, ProductFile, file_id, "File not found")
+    prod = get_or_404(db, Product, pf.product_id, "Product not found")
+    check_ownership(prod, user, strict=True)
+    if not pf.is_link:
+        try:
+            delete_file(pf.file_url)
+        except Exception:
+            logging.getLogger("uvicorn").debug("File cleanup failed for %s (may already be gone)", pf.file_url)
+    db.delete(pf)
+    db.commit()
+    return {"ok": True}
+```
+
+- [ ] **Step 4: Verify — start backend and test with curl**
+
+```bash
+# Start backend in background
+cd backend && source venv/bin/activate && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload &
+```
+
+Test link creation:
+```bash
+# First login to get token
+TOKEN=$(curl -s -X POST http://localhost:8000/product-db/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+# Create link
+curl -s -X POST "http://localhost:8000/product-db/api/products/256/links" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"label":"产品 datasheet","link_url":"https://example.com/datasheet.pdf"}'
+
+# List files (should include link)
+curl -s "http://localhost:8000/product-db/api/products/256/files" \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+
+# PATCH update
+curl -s -X PATCH "http://localhost:8000/product-db/api/products/files/<file_id>" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"label":"updated label"}'
+
+# DELETE link
+curl -s -X DELETE "http://localhost:8000/product-db/api/products/files/<file_id>" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/app/routers/product_files.py
+git commit -m "feat(product_files): add link CRUD endpoints (POST + PATCH + DELETE)"
+```
+
+---
+
+### Task 3: Update ProductFiles.vue — link support
+
+**Files:**
+- Modify: `frontend/src/components/ProductFiles.vue`
+
+- [ ] **Step 1: Update template — add "添加链接" button, dialog, adapt table**
+
+Replace entire `<template>` block:
+
+```vue
 <template>
   <div class="card mb-16" v-if="files.length || !hideEmpty">
     <div class="flex justify-between items-center" style="margin-bottom:12px">
@@ -21,10 +250,10 @@
       <tbody>
         <tr v-for="f in files" :key="f.id">
           <td>
-            <span v-if="f.is_link" class="text-sm" style="cursor:pointer" @click="openLink(f)">
-              {{ f.label || f.link_url }}
+            <span v-if="f.is_link" style="cursor:pointer" class="text-sm" @click="openLink(f)">
+              🔗 {{ f.label || f.link_url }}
             </span>
-            <span v-else class="text-sm" style="cursor:pointer" @click="preview(f)">{{ f.label || f.filename }}</span>
+            <span v-else style="cursor:pointer" class="text-sm" @click="preview(f)">{{ f.label || f.filename }}</span>
           </td>
           <td class="text-sm text-muted">{{ f.is_link ? '—' : formatSize(f.file_size) }}</td>
           <td class="text-sm text-muted">{{ f.is_link ? '链接' : (f.file_type || '—') }}</td>
@@ -63,7 +292,7 @@
         <div style="display:flex;flex-direction:column;gap:12px">
           <div>
             <label class="text-sm" style="display:block;margin-bottom:4px">URL <span style="color:var(--color-danger)">*</span></label>
-            <input ref="linkUrlInput" v-model="linkForm.url" placeholder="https://..." style="width:100%;height:32px;font-size:13px" @keyup.enter="saveLink" />
+            <input v-model="linkForm.url" placeholder="https://..." style="width:100%;height:32px;font-size:13px" @keyup.enter="saveLink" />
           </div>
           <div>
             <label class="text-sm" style="display:block;margin-bottom:4px">标题</label>
@@ -92,7 +321,13 @@
     </div>
   </div>
 </template>
+```
 
+- [ ] **Step 2: Update script — add link logic**
+
+Replace the `<script setup>` block (lines 57-161):
+
+```vue
 <script setup lang="ts">
 import { ref, reactive, onMounted, inject } from 'vue'
 import { Trash2Icon, UploadIcon, EyeIcon, DownloadIcon, LinkIcon, ExternalLinkIcon, PencilIcon } from 'lucide-vue-next'
@@ -115,7 +350,6 @@ const previewText = ref('')
 const showLinkDialog = ref(false)
 const savingLink = ref(false)
 const editingLink = ref<FileItem | null>(null)
-const linkUrlInput = ref<HTMLInputElement | null>(null)
 const linkForm = reactive({ url: '', label: '' })
 
 function triggerUpload() { fileInput.value?.click() }
@@ -261,23 +495,21 @@ async function doDelete(fileId: number) {
 
 onMounted(loadFiles)
 </script>
+```
 
-<style scoped>
-.preview-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 3000;
-  display: flex; align-items: center; justify-content: center;
-}
-.preview-modal {
-  background: #fff; border-radius: 12px; padding: 20px;
-  width: 90vw; max-width: 900px; max-height: 90vh; overflow: auto;
-  box-shadow: 0 8px 40px rgba(0,0,0,.2);
-}
-.drop-zone {
-  border: 2px dashed var(--color-border); border-radius: 8px;
-  padding: 20px; text-align: center; color: var(--color-text-secondary);
-  font-size: 13px; transition: all .2s; margin-top: 8px;
-}
-.drop-zone.drop-active {
-  border-color: var(--color-accent); background: #eff6ff; color: var(--color-accent);
-}
-</style>
+- [ ] **Step 3: Style unchanged — verify no new CSS needed**
+
+Existing `.preview-overlay`, `.preview-modal`, `.drop-zone` styles cover the link dialog too. No style changes needed.
+
+- [ ] **Step 4: Verify frontend builds**
+
+```bash
+cd frontend && npx vue-tsc --noEmit && npx vitest run
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/src/components/ProductFiles.vue
+git commit -m "feat(frontend): add link support to ProductFiles — create/edit/delete links, mixed display"
+```

@@ -2,7 +2,28 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-07-07, R23)
+## 最新变更 (2026-07-16, R24)
+
+### R24: 产品文件链接功能
+
+**新功能:**
+- 产品文件卡片支持添加 URL 链接，与文件混合展示
+- POST `/products/{id}/links` — 创建链接（JSON: `{label, link_url}`）
+- PATCH `/products/files/{id}` — 编辑文件/链接的 label，链接可更新 link_url
+- 前端「添加链接」按钮 + 对话框，链接标题点击新标签跳转
+- 链接操作：打开 + 编辑 + 删除
+
+**模型变更:**
+- `ProductFile` 加 `is_link` (Boolean) + `link_url` (String 500) 列
+- `to_dict()` 返回新字段
+
+**修复:**
+- `7db0c6d785b3_initial_schema.py` `import *` inside function → 修复 Python 3.9 兼容
+- `add_login_log_indexes.py` `down_revision` typo 修正
+
+**测试:** backend pytest 339/341 / frontend vue-tsc 0 / vitest 60/60
+
+## 历史变更 (2026-07-07, R23)
 
 ### R23: 安全加固 + 代码质量 + Bug 修复
 
