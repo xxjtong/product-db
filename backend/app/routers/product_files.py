@@ -1,8 +1,10 @@
 """Product file upload/download API."""
 import logging
 import os
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.utils.helpers import get_or_404
@@ -10,6 +12,17 @@ from app.auth import get_current_user, filter_by_ownership, check_ownership
 from app.models.product_file import ProductFile
 from app.models.product import Product
 from app.services.storage import save_file, delete_file, UPLOAD_DIR
+
+
+class LinkCreate(BaseModel):
+    label: str = ""
+    link_url: str = ""
+
+
+class LinkUpdate(BaseModel):
+    label: Optional[str] = None
+    link_url: Optional[str] = None
+
 
 router = APIRouter()
 
@@ -53,6 +66,60 @@ async def upload_file(
     return {"file": pf.to_dict()}
 
 
+@router.post("/products/{product_id}/links")
+def create_link(
+    product_id: int,
+    body: LinkCreate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    prod = get_or_404(db, Product, product_id, "Product not found")
+    check_ownership(prod, user, strict=True)
+    url = body.link_url.strip()
+    if not url:
+        raise HTTPException(400, "URL不能为空")
+    pf = ProductFile(
+        product_id=product_id,
+        filename=body.label or url,
+        file_url="",
+        is_link=True,
+        link_url=url,
+        label=body.label or "",
+        file_type="link",
+    )
+    db.add(pf)
+    db.commit()
+    db.refresh(pf)
+    return {"file": pf.to_dict()}
+
+
+@router.patch("/products/files/{file_id}")
+def update_file_link(
+    file_id: int,
+    body: LinkUpdate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    pf = get_or_404(db, ProductFile, file_id, "File not found")
+    prod = get_or_404(db, Product, pf.product_id, "Product not found")
+    check_ownership(prod, user, strict=True)
+    if body.label is not None:
+        pf.label = body.label.strip()
+        if pf.is_link and not pf.label:
+            pf.filename = pf.link_url or ""
+            pf.label = pf.link_url or ""
+    if pf.is_link and body.link_url is not None:
+        url = body.link_url.strip()
+        if not url:
+            raise HTTPException(400, "URL不能为空")
+        pf.link_url = url
+        if not pf.label:
+            pf.filename = url
+    db.commit()
+    db.refresh(pf)
+    return {"file": pf.to_dict()}
+
+
 @router.get("/products/files/{file_id}")
 def download_file(file_id: int, inline: bool = False, db: Session = Depends(get_db), user=Depends(get_current_user)):
     pf = get_or_404(db, ProductFile, file_id, "File not found")
@@ -91,10 +158,11 @@ def delete_product_file(file_id: int, db: Session = Depends(get_db), user=Depend
     pf = get_or_404(db, ProductFile, file_id, "File not found")
     prod = get_or_404(db, Product, pf.product_id, "Product not found")
     check_ownership(prod, user, strict=True)
-    try:
-        delete_file(pf.file_url)
-    except Exception:
-        logging.getLogger("uvicorn").debug("File cleanup failed for %s (may already be gone)", pf.file_url)
+    if not pf.is_link:
+        try:
+            delete_file(pf.file_url)
+        except Exception:
+            logging.getLogger("uvicorn").debug("File cleanup failed for %s (may already be gone)", pf.file_url)
     db.delete(pf)
     db.commit()
     return {"ok": True}
