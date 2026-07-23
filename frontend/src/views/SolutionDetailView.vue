@@ -82,7 +82,14 @@
       <table class="data-table" v-if="solution.items?.length">
         <thead><tr><th>产品</th><th>型号</th><th style="width:140px">功能描述</th><th style="width:80px">数量</th><th style="width:100px">单价</th><th style="width:80px">折扣%</th><th style="width:100px">小计</th><th style="width:120px">备注</th><th style="width:80px">成本</th><th style="width:40px"></th></tr></thead>
         <tbody>
-          <tr v-for="item in solution.items" :key="item.id">
+          <tr v-for="(item, idx) in solution.items" :key="item.id"
+            draggable="true"
+            :class="{ 'drag-row-active': dragIndex === idx, 'drag-row-over': dragOverIndex === idx && dragIndex !== idx }"
+            @dragstart="onDragStart(idx, $event)"
+            @dragover="onDragOver(idx, $event)"
+            @dragleave="onDragLeave"
+            @dragend="onDragEnd"
+            @drop="onDrop(idx)">
             <td><router-link :to="`/products/${item.product_id}`" class="text-sm">{{ item.product_name }}</router-link></td>
             <td class="font-mono text-sm text-muted">{{ item.product_model || '—' }}</td>
             <td class="text-sm text-muted" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="item.product_description">{{ item.product_description || '—' }}</td>
@@ -138,7 +145,7 @@ import PageHeader from '../components/PageHeader.vue'
 import Modal from '../components/Modal.vue'
 import SolutionProductCard from '../components/GenUI/SolutionProductCard.vue'
 import QuoteDraftCard from '../components/GenUI/QuoteDraftCard.vue'
-import { fetchSolution, fetchProducts, addSolutionItem, updateSolutionItem, deleteSolutionItem, createQuotation, updateSolution, streamAiChat, fetchConversations, fetchConversation } from '../api'
+import { fetchSolution, fetchProducts, addSolutionItem, updateSolutionItem, deleteSolutionItem, reorderSolutionItems, createQuotation, updateSolution, streamAiChat, fetchConversations, fetchConversation } from '../api'
 import type { Solution, Product } from '../types'
 import DOMPurify from 'dompurify'
 import { escapeHtml, extractProducts, formatAiContent, stripToolCalls } from '../utils/markdown'
@@ -187,6 +194,42 @@ const pickerFiltered = computed(() => {
 
 const loading = ref(false)
 const loadError = ref('')
+
+// Drag-and-drop state
+const dragIndex = ref<number | null>(null)
+const dragOverIndex = ref<number | null>(null)
+
+function onDragStart(idx: number, e: DragEvent) {
+  dragIndex.value = idx
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(idx))
+  }
+}
+function onDragOver(idx: number, e: DragEvent) {
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  dragOverIndex.value = idx
+}
+function onDragLeave() {
+  dragOverIndex.value = null
+}
+function onDragEnd() {
+  dragIndex.value = null
+  dragOverIndex.value = null
+}
+async function onDrop(idx: number) {
+  dragOverIndex.value = null
+  if (dragIndex.value === null || dragIndex.value === idx) { dragIndex.value = null; return }
+  const items = solution.value?.items
+  if (!items) return
+  const [moved] = items.splice(dragIndex.value, 1)
+  items.splice(idx, 0, moved)
+  dragIndex.value = null
+  try {
+    await reorderSolutionItems(Number(route.params.id), items.map((i: any) => i.id))
+  } catch (e: any) { showToast(e.detail || e.message, 'error'); await load() }
+}
 
 async function load() {
   loading.value = true
@@ -416,6 +459,11 @@ onMounted(load)
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
 .picker-row:hover { background: var(--color-hover); }
+
+/* --- Drag-and-drop --- */
+.data-table tbody tr { cursor: grab; transition: opacity 0.15s; }
+.data-table tbody tr.drag-row-active { opacity: 0.4; }
+.data-table tbody tr.drag-row-over { border-top: 3px solid var(--color-primary); }
 
 /* --- Chat bubbles --- */
 .sol-chat-log {

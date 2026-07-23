@@ -136,6 +136,8 @@ export const updateSolutionItem = (solId: number, itemId: number, data: Record<s
   api(`/solutions/${solId}/items/${itemId}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteSolutionItem = (solId: number, itemId: number) =>
   api(`/solutions/${solId}/items/${itemId}`, { method: 'DELETE' })
+export const reorderSolutionItems = (solId: number, itemIds: number[]) =>
+  api(`/solutions/${solId}/items/reorder`, { method: 'PUT', body: JSON.stringify({ item_ids: itemIds }) })
 export const checkSolution = (solId: number) => api<{ warnings: any[]; ok: boolean }>(`/solutions/${solId}/check`)
 export const suggestSolution = (solId: number) => api<{ suggestions: any[] }>(`/solutions/${solId}/suggest`)
 export const fetchBomSnapshot = (solId: number) => api<{ bom_snapshot: any }>(`/solutions/${solId}/bom-snapshot`)
