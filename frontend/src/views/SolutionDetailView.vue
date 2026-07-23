@@ -87,7 +87,7 @@
             <td class="font-mono text-sm text-muted">{{ item.product_model || '—' }}</td>
             <td class="text-sm text-muted" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="item.product_description">{{ item.product_description || '—' }}</td>
             <td><input v-model.number="item.quantity" type="number" min="1" style="width:60px" @change="updateItem(item)" /></td>
-            <td class="font-mono text-sm">{{ item.unit_price }}</td>
+            <td class="font-mono text-sm">{{ item.unit_price ? '¥' + item.unit_price.toLocaleString() : '—' }}</td>
             <td><input v-model.number="item.discount_rate" type="number" style="width:60px" @change="updateItem(item)" /></td>
             <td class="font-mono text-sm">¥{{ (item.quantity * item.unit_price * (item.discount_rate / 100)).toFixed(0) }}</td>
             <td><input v-model="item.remark" style="width:100px" @change="updateItem(item)" /></td>
