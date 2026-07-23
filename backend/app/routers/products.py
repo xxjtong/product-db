@@ -261,7 +261,7 @@ def export_products(
     apply_title_row(ws, 2, "产品清单")
 
     # Row 3: headers
-    headers = ["序号", "名称", "规格型号", "型号", "功能描述", "单价", "品类", "厂商", "通讯", "供电", "备注", "成本", "图片"]
+    headers = ["序号", "名称", "规格型号", "型号", "功能描述", "单价", "品类", "厂商", "通讯", "供电", "备注", "图片", "成本"]
     apply_header_row(ws, 3, headers)
 
     # Data rows
@@ -283,8 +283,8 @@ def export_products(
             all_comm,
             power,
             "",
-            float(p.cost_price or 0),
             p.image_url or "",
+            float(p.cost_price or 0),
         ])
 
     # Footer

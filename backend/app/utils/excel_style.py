@@ -42,7 +42,7 @@ ALIGN_RIGHT = Alignment(horizontal="right", vertical="center", wrap_text=True)
 COLUMN_WIDTHS = {
     "A": 9.66, "B": 27.16, "C": 18.83, "D": 20.16,
     "E": 60.16, "F": 13.33, "G": 7.5, "H": 11.33,
-    "I": 6.5, "J": 12.16, "K": 18.16, "L": 13.33, "M": 16.0,
+    "I": 6.5, "J": 12.16, "K": 18.16, "L": 16.0, "M": 13.33,
 }
 
 MAX_COL = 13

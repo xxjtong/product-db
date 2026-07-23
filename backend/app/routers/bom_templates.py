@@ -383,7 +383,7 @@ def _write_basic_bom(ws, sol, solution_id: int, db: Session):
     apply_title_row(ws, 2, f"BOM清单 — {sol.name}")
 
     # Row 3: headers
-    headers = ["序号", "名称", "规格型号", "型号", "功能描述", "单价", "数量", "合计", "折扣率", "成交价", "备注", "成本", "图片"]
+    headers = ["序号", "名称", "规格型号", "型号", "功能描述", "单价", "数量", "合计", "折扣率", "成交价", "备注", "图片", "成本"]
     apply_header_row(ws, 3, headers)
 
     # Data rows
@@ -398,7 +398,7 @@ def _write_basic_bom(ws, sol, solution_id: int, db: Session):
         discount = float(item.discount_rate or 100)
         row = 3 + idx
         formats = {6: NUM_FMT_CURRENCY, 7: NUM_FMT_NUMBER, 8: NUM_FMT_CURRENCY,
-                   9: NUM_FMT_PERCENT, 10: NUM_FMT_CURRENCY, 12: NUM_FMT_CURRENCY}
+                   9: NUM_FMT_PERCENT, 10: NUM_FMT_CURRENCY}
         apply_data_row(ws, row, [
             idx,
             p.name if p else "",
@@ -411,18 +411,18 @@ def _write_basic_bom(ws, sol, solution_id: int, db: Session):
             discount / 100,  # I: 折扣率(小数)
             price * qty * (discount / 100),  # J placeholder
             item.remark or "",
-            float(p.cost_price or 0) if p else 0,
             p.image_url or "" if p else "",
+            float(p.cost_price or 0) if p else 0,
         ], formats)
         # Replace H and J with formulas
         ws.cell(row=row, column=8).value = f"=F{row}*G{row}"       # H: 合计
         ws.cell(row=row, column=10).value = f"=H{row}*I{row}"       # J: 成交价
 
-        # Embed product image in column M
+        # Embed product image in column L
         if p and p.image_url:
             import os
             from app.services.storage import UPLOAD_DIR
-            if not embed_image(ws, row, 13, p.image_url, str(UPLOAD_DIR)):
+            if not embed_image(ws, row, 12, p.image_url, str(UPLOAD_DIR)):
                 import logging; logging.getLogger("uvicorn").warning(f"Failed to embed image for product {p.id} at row {row}")
 
     # Total row
