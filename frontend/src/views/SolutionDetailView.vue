@@ -89,7 +89,7 @@
             <td><input v-model.number="item.quantity" type="number" min="1" style="width:60px" @change="updateItem(item)" /></td>
             <td class="font-mono text-sm">{{ item.unit_price != null ? '¥' + item.unit_price.toLocaleString() : '—' }}</td>
             <td><input v-model.number="item.discount_rate" type="number" style="width:60px" @change="updateItem(item)" /></td>
-            <td class="font-mono text-sm">¥{{ (item.quantity * item.unit_price * (item.discount_rate / 100)).toFixed(0) }}</td>
+            <td class="font-mono text-sm">¥{{ ((item.quantity || 0) * (item.unit_price || 0) * ((item.discount_rate || 100) / 100)).toFixed(0) }}</td>
             <td><input v-model="item.remark" style="width:100px" @change="updateItem(item)" /></td>
             <td class="font-mono text-sm">{{ item.product_cost_price || '—' }}</td>
             <td><button class="btn-icon btn-sm" @click="removeItem(item.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td>

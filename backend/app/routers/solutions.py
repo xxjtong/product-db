@@ -161,7 +161,9 @@ def add_item(solution_id: int, data: SolutionItemCreate, db: Session = Depends(g
         solution_id=solution_id,
         product_id=data.product_id,
         quantity=data.quantity,
-        unit_price=data.unit_price if data.unit_price is not None else float(product.base_price or 0),
+        unit_price=data.unit_price if data.unit_price is not None else (
+            float(product.base_price) if product.base_price else None
+        ),
         discount_rate=data.discount_rate,
         remark=data.remark,
         sort_order=data.sort_order,

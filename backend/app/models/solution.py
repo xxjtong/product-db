@@ -90,7 +90,7 @@ class SolutionItem(Base):
             "product_description": product_description,
             "product_cost_price": product_cost_price,
             "quantity": float(self.quantity) if self.quantity else 0,
-            "unit_price": float(self.unit_price) if self.unit_price else 0,
+            "unit_price": float(self.unit_price) if self.unit_price is not None else None,
             "discount_rate": float(self.discount_rate) if self.discount_rate else 100,
             "remark": self.remark or "",
             "sort_order": self.sort_order,
