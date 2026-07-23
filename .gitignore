@@ -37,3 +37,4 @@ frontend/playwright-report/
 
 scripts/
 runner.py
+.vite/

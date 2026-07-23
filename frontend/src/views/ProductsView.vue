@@ -8,9 +8,7 @@
       <Trash2Icon style="width:14px;height:14px" />删除选中 ({{ selectedIds.length }})
     </button>
     <button v-if="selectedIds.length" class="btn-secondary" @click="selectedIds = []">取消选择</button>
-    <button class="btn-secondary" @click="openExport">
-      <DownloadIcon style="width:14px;height:14px" />导出
-    </button>
+
     <button class="btn-secondary" @click="$router.push('/products/import')">导入</button>
     <button class="btn-primary" @click="$router.push('/products/new')">
       <PlusIcon style="width:16px;height:16px" />新增
@@ -113,7 +111,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, watch, onMounted, inject } from 'vue'
-import { PlusIcon, PencilIcon, Trash2Icon, InboxIcon, DownloadIcon } from 'lucide-vue-next'
+import { PlusIcon, PencilIcon, Trash2Icon, InboxIcon } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../components/PageHeader.vue'
 import SearchInput from '../components/SearchInput.vue'
@@ -122,7 +120,7 @@ import TagBadge from '../components/TagBadge.vue'
 import Pagination from '../components/Pagination.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import AsyncContainer from '../components/AsyncContainer.vue'
-import { fetchProducts, deleteProduct, exportProducts, fetchCommMethods, fetchCommProtocols, fetchPowerSupplies, fetchManufacturers, fetchCategoryTree } from '../api'
+import { fetchProducts, deleteProduct, fetchCommMethods, fetchCommProtocols, fetchPowerSupplies, fetchManufacturers, fetchCategoryTree } from '../api'
 import type { Product, Manufacturer } from '../types'
 
 const route = useRoute()
@@ -153,7 +151,7 @@ function toggleSelect(id: number) {
   else if (selectedIds.value.length < 6) selectedIds.value.push(id)
 }
 
-function openExport() { window.location.href = exportUrl }
+
 
 function toggleAll(e: Event) {
   const checked = (e.target as HTMLInputElement).checked
@@ -169,7 +167,8 @@ const manufacturers = ref<Manufacturer[]>([])
 const categoryTree = ref<any[]>([])
 const flatCategories = ref<any[]>([])
 
-const exportUrl = exportProducts()
+
+
 
 const filters = reactive<Record<string, any>>({
   category_id: null,
