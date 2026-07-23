@@ -133,7 +133,7 @@ def create_quotation(data: QuotationCreate, db: Session = Depends(get_db), user=
                     product_id=si.product_id,
                     product_snapshot=snapshot,
                     quantity=si.quantity,
-                    unit_price=si.unit_price or (float(prod.base_price) if prod and prod.base_price else 0),
+                    unit_price=si.unit_price if si.unit_price is not None else (float(prod.base_price) if prod and prod.base_price else 0),
                     amount=float(si.quantity or 0) * float(si.unit_price or 0),
                     discount_rate=si.discount_rate,
                     remark=si.remark,
