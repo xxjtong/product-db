@@ -34,7 +34,7 @@
       </tbody>
       <tfoot>
         <tr>
-          <td colspan="8" style="text-align:right;font-weight:600">合计</td>
+          <td colspan="7" style="text-align:right;font-weight:600">合计</td>
           <td class="font-mono" style="font-weight:700">¥{{ quotation.items.reduce((s: number, i: any) => s + (i.amount || 0), 0).toLocaleString(undefined, {minimumFractionDigits:2}) }}</td>
           <td></td>
           <td></td>

@@ -44,8 +44,9 @@
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="8" class="text-right" style="font-weight:600">合计</td>
+            <td colspan="7" class="text-right" style="font-weight:600">合计</td>
             <td class="font-mono text-right" style="font-weight:700">{{ totalPrice }}</td>
+            <td></td>
             <td></td>
             <td></td>
           </tr>
