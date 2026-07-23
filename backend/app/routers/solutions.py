@@ -184,10 +184,13 @@ def reorder_items(solution_id: int, data: dict, db: Session = Depends(get_db), u
     item_ids = data.get("item_ids", [])
     if not isinstance(item_ids, list):
         raise HTTPException(400, "item_ids must be a list")
-    for idx, item_id in enumerate(item_ids):
+    # Validate all IDs belong to this solution
+    for item_id in item_ids:
         item = db.get(SolutionItem, item_id)
-        if item and item.solution_id == solution_id:
-            item.sort_order = idx + 1
+        if not item or item.solution_id != solution_id:
+            raise HTTPException(400, f"Item {item_id} not found in this solution")
+    for idx, item_id in enumerate(item_ids):
+        db.get(SolutionItem, item_id).sort_order = idx + 1
     db.commit()
     return {"ok": True}
 

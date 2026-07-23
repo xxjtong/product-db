@@ -113,7 +113,7 @@ export interface SolutionItem {
   product_description?: string
   product_cost_price?: number
   quantity: number
-  unit_price: number
+  unit_price: number | null
   discount_rate: number
   amount?: number
   remark: string
