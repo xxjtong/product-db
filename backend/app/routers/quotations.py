@@ -107,7 +107,7 @@ def create_quotation(data: QuotationCreate, db: Session = Depends(get_db), user=
                 qt.client_name = sol.client_name
             sol_items = db.query(SolutionItem).options(
                 selectinload(SolutionItem.product),
-            ).filter_by(solution_id=solution_id).all()
+            ).filter_by(solution_id=solution_id).order_by(SolutionItem.sort_order).all()
             # Preload products with all relationships for full snapshots
             product_ids = [si.product_id for si in sol_items]
             products_map = {}
