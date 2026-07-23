@@ -238,6 +238,11 @@ def export_bom_xlsx(solution_id: int, db: Session = Depends(get_db), user=Depend
 
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
     check_ownership(sol, user, strict=False)
+    is_admin = getattr(user, 'role', '') == 'admin'
+    show_cost = is_admin
+    if not is_admin:
+        from app.services.field_visibility import get_field_visibility
+        show_cost = get_field_visibility(db).get('cost_price', True)
 
     snap = db.query(SolutionBOMSnapshot).filter_by(solution_id=solution_id).first()
 
@@ -248,7 +253,7 @@ def export_bom_xlsx(solution_id: int, db: Session = Depends(get_db), user=Depend
     if snap and snap.snapshot and snap.snapshot.get("cells"):
         _write_snapshot_to_xlsx(ws, snap.snapshot)
     else:
-        _write_basic_bom(ws, sol, solution_id, db, user.username)
+        _write_basic_bom(ws, sol, solution_id, db, user.username, show_cost)
 
     buf = BytesIO()
     wb.save(buf)
@@ -361,7 +366,7 @@ def _write_snapshot_to_xlsx(ws, snapshot: dict):
         )
 
 
-def _write_basic_bom(ws, sol, solution_id: int, db: Session, username: str = ""):
+def _write_basic_bom(ws, sol, solution_id: int, db: Session, username: str = "", show_cost: bool = True):
     """Fallback: generate a BOM sheet from solution_items with unified style."""
     from app.utils.excel_style import (
         apply_info_row, apply_title_row, apply_header_row, apply_data_row,
@@ -415,8 +420,8 @@ def _write_basic_bom(ws, sol, solution_id: int, db: Session, username: str = "")
             item.remark or "",
             p.image_url or "" if p else "",
         ], formats)
-        # Cost column (M): plain value, no style — safe to delete column
-        ws.cell(row=row, column=13).value = float(p.cost_price or 0) if p else 0
+        # Cost column (M): plain value — hidden if show_cost is False
+        ws.cell(row=row, column=13).value = (float(p.cost_price or 0) if p else 0) if show_cost else ''
         # Replace H and J with formulas
         ws.cell(row=row, column=8).value = f"=F{row}*G{row}"       # H: 合计
         ws.cell(row=row, column=10).value = f"=H{row}*I{row}"       # J: 成交价

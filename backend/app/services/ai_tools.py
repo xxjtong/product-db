@@ -2,7 +2,7 @@
 import json
 from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
-from app.utils.escape import escape_like
+from app.utils.escape import escape_like, LIKE_ESCAPE
 from app.services.product_helpers import product_eager_loads
 from app.models.product import Product
 
@@ -105,24 +105,24 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
         # Build base query with non-keyword filters
         def _apply_filters(q):
             if category:
-                cat = db.query(Category).filter(Category.name.ilike(f"%{escape_like(category)}%")).first()
+                cat = db.query(Category).filter(Category.name.ilike(f"%{escape_like(category)}%", escape=LIKE_ESCAPE)).first()
                 if cat:
                     q = q.filter(Product.category_id == cat.id)
             if manufacturer:
-                mfg = db.query(Manufacturer).filter(Manufacturer.name.ilike(f"%{escape_like(manufacturer)}%")).first()
+                mfg = db.query(Manufacturer).filter(Manufacturer.name.ilike(f"%{escape_like(manufacturer)}%", escape=LIKE_ESCAPE)).first()
                 if mfg:
                     q = q.filter(Product.manufacturer_id == mfg.id)
             if comm_method:
                 q = q.filter(Product.comm_methods.any(
-                    ProductCommMethod.method.has(DictCommMethod.name.ilike(f"%{escape_like(comm_method)}%"))
+                    ProductCommMethod.method.has(DictCommMethod.name.ilike(f"%{escape_like(comm_method)}%", escape=LIKE_ESCAPE))
                 ))
             if protocol:
                 q = q.filter(Product.comm_protocols.any(
-                    ProductCommProtocol.protocol.has(DictCommProtocol.name.ilike(f"%{escape_like(protocol)}%"))
+                    ProductCommProtocol.protocol.has(DictCommProtocol.name.ilike(f"%{escape_like(protocol)}%", escape=LIKE_ESCAPE))
                 ))
             if power:
                 q = q.filter(Product.power_supplies.any(
-                    ProductPowerSupply.power.has(DictPowerSupply.name.ilike(f"%{escape_like(power)}%"))
+                    ProductPowerSupply.power.has(DictPowerSupply.name.ilike(f"%{escape_like(power)}%", escape=LIKE_ESCAPE))
                 ))
             if min_price is not None:
                 q = q.filter(Product.base_price >= min_price)

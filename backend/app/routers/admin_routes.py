@@ -11,7 +11,7 @@ from app.schemas.auth import (
     CreateUserRequest, UpdateUserRequest, ResetPasswordRequest,
     FieldVisibilityUpdate, AIPromptUpdate,
 )
-from app.utils.escape import escape_like
+from app.utils.escape import escape_like, LIKE_ESCAPE
 from app.utils.helpers import apply_partial_update
 
 router = APIRouter()
@@ -26,7 +26,7 @@ def list_users(search: str = "", db: Session = Depends(get_db), user=Depends(get
     from sqlalchemy import func
     q = db.query(User)
     if search:
-        q = q.filter(User.username.ilike(f"%{escape_like(search)}%"))
+        q = q.filter(User.username.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE))
     users = q.order_by(User.id).all()
     user_ids = [u.id for u in users]
     # Batch-aggregate AI usage stats (avoid N+1)

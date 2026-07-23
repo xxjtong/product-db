@@ -13,7 +13,7 @@ from app.models.product import Product
 from app.models.solution import Solution, SolutionItem
 from app.auth import get_current_user, filter_by_ownership, check_ownership
 from app.models.user import User
-from app.utils.escape import escape_like
+from app.utils.escape import escape_like, LIKE_ESCAPE
 from app.schemas.quotation import QuotationCreate, QuotationUpdate, QuotationItemCreate, QuotationItemUpdate
 from app.schemas.solution import BatchDeleteRequest
 from datetime import datetime, timezone
@@ -67,9 +67,9 @@ def list_quotations(
         q = q.filter(Quotation.status == status)
     if search:
         q = q.filter(
-            Quotation.quote_number.ilike(f"%{escape_like(search)}%")
-            | Quotation.title.ilike(f"%{escape_like(search)}%")
-            | Quotation.client_name.ilike(f"%{escape_like(search)}%")
+            Quotation.quote_number.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE)
+            | Quotation.title.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE)
+            | Quotation.client_name.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE)
         )
     from app.utils.helpers import paginate
     quotations, total = paginate(q.order_by(Quotation.updated_at.desc()), page, per_page)
@@ -127,6 +127,12 @@ def create_quotation(data: QuotationCreate, db: Session = Depends(get_db), user=
             for idx, si in enumerate(sol_items):
                 prod = products_map.get(si.product_id)
                 snapshot = prod.to_dict() if prod else {}
+                # Strip cost_price from snapshot for non-admin users
+                if getattr(user, 'role', '') != 'admin':
+                    from app.services.field_visibility import get_field_visibility
+                    vis = get_field_visibility(db)
+                    if not vis.get('cost_price', True):
+                        snapshot.pop('cost_price', None)
                 qi = QuotationItem(
                     quotation=qt,
                     solution_item_id=si.id,
@@ -274,6 +280,11 @@ def delete_quotation_item(quotation_id: int, item_id: int, db: Session = Depends
 def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     qt = get_or_404(db, Quotation, quotation_id, "Quotation not found")
     check_ownership(qt, user, strict=True)
+    is_admin = getattr(user, 'role', '') == 'admin'
+    show_cost = is_admin
+    if not is_admin:
+        from app.services.field_visibility import get_field_visibility
+        show_cost = get_field_visibility(db).get('cost_price', True)
 
     import openpyxl
     from app.utils.excel_style import (
@@ -334,8 +345,8 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
             item.remark or "",
             "",
         ], formats)
-        # Cost column (M): plain value, no style — safe to delete column
-        ws.cell(row=row, column=13).value = float(snap.get("cost_price", 0) or 0)
+        # Cost column (M): plain value — hidden for non-admin if field setting disabled
+        ws.cell(row=row, column=13).value = float(snap.get("cost_price", 0) or 0) if show_cost else ''
         # Replace H and J with formulas
         ws.cell(row=row, column=8).value = f"=F{row}*G{row}"       # H: 合计 = 单价 × 数量
         ws.cell(row=row, column=10).value = f"=H{row}*I{row}"      # J: 成交价 = 合计 × 折扣率

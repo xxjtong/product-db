@@ -4,7 +4,7 @@ from app.database import get_db
 from app.utils.helpers import get_or_404
 from app.models.supplier import Supplier
 from app.auth import get_current_user, filter_by_ownership, check_ownership
-from app.utils.escape import escape_like
+from app.utils.escape import escape_like, LIKE_ESCAPE
 from app.utils.helpers import apply_partial_update
 from app.schemas.supplier import SupplierCreate, SupplierUpdate
 
@@ -22,7 +22,7 @@ def list_suppliers(
 ):
     q = filter_by_ownership(db.query(Supplier), Supplier, user)
     if search:
-        q = q.filter(Supplier.name.ilike(f"%{escape_like(search)}%"))
+        q = q.filter(Supplier.name.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE))
     q = q.order_by(Supplier.name)
     total = q.count()
     if all:

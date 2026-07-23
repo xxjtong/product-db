@@ -33,7 +33,7 @@ from app.services.product_helpers import (
 from app.auth import get_current_user, filter_by_ownership, check_ownership
 from app.config import settings
 from app.models.user import User
-from app.utils.escape import escape_like
+from app.utils.escape import escape_like, LIKE_ESCAPE
 from app.utils.security import validate_url
 from app.schemas.product import (
     ProductCreate, ProductUpdate, AIFetchRequest,
@@ -85,21 +85,21 @@ def list_products(
         _pc = table('product_categories', column('product_id'), column('category_id'))
         q = q.filter(
             or_(
-                Product.name.ilike(f"%{escape_like(search)}%"),
-                Product.model.ilike(f"%{escape_like(search)}%"),
-                Product.sku.ilike(f"%{escape_like(search)}%"),
-                Product.pinyin_search.ilike(f"%{escape_like(search_lower)}%"),
-                Product.description.ilike(f"%{escape_like(search)}%"),
+                Product.name.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE),
+                Product.model.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE),
+                Product.sku.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE),
+                Product.pinyin_search.ilike(f"%{escape_like(search_lower)}%", escape=LIKE_ESCAPE),
+                Product.description.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE),
                 # Also search by category name via product_categories junction
                 Product.id.in_(
                     select(_pc.c.product_id)
                     .select_from(_pc.join(Category.__table__, _pc.c.category_id == Category.__table__.c.id))
-                    .where(Category.name.ilike(f"%{escape_like(search)}%"))
+                    .where(Category.name.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE))
                 ),
                 # Also search by manufacturer name
                 Product.id.in_(
                     select(Product.id).join(Manufacturer, Product.manufacturer_id == Manufacturer.id)
-                    .where(Manufacturer.name.ilike(f"%{escape_like(search)}%"))
+                    .where(Manufacturer.name.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE))
                 ),
             )
         )
@@ -209,6 +209,12 @@ def export_products(
     category_id: Optional[int] = None, search: str = "",
     db: Session = Depends(get_db), user=Depends(get_current_user),
 ):
+    is_admin = getattr(user, 'role', '') == 'admin'
+    show_cost = True
+    if not is_admin:
+        from app.services.field_visibility import get_field_visibility
+        show_cost = get_field_visibility(db).get('cost_price', True)
+
     q = db.query(Product).options(
         selectinload(Product.category),
         selectinload(Product.manufacturer),
@@ -230,13 +236,13 @@ def export_products(
     if search:
         _pc2 = table('product_categories', column('product_id'), column('category_id'))
         q = q.filter(or_(
-            Product.name.ilike(f"%{escape_like(search)}%"),
-            Product.model.ilike(f"%{escape_like(search)}%"),
-            Product.description.ilike(f"%{escape_like(search)}%"),
+            Product.name.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE),
+            Product.model.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE),
+            Product.description.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE),
             Product.id.in_(
                 select(_pc2.c.product_id)
                 .select_from(_pc2.join(Category.__table__, _pc2.c.category_id == Category.__table__.c.id))
-                .where(Category.name.ilike(f"%{escape_like(search)}%"))
+                .where(Category.name.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE))
             ),
         ))
     _mfg_pri_ids2 = [m.id for m in db.query(Manufacturer).filter(Manufacturer.sort_order < 100).all()]
@@ -287,8 +293,8 @@ def export_products(
             "",
             p.image_url or "",
         ])
-        # Cost column (M): plain value, no style — safe to delete column
-        ws.cell(row=3 + idx, column=13).value = float(p.cost_price or 0)
+        # Cost column (M): plain value — hidden for non-admin per field visibility
+        ws.cell(row=3 + idx, column=13).value = float(p.cost_price or 0) if show_cost else ''
 
     # Footer
     footer_row = 3 + len(products) + 1

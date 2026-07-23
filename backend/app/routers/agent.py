@@ -19,7 +19,7 @@ from app.auth import get_current_user
 from app.config import settings, DB_FILESYSTEM_PATH
 from app.models.ai_usage_log import AIUsageLog
 from app.schemas.ai import AgentChatRequest, AgentApprovalRequest
-from app.utils.escape import escape_like
+from app.utils.escape import escape_like, LIKE_ESCAPE
 from app.database import get_db
 from app.services.storage import save_file, UPLOAD_DIR
 from app.services.approval_manager import approval_manager
@@ -298,7 +298,7 @@ async def _execute_tool(tool_name: str, tool_args: dict, user_id: int) -> dict:
             if tool_args.get("category_id"):
                 q = q.filter(Product.category_id == tool_args["category_id"])
             if tool_args.get("manufacturer_name"):
-                mfgs = db.query(Manufacturer.id).filter(Manufacturer.name.ilike(f"%{escape_like(tool_args['manufacturer_name'])}%")).all()
+                mfgs = db.query(Manufacturer.id).filter(Manufacturer.name.ilike(f"%{escape_like(tool_args['manufacturer_name'])}%", escape=LIKE_ESCAPE)).all()
                 q = q.filter(Product.manufacturer_id.in_([m[0] for m in mfgs]))
             if tool_args.get("min_price") is not None:
                 q = q.filter(Product.base_price >= tool_args["min_price"])

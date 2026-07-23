@@ -6,7 +6,7 @@ from app.models.product import Product
 from app.models.category import Category
 from app.models.dictionary import Manufacturer
 from app.auth import get_current_user
-from app.utils.escape import escape_like
+from app.utils.escape import escape_like, LIKE_ESCAPE
 from app.schemas.product import ProductImportConfirm
 import openpyxl
 from io import BytesIO
@@ -61,7 +61,7 @@ def import_confirm(data: ProductImportConfirm, db: Session = Depends(get_db), us
         if cat_name:
             cat = db.query(Category).filter(Category.name == cat_name).first()
             if not cat:
-                cat = db.query(Category).filter(Category.name.ilike(f"%{escape_like(cat_name)}%")).first()
+                cat = db.query(Category).filter(Category.name.ilike(f"%{escape_like(cat_name)}%", escape=LIKE_ESCAPE)).first()
             if cat:
                 category_id = cat.id
 

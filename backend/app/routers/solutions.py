@@ -12,7 +12,7 @@ from app.models.product import Product
 from app.models.category import Category
 from app.models.dependency import ProductDependency
 from app.auth import get_current_user, filter_by_ownership, check_ownership
-from app.utils.escape import escape_like
+from app.utils.escape import escape_like, LIKE_ESCAPE
 from app.models.user import User
 from app.schemas.solution import SolutionCreate, SolutionUpdate, SolutionItemCreate, SolutionItemUpdate, BatchDeleteRequest
 from datetime import datetime, timezone
@@ -54,9 +54,9 @@ def list_solutions(
         q = q.filter(Solution.status == status)
     if search:
         q = q.filter(
-            Solution.name.ilike(f"%{escape_like(search)}%")
-            | Solution.client_name.ilike(f"%{escape_like(search)}%")
-            | Solution.project_name.ilike(f"%{escape_like(search)}%")
+            Solution.name.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE)
+            | Solution.client_name.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE)
+            | Solution.project_name.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE)
         )
     from app.utils.helpers import paginate
     solutions, total = paginate(q.order_by(Solution.updated_at.desc()), page, per_page)
