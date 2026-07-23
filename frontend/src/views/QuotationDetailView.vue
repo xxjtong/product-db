@@ -1,7 +1,7 @@
 <template>
   <PageHeader :title="quotation ? `报价单 ${quotation.quote_number}` : '报价单详情'" :breadcrumb="[{ label: '报价单', to: '/quotations' }, { label: quotation?.quote_number || '详情', to: '' }]">
     <span v-if="quotation?.download_count" class="text-sm text-muted" style="margin:0 8px">已下载 {{ quotation.download_count }} 次</span>
-    <button v-if="quotation" class="btn-secondary" @click="openExport">导出 xlsx</button>
+    <button v-if="quotation" class="btn-secondary" @click="openExport">导出表格</button>
     <button v-if="quotation" class="btn-secondary" @click="showBom = !showBom">{{ showBom ? '收起' : '编辑' }} BOM 表格</button>
     <button class="btn-secondary" @click="$router.back()">返回</button>
   </PageHeader>
@@ -17,7 +17,7 @@
     </div>
 
     <table class="data-table" v-if="quotation.items.length">
-      <thead><tr><th>#</th><th>产品名称</th><th>型号/SKU</th><th>功能描述</th><th>数量</th><th>单价</th><th>折扣%</th><th>小计</th><th>备注</th></tr></thead>
+      <thead><tr><th>#</th><th>产品名称</th><th>型号/SKU</th><th>功能描述</th><th>数量</th><th>单价</th><th>折扣%</th><th>小计</th><th>备注</th><th>成本</th></tr></thead>
       <tbody>
         <tr v-for="(item, idx) in quotation.items" :key="item.id">
           <td>{{ idx + 1 }}</td>
@@ -29,12 +29,14 @@
           <td>{{ item.discount_rate }}</td>
           <td class="font-mono">{{ item.amount?.toFixed(2) }}</td>
           <td>{{ item.remark || '—' }}</td>
+          <td class="font-mono">{{ item.product_snapshot?.cost_price || '—' }}</td>
         </tr>
       </tbody>
       <tfoot>
         <tr>
-          <td colspan="7" style="text-align:right;font-weight:600">合计</td>
+          <td colspan="8" style="text-align:right;font-weight:600">合计</td>
           <td class="font-mono" style="font-weight:700">¥{{ quotation.items.reduce((s: number, i: any) => s + (i.amount || 0), 0).toLocaleString(undefined, {minimumFractionDigits:2}) }}</td>
+          <td></td>
           <td></td>
         </tr>
       </tfoot>

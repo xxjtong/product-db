@@ -299,7 +299,7 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
     apply_title_row(ws, 2, title)
 
     # Row 3: headers
-    headers = ["序号", "名称", "规格型号", "型号", "功能描述", "单价", "数量", "合计", "折扣率", "成交价", "备注", "图片"]
+    headers = ["序号", "名称", "规格型号", "型号", "功能描述", "单价", "数量", "合计", "折扣率", "成交价", "备注", "成本", "图片"]
     apply_header_row(ws, 3, headers)
 
     # Data rows
@@ -312,7 +312,7 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
         discount = float(item.discount_rate or 100)
         row = 3 + idx
         formats = {6: NUM_FMT_CURRENCY, 7: NUM_FMT_NUMBER, 8: NUM_FMT_CURRENCY,
-                   9: NUM_FMT_PERCENT, 10: NUM_FMT_CURRENCY}
+                   9: NUM_FMT_PERCENT, 10: NUM_FMT_CURRENCY, 12: NUM_FMT_CURRENCY}
         apply_data_row(ws, row, [
             idx,
             snap.get("name", ""),
@@ -325,13 +325,14 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
             discount / 100,  # I: 折扣率(小数)
             price * qty * (discount / 100),  # J placeholder
             item.remark or "",
+            float(snap.get("cost_price", 0) or 0),
             "",
         ], formats)
         # Replace H and J with formulas
         ws.cell(row=row, column=8).value = f"=F{row}*G{row}"       # H: 合计 = 单价 × 数量
         ws.cell(row=row, column=10).value = f"=H{row}*I{row}"      # J: 成交价 = 合计 × 折扣率
 
-        # Embed product image in column L
+        # Embed product image in column M
         img_url = snap.get("image_url", "")
         # Fallback: look up product's actual image_url if snapshot lost it
         if not img_url and item.product_id:
@@ -341,7 +342,7 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
         if img_url:
             import os
             from app.services.storage import UPLOAD_DIR
-            if not embed_image(ws, row, 12, img_url, str(UPLOAD_DIR)):
+            if not embed_image(ws, row, 13, img_url, str(UPLOAD_DIR)):
                 import logging; logging.getLogger("uvicorn").warning(f"Failed to embed image for quotation item at row {row}: {img_url}")
 
     # Total row
@@ -393,6 +394,7 @@ def get_quotation_bom(quotation_id: int, db: Session = Depends(get_db), user=Dep
             "price": float(item.unit_price or 0),
             "discount": float(item.discount_rate or 100),
             "remark": item.remark or "",
+            "cost": float(snap.get("cost_price", 0) or 0),
         })
     return {"rows": rows, "total": float(qt.total_amount or 0)}
 
@@ -411,7 +413,8 @@ def save_quotation_bom(quotation_id: int, data: dict, db: Session = Depends(get_
             old_item = old_items.get(idx + 1)
             old_snap = (old_item.product_snapshot or {}) if old_item else {}
             snap = {"name": row.get("name", ""), "sku": row.get("sku", ""),
-                    "model": row.get("model", ""), "description": row.get("description", "")}
+                    "model": row.get("model", ""), "description": row.get("description", ""),
+                    "cost_price": float(row.get("cost", 0) or 0)}
             for key in ("specs", "image_url", "manufacturer_name", "category_name"):
                 if old_snap.get(key):
                     snap[key] = old_snap[key]

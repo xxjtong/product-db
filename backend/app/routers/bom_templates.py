@@ -146,7 +146,7 @@ def _sync_snapshot_to_items(solution_id: int, snapshot: dict, db: Session):
     """Parse BOM snapshot cells and update solution_items with edited values.
 
     Sheet layout: data rows start at row 3 (snapshot) or row 5 (basic bom).
-    Columns: A=# B=名称 C=型号/SKU D=功能描述 E=数量 F=单价 G=折扣% H=小计 I=备注
+    Columns: A=# B=名称 C=型号/SKU D=功能描述 E=数量 F=单价 G=折扣% H=小计 I=备注 J=成本
     We match by SKU in column C to find the corresponding solution_item.
     """
     cells = snapshot.get("cells", {})
@@ -383,7 +383,7 @@ def _write_basic_bom(ws, sol, solution_id: int, db: Session):
     apply_title_row(ws, 2, f"BOM清单 — {sol.name}")
 
     # Row 3: headers
-    headers = ["序号", "名称", "规格型号", "型号", "功能描述", "单价", "数量", "合计", "折扣率", "成交价", "备注", "图片"]
+    headers = ["序号", "名称", "规格型号", "型号", "功能描述", "单价", "数量", "合计", "折扣率", "成交价", "备注", "成本", "图片"]
     apply_header_row(ws, 3, headers)
 
     # Data rows
@@ -398,7 +398,7 @@ def _write_basic_bom(ws, sol, solution_id: int, db: Session):
         discount = float(item.discount_rate or 100)
         row = 3 + idx
         formats = {6: NUM_FMT_CURRENCY, 7: NUM_FMT_NUMBER, 8: NUM_FMT_CURRENCY,
-                   9: NUM_FMT_PERCENT, 10: NUM_FMT_CURRENCY}
+                   9: NUM_FMT_PERCENT, 10: NUM_FMT_CURRENCY, 12: NUM_FMT_CURRENCY}
         apply_data_row(ws, row, [
             idx,
             p.name if p else "",
@@ -411,17 +411,18 @@ def _write_basic_bom(ws, sol, solution_id: int, db: Session):
             discount / 100,  # I: 折扣率(小数)
             price * qty * (discount / 100),  # J placeholder
             item.remark or "",
+            float(p.cost_price or 0) if p else 0,
             p.image_url or "" if p else "",
         ], formats)
         # Replace H and J with formulas
         ws.cell(row=row, column=8).value = f"=F{row}*G{row}"       # H: 合计
         ws.cell(row=row, column=10).value = f"=H{row}*I{row}"       # J: 成交价
 
-        # Embed product image in column L
+        # Embed product image in column M
         if p and p.image_url:
             import os
             from app.services.storage import UPLOAD_DIR
-            if not embed_image(ws, row, 12, p.image_url, str(UPLOAD_DIR)):
+            if not embed_image(ws, row, 13, p.image_url, str(UPLOAD_DIR)):
                 import logging; logging.getLogger("uvicorn").warning(f"Failed to embed image for product {p.id} at row {row}")
 
     # Total row
@@ -459,6 +460,7 @@ def _generate_snapshot(sol: Solution, template, db: Session) -> dict:
     cells["G1"] = {"v": "折扣%"}
     cells["H1"] = {"v": "小计"}
     cells["I1"] = {"v": "备注"}
+    cells["J1"] = {"v": "成本"}
     start_row = 3
     for idx, item in enumerate(items):
         row = start_row + idx
@@ -475,6 +477,7 @@ def _generate_snapshot(sol: Solution, template, db: Session) -> dict:
         cells[f"G{row}"] = {"v": discount}
         cells[f"H{row}"] = {"v": qty * price * (discount / 100)}
         cells[f"I{row}"] = {"v": item.remark or ""}
+        cells[f"J{row}"] = {"v": float(p.cost_price or 0) if p else 0}
 
     # Total row
     total_row = start_row + len(items) + 1

@@ -80,7 +80,7 @@
       </div>
 
       <table class="data-table" v-if="solution.items?.length">
-        <thead><tr><th>产品</th><th>型号</th><th style="width:140px">功能描述</th><th style="width:80px">数量</th><th style="width:100px">单价</th><th style="width:80px">折扣%</th><th style="width:100px">小计</th><th style="width:120px">备注</th><th style="width:40px"></th></tr></thead>
+        <thead><tr><th>产品</th><th>型号</th><th style="width:140px">功能描述</th><th style="width:80px">数量</th><th style="width:100px">单价</th><th style="width:80px">折扣%</th><th style="width:100px">小计</th><th style="width:120px">备注</th><th style="width:80px">成本</th><th style="width:40px"></th></tr></thead>
         <tbody>
           <tr v-for="item in solution.items" :key="item.id">
             <td><router-link :to="`/products/${item.product_id}`" class="text-sm">{{ item.product_name }}</router-link></td>
@@ -91,6 +91,7 @@
             <td><input v-model.number="item.discount_rate" type="number" style="width:60px" @change="updateItem(item)" /></td>
             <td class="font-mono text-sm">¥{{ (item.quantity * item.unit_price * (item.discount_rate / 100)).toFixed(0) }}</td>
             <td><input v-model="item.remark" style="width:100px" @change="updateItem(item)" /></td>
+            <td class="font-mono text-sm">{{ item.product_cost_price || '—' }}</td>
             <td><button class="btn-icon btn-sm" @click="removeItem(item.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td>
           </tr>
         </tbody>

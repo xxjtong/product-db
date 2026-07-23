@@ -1,8 +1,8 @@
 """Shared Excel style utilities — unified 威发 quotation format.
 
-Standard layout (12 columns A-L):
-  Row 1 (merged A-L): Info row — company/client/contact/date
-  Row 2 (merged A-L): Title row — yellow background
+Standard layout (13 columns A-M):
+  Row 1 (merged A-M): Info row — company/client/contact/date
+  Row 2 (merged A-M): Title row — yellow background
   Row 3:              Header row — bold, center
   Row 4-N:            Data rows
   Row N+1 (merged):   Total row — Chinese uppercase + numeric
@@ -38,14 +38,14 @@ ALIGN_LEFT = Alignment(horizontal="left", vertical="center", wrap_text=True)
 ALIGN_CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
 ALIGN_RIGHT = Alignment(horizontal="right", vertical="center", wrap_text=True)
 
-# ── Column widths (12 columns A-L) ─────────────────────
+# ── Column widths (13 columns A-M) ─────────────────────
 COLUMN_WIDTHS = {
     "A": 9.66, "B": 27.16, "C": 18.83, "D": 20.16,
     "E": 60.16, "F": 13.33, "G": 7.5, "H": 11.33,
-    "I": 6.5, "J": 12.16, "K": 18.16, "L": 16.0,
+    "I": 6.5, "J": 12.16, "K": 18.16, "L": 13.33, "M": 16.0,
 }
 
-MAX_COL = 12
+MAX_COL = 13
 
 # ── Number formats ─────────────────────────────────────
 NUM_FMT_CURRENCY = '¥#,##0'     # 人民币，0位小数
@@ -128,8 +128,8 @@ def apply_total_row(ws, row, chinese_amount, col_letter="J", data_start_row=4):
     cell.alignment = ALIGN_CENTER
     cell.border = BORDER_THIN
     cell.number_format = NUM_FMT_CURRENCY
-    # Remaining cols to L: border only
-    for c in range(col_idx + 1, 13):
+    # Remaining cols to M: border only
+    for c in range(col_idx + 1, MAX_COL + 1):
         bc = ws.cell(row=row, column=c)
         bc.border = BORDER_THIN
         bc.fill = FILL_NONE

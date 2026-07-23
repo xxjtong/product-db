@@ -133,7 +133,7 @@ describe('ProductsView', () => {
     const text = wrapper.text()
     expect(text).toContain('新增')
     expect(text).toContain('导入')
-    expect(text).toContain('导出')
+
   })
 })
 

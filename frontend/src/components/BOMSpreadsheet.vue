@@ -4,7 +4,7 @@
       <button class="btn-secondary btn-sm" @click="loadSnapshot"><RefreshCwIcon style="width:14px;height:14px" />重新加载</button>
       <button class="btn-primary btn-sm" @click="save"><SaveIcon style="width:14px;height:14px" />保存</button>
       <button class="btn-secondary btn-sm" @click="addRow"><PlusIcon style="width:14px;height:14px" />添加行</button>
-      <button class="btn-secondary btn-sm" @click="exportXlsx"><DownloadIcon style="width:14px;height:14px" />导出 xlsx</button>
+      <button class="btn-secondary btn-sm" @click="exportXlsx"><DownloadIcon style="width:14px;height:14px" />导出表格</button>
       <span v-if="dirty" class="text-sm" style="color:var(--color-danger)">未保存</span>
     </div>
 
@@ -23,6 +23,7 @@
             <th style="width:60px">折扣%</th>
             <th style="width:80px">小计</th>
             <th style="width:80px">备注</th>
+            <th style="width:70px">成本</th>
             <th style="width:30px"></th>
           </tr>
         </thead>
@@ -37,12 +38,13 @@
             <td><input v-model.number="row.discount" type="number" min="0" max="100" style="width:100%" @input="dirty = true" /></td>
             <td class="font-mono text-right">{{ subtotal(row) }}</td>
             <td><input v-model="row.remark" style="width:100%" @input="dirty = true" /></td>
+            <td><input v-model.number="row.cost" type="number" min="0" step="0.01" style="width:100%" @input="dirty = true" /></td>
             <td><button class="btn-icon btn-sm" @click="deleteRow(i)" title="删除行"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td>
           </tr>
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="7" class="text-right" style="font-weight:600">合计</td>
+            <td colspan="8" class="text-right" style="font-weight:600">合计</td>
             <td class="font-mono text-right" style="font-weight:700">{{ totalPrice }}</td>
             <td></td>
             <td></td>
@@ -62,7 +64,7 @@ const showToast = inject<(msg: string, type?: string) => void>('toast', () => {}
 
 const props = defineProps<{ solutionId?: number; quotationId?: number }>()
 
-interface BomRow { name: string; sku: string; model: string; qty: number; price: number; discount: number; description: string; remark: string }
+interface BomRow { name: string; sku: string; model: string; qty: number; price: number; discount: number; description: string; remark: string; cost: number }
 const rows = ref<BomRow[]>([])
 const loading = ref(true)
 const dirty = ref(false)
@@ -72,7 +74,7 @@ function subtotal(r: BomRow): string {
 }
 
 function addRow() {
-  rows.value.push({ name: '', sku: '', model: '', qty: 1, price: 0, discount: 100, description: '', remark: '' })
+  rows.value.push({ name: '', sku: '', model: '', qty: 1, price: 0, discount: 100, description: '', remark: '', cost: 0 })
   dirty.value = true
 }
 
@@ -96,6 +98,7 @@ async function loadSnapshot() {
         qty: Number(r.qty) || 1, price: Number(r.price) || 0,
         discount: Number(r.discount) || 100,
         description: r.description || '', remark: r.remark || '',
+        cost: Number(r.cost) || 0,
       }))
     } else if (props.solutionId) {
       const res = await fetchBomSnapshot(props.solutionId)
@@ -108,7 +111,7 @@ async function loadSnapshot() {
         const col = m[1]
         const rowNum = parseInt(m[2])
         if (rowNum <= 1) continue
-        if (!rowMap[rowNum]) rowMap[rowNum] = { name: '', sku: '', model: '', qty: 1, price: 0, discount: 100, description: '', remark: '' }
+        if (!rowMap[rowNum]) rowMap[rowNum] = { name: '', sku: '', model: '', qty: 1, price: 0, discount: 100, description: '', remark: '', cost: 0 }
         const v = c.v ?? ''
         if (col === 'A') {/* row number, skip */}
         else if (col === 'B') rowMap[rowNum].name = String(v)
@@ -119,6 +122,7 @@ async function loadSnapshot() {
         else if (col === 'G') rowMap[rowNum].discount = Number(v) || 100
         else if (col === 'H') {/* subtotal, computed */}
         else if (col === 'I') rowMap[rowNum].remark = String(v)
+        else if (col === 'J') rowMap[rowNum].cost = Number(v) || 0
       }
       rows.value = Object.keys(rowMap).sort((a,b) => Number(a)-Number(b)).map(k => rowMap[Number(k)])
     }
@@ -135,6 +139,7 @@ async function save() {
       const data = rows.value.map(r => ({
         name: r.name, sku: r.sku, model: r.model, qty: r.qty, price: r.price,
         discount: r.discount, description: r.description, remark: r.remark,
+        cost: r.cost,
       }))
       await saveQuotationBom(props.quotationId, { rows: data })
     } else if (props.solutionId) {
@@ -150,6 +155,7 @@ async function save() {
         cells[`G${row}`] = { v: r.discount }
         cells[`H${row}`] = { v: Number(subtotal(r)) }
         cells[`I${row}`] = { v: r.remark }
+        cells[`J${row}`] = { v: r.cost }
       })
       await saveBomSnapshot(props.solutionId, { snapshot: { cells, sheet_name: 'BOM' } })
     }
