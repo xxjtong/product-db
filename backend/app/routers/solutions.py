@@ -176,6 +176,22 @@ def add_item(solution_id: int, data: SolutionItemCreate, db: Session = Depends(g
     return {"item": item.to_dict()}
 
 
+@router.put("/solutions/{solution_id}/items/reorder")
+def reorder_items(solution_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Batch update sort_order for items. data: { item_ids: [id1, id2, ...] }"""
+    sol = get_or_404(db, Solution, solution_id, "Solution not found")
+    check_ownership(sol, user, strict=True)
+    item_ids = data.get("item_ids", [])
+    if not isinstance(item_ids, list):
+        raise HTTPException(400, "item_ids must be a list")
+    for idx, item_id in enumerate(item_ids):
+        item = db.get(SolutionItem, item_id)
+        if item and item.solution_id == solution_id:
+            item.sort_order = idx + 1
+    db.commit()
+    return {"ok": True}
+
+
 @router.put("/solutions/{solution_id}/items/{item_id}")
 def update_item(solution_id: int, item_id: int, data: SolutionItemUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
@@ -202,22 +218,6 @@ def delete_item(solution_id: int, item_id: int, db: Session = Depends(get_db), u
     db.delete(item)
     db.commit()
     _recalc_totals(sol, db)
-    db.commit()
-    return {"ok": True}
-
-
-@router.put("/solutions/{solution_id}/items/reorder")
-def reorder_items(solution_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    """Batch update sort_order for items. data: { item_ids: [id1, id2, ...] }"""
-    sol = get_or_404(db, Solution, solution_id, "Solution not found")
-    check_ownership(sol, user, strict=True)
-    item_ids = data.get("item_ids", [])
-    if not isinstance(item_ids, list):
-        raise HTTPException(400, "item_ids must be a list")
-    for idx, item_id in enumerate(item_ids):
-        item = db.get(SolutionItem, item_id)
-        if item and item.solution_id == solution_id:
-            item.sort_order = idx + 1
     db.commit()
     return {"ok": True}
 
