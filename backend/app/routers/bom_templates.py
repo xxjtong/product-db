@@ -248,7 +248,7 @@ def export_bom_xlsx(solution_id: int, db: Session = Depends(get_db), user=Depend
     if snap and snap.snapshot and snap.snapshot.get("cells"):
         _write_snapshot_to_xlsx(ws, snap.snapshot)
     else:
-        _write_basic_bom(ws, sol, solution_id, db)
+        _write_basic_bom(ws, sol, solution_id, db, user.username)
 
     buf = BytesIO()
     wb.save(buf)
@@ -361,7 +361,7 @@ def _write_snapshot_to_xlsx(ws, snapshot: dict):
         )
 
 
-def _write_basic_bom(ws, sol, solution_id: int, db: Session):
+def _write_basic_bom(ws, sol, solution_id: int, db: Session, username: str = ""):
     """Fallback: generate a BOM sheet from solution_items with unified style."""
     from app.utils.excel_style import (
         apply_info_row, apply_title_row, apply_header_row, apply_data_row,
@@ -437,7 +437,7 @@ def _write_basic_bom(ws, sol, solution_id: int, db: Session):
     apply_note_row(ws, total_row + 1, f"BOM清单 — {sol.name}  |  方案编号：{solution_id}")
 
     # Footer
-    apply_footer_row(ws, total_row + 2, "产品数据库 — BOM清单导出")
+    apply_footer_row(ws, total_row + 2, f"BOM清单 — {username}")
 
 
 def _generate_snapshot(sol: Solution, template, db: Session) -> dict:

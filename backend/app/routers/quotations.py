@@ -291,7 +291,12 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
 
     # Row 1: info row
     today = date.today().isoformat()
-    info_text = f"公司：  |  客户：{qt.client_name or ''}  |  日期：{today}"
+    project_name = ""
+    if qt.solution_id:
+        sol = db.get(Solution, qt.solution_id)
+        if sol:
+            project_name = sol.project_name or ""
+    info_text = f"客户：{qt.client_name or ''}  |  项目：{project_name}  |  日期：{today}"
     apply_info_row(ws, 1, info_text)
 
     # Row 2: title
@@ -357,7 +362,7 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
     apply_note_row(ws, total_row + 1, f"注：本报价单有效期 {qt.valid_days or 30} 天，税率 {float(qt.tax_rate or 0)}%。")
 
     # Footer row
-    apply_footer_row(ws, total_row + 2, f"报价单编号：{qt.quote_number or ''}  |  产品数据库")
+    apply_footer_row(ws, total_row + 2, f"报价单编号：{qt.quote_number or ''}  |  {user.username}")
 
     # Log download
     from app.models.download_log import DownloadLog
