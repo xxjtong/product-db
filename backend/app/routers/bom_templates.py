@@ -383,8 +383,10 @@ def _write_basic_bom(ws, sol, solution_id: int, db: Session):
     apply_title_row(ws, 2, f"BOM清单 — {sol.name}")
 
     # Row 3: headers
-    headers = ["序号", "名称", "规格型号", "型号", "功能描述", "单价", "数量", "合计", "折扣率", "成交价", "备注", "图片", "成本"]
+    headers = ["序号", "名称", "规格型号", "型号", "功能描述", "单价", "数量", "合计", "折扣率", "成交价", "备注", "图片"]
     apply_header_row(ws, 3, headers)
+    # Cost header (M): plain text, no style — safe to delete column
+    ws.cell(row=3, column=13).value = "成本"
 
     # Data rows
     items = db.query(SolutionItem).filter_by(solution_id=solution_id)\
