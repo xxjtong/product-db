@@ -2,12 +2,46 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-07-23, R25)
+## 最新变更 (2026-07-23, R26)
+
+### R26: 全面迭代 — 导出模板改进、成本列、Agent Token 统计、拖拽排序、安全加固
+
+**导出模板改进:**
+- 按钮改名: 「导出 xlsx」→「导出表格」(2 文件)
+- 所有导出表格「备注」列右侧增加「成本」列 (Excel 列 M)
+- 成本列纯数值无样式，M 列独立于 A-L 样式网格，可安全删除
+- 导出信息行: 删除「公司」→ 改为 `客户 / 项目 / 日期`
+- 导出页脚: 「产品数据库」→ 用户名
+
+**Agent Token 统计:**
+- Agent SSE 流拦截 Hermes 返回的 usage，写入 `ai_usage_logs` (operation="agent_chat")
+- Admin 面板 AI 统计自动纳入 agent 用量
+- `_call_hermes`: `aiter_bytes()` → `aiter_lines()` 文本行流
+
+**方案产品清单增强:**
+- 拖拽排序: HTML5 drag-and-drop，拖拽行半透明 + 目标蓝色顶线
+- `PUT /solutions/{id}/items/reorder` — 批量更新 sort_order
+- 单价格式化: `¥1,234` + `—` 备选 (null 安全)
+- 方案项 `unit_price` 不再强制 0 — `base_price` 为 0/None 时留空
+- 生成报价单按方案排序正确复制 (`order_by sort_order`)
+
+**部署文档:**
+- `DEPLOY.md` — 完整部署架构/命令/位置/Nginx/systemd 配置
+
+**安全修复 (CRITICAL):**
+- C1: LIKE 注入防护 — 26 处 `ilike()` 加 `escape=LIKE_ESCAPE` (8 文件)
+- C3: 产品成本导出 — 非 admin 隐藏 M 列成本值
+- C4: 报价单快照 — 创建时 strip `cost_price`，导出时检查 field_visibility
+
+**测试:** backend pytest 298/298 / frontend vue-tsc 0 / vitest 60/60 / E2E 94/96 (2 预存失败)
+
+**变更统计:** 17 commits, 14 files, +380/-70
+
+## 历史变更 (2026-07-23, R25)
 
 ### R25: 移除产品列表导出按钮
 
 - 产品列表页「导出」按钮功能失效，暂移除
-- 删除 `openExport()` 函数、`exportUrl` 变量、`DownloadIcon`/`exportProducts` import
 
 ## 历史变更 (2026-07-16, R24)
 
