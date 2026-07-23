@@ -284,8 +284,9 @@ def export_products(
             power,
             "",
             p.image_url or "",
-            float(p.cost_price or 0),
         ])
+        # Cost column (M): plain value, no style — safe to delete column
+        ws.cell(row=3 + idx, column=13).value = float(p.cost_price or 0)
 
     # Footer
     footer_row = 3 + len(products) + 1

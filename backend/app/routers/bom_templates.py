@@ -412,8 +412,9 @@ def _write_basic_bom(ws, sol, solution_id: int, db: Session):
             price * qty * (discount / 100),  # J placeholder
             item.remark or "",
             p.image_url or "" if p else "",
-            float(p.cost_price or 0) if p else 0,
         ], formats)
+        # Cost column (M): plain value, no style — safe to delete column
+        ws.cell(row=row, column=13).value = float(p.cost_price or 0) if p else 0
         # Replace H and J with formulas
         ws.cell(row=row, column=8).value = f"=F{row}*G{row}"       # H: 合计
         ws.cell(row=row, column=10).value = f"=H{row}*I{row}"       # J: 成交价

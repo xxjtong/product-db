@@ -326,8 +326,9 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
             price * qty * (discount / 100),  # J placeholder
             item.remark or "",
             "",
-            float(snap.get("cost_price", 0) or 0),
         ], formats)
+        # Cost column (M): plain value, no style — safe to delete column
+        ws.cell(row=row, column=13).value = float(snap.get("cost_price", 0) or 0)
         # Replace H and J with formulas
         ws.cell(row=row, column=8).value = f"=F{row}*G{row}"       # H: 合计 = 单价 × 数量
         ws.cell(row=row, column=10).value = f"=H{row}*I{row}"      # J: 成交价 = 合计 × 折扣率
