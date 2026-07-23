@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import uuid
 
 import httpx
@@ -16,6 +17,7 @@ from fastapi.responses import StreamingResponse
 
 from app.auth import get_current_user
 from app.config import settings, DB_FILESYSTEM_PATH
+from app.models.ai_usage_log import AIUsageLog
 from app.schemas.ai import AgentChatRequest, AgentApprovalRequest
 from app.utils.escape import escape_like
 from app.database import get_db
@@ -335,7 +337,7 @@ async def _execute_tool(tool_name: str, tool_args: dict, user_id: int) -> dict:
 
 
 async def _call_hermes(client, model: str, messages: list, stream: bool = True, tools: list | None = None):
-    """Single pass: call Hermes and stream bytes back. Creates httpx client if None."""
+    """Single pass: call Hermes and stream text lines back (SSE format)."""
     headers = {
         "Content-Type": "application/json",
         **_build_auth_header(),
@@ -349,27 +351,71 @@ async def _call_hermes(client, model: str, messages: list, stream: bool = True, 
             async with httpx.AsyncClient(timeout=HERMES_TIMEOUT) as c:
                 async with c.stream("POST", HERMES_CHAT_URL, json=payload, headers=headers) as resp:
                     if resp.status_code != 200:
-                        body = await resp.aread()
                         yield f"data: {json.dumps({'error': f'Hermes returned {resp.status_code}'})}\n\n"
                         yield "data: [DONE]\n\n"
                         return
-                    async for chunk in resp.aiter_bytes():
-                        yield chunk
+                    async for line in resp.aiter_lines():
+                        yield line + "\n"
         else:
             async with client.stream("POST", HERMES_CHAT_URL, json=payload, headers=headers) as resp:
                 if resp.status_code != 200:
-                    body = await resp.aread()
                     yield f"data: {json.dumps({'error': f'Hermes returned {resp.status_code}'})}\n\n"
                     yield "data: [DONE]\n\n"
                     return
-                async for chunk in resp.aiter_bytes():
-                    yield chunk
+                async for line in resp.aiter_lines():
+                    yield line + "\n"
     except httpx.ConnectError:
         yield f"data: {json.dumps({'error': 'Cannot connect to Hermes agent server'})}\n\n"
         yield "data: [DONE]\n\n"
     except Exception:
         yield f"data: {json.dumps({'error': 'Agent stream interrupted'})}\n\n"
         yield "data: [DONE]\n\n"
+
+
+def _log_agent_usage(user_id: int, model: str, tokens_in: int, tokens_out: int,
+                     duration_ms: int, success: bool = True):
+    """Persist agent token usage to ai_usage_logs via a fresh DB session."""
+    try:
+        from app.database import SessionLocal
+        sdb = SessionLocal()
+        try:
+            sdb.add(AIUsageLog(
+                user_id=user_id, operation="agent_chat", model=model,
+                tokens_in=tokens_in, tokens_out=tokens_out,
+                duration_ms=duration_ms, success=success,
+            ))
+            sdb.commit()
+        finally:
+            sdb.close()
+    except Exception:
+        pass
+
+
+async def _stream_with_usage(gen, user_id: int, model: str):
+    """Wrap an SSE line generator, extract token usage, log after [DONE]."""
+    start_time = time.time()
+    usage_in = 0
+    usage_out = 0
+    success = True
+    try:
+        async for line in gen:
+            # Extract usage from chunks with top-level "usage" key (OpenAI format)
+            if line.startswith("data: ") and not line.startswith("data: [DONE]"):
+                try:
+                    chunk = json.loads(line[6:].strip())
+                    if "usage" in chunk:
+                        u = chunk["usage"]
+                        usage_in = u.get("prompt_tokens", 0)
+                        usage_out = u.get("completion_tokens", 0)
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    pass
+            yield line
+    except Exception:
+        success = False
+        raise
+    finally:
+        duration_ms = int((time.time() - start_time) * 1000)
+        _log_agent_usage(user_id, model, usage_in, usage_out, duration_ms, success)
 
 
 @router.post("/agent/chat")
@@ -421,13 +467,22 @@ async def agent_chat(
                 yield "data: [DONE]\n\n"
                 return
             # Continue to Hermes
-            async for chunk in _call_hermes(None, model, messages, stream, tools=AGENT_TOOLS):
-                yield chunk
+            async for line in _stream_with_usage(
+                _call_hermes(None, model, messages, stream, tools=AGENT_TOOLS),
+                user.id, model,
+            ):
+                yield line
 
         return StreamingResponse(_stream_approval(), media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     # Normal chat — single pass, streaming with tool definitions
     logger.info("agent_chat: proxying %d messages to %s", len(messages), HERMES_CHAT_URL)
-    return StreamingResponse(_call_hermes(None, model, messages, stream, tools=AGENT_TOOLS), media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    return StreamingResponse(
+        _stream_with_usage(
+            _call_hermes(None, model, messages, stream, tools=AGENT_TOOLS),
+            user.id, model,
+        ),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
