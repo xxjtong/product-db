@@ -132,3 +132,23 @@ WantedBy=multi-user.target
 ```bash
 ssh -p 28793 tong@124.221.178.161 'cp /opt/product-db/backend/product_db.db /opt/product-db/backend/product_db.db.bak.$(date +%Y%m%d_%H%M%S)'
 ```
+
+> ⚠️ 生产库是 **SQLite WAL 模式**，直接 `cp` 只能得到主库文件，会丢掉 WAL 中未合并的数据（2026-08 曾因此拿到不一致副本）。必须用 SQLite 在线快照：
+
+```bash
+# 一致性快照（含 WAL 内容）
+ssh -p 28793 tong@124.221.178.161 \
+  'sqlite3 /opt/product-db/backend/product_db.db ".backup /opt/product-db/backend/product_db.db.bak.$(date +%Y%m%d_%H%M%S)"'
+
+# 同时备份上传文件（图片/产品文档）
+ssh -p 28793 tong@124.221.178.161 \
+  'rsync -a --delete /opt/product-db/backend/app/uploads/ /opt/product-db-backups/uploads/'
+```
+
+恢复：将备份库放回 `/opt/product-db/backend/product_db.db`（或 `VACUUM INTO` 反向），uploads 用 rsync 还原，然后 `sudo systemctl restart product-db`。
+
+## ⚠️ 不要随意清理 uploads
+
+`POST /product-db/api/agent/cleanup-uploads`（admin）只删除**未被数据库引用**且超过 7 天的文件，这是 2026-06 文件丢失事故（21 个产品文档被误删）后加固的行为。不要在代码/脚本里扩大它的删除范围；产品文件与图片的删除必须走应用接口（delete_product_file / 产品编辑）。
+
+**当前无自动备份**（截至 2026-08-02），建议部署 cron/systemd timer 每日执行上面的快照 + rsync。

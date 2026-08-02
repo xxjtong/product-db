@@ -31,6 +31,33 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 - 删除死代码 `_cached_dict_query`、`DownloadTicket` 模型（无表无引用）、main.py 过时注释与未用导入
 - README/系统功能说明 测试数量更新（341/60/96）
 
+## 最新变更 (2026-08-02, R28)
+
+### R28: 生产文件丢失事故 — 根因修复 + 全量恢复 + 生产部署 (2026-08-02)
+
+**事故**: 生产环境 25 条 product_files 中 21 条引用的文件在磁盘上不存在（全部为 2026-06-04~06-07 上传），另有 9 张 product_images 副图缺失。
+
+**根因**: `POST /agent/cleanup-uploads` 会删除 uploads 目录中所有超过 7 天的文件（本意是清理 Agent 临时上传），导致产品文档/图片被误删。本地开发库的 48 个破损主图同因。
+
+**修复** (commit 43ea6a8): cleanup 只删除"未被任何 DB 记录引用"的旧文件（products.image_url / product_images.url / product_files.file_url 三重引用保护），并新增 TDD 测试 `test_cleanup_keeps_db_referenced_files`。
+
+**生产部署 (R27 + 修复)**:
+- 生产已更新至 5c1e7d1 (R27 安全修复) + 43ea6a8 (cleanup 修复)，服务重启验证 health OK
+- 生产 DB stamp 到 head + 应用幂等迁移 `c3d4e5f6a7b8`（补 login_logs 索引），schema 与 models 完全一致
+- 修正生产 `.env` 的 `DATABASE_PATH`（原为本地 Mac 路径）
+- 前端 dist 重新构建部署
+
+**数据恢复**:
+- 生产库同步到本地：SQLite WAL 模式必须用 `VACUUM INTO`/`.backup` 快照，直接 cp 会丢 WAL 数据
+- 从本机 OneDrive `供应商/` 目录按字节级核对找回 16 个产品文件（欧创 6 + 智绘源 4 + 微光 4 + 迭代 1 + 商米 1），另 4 个（iBreaker/PMC-340/R720F×2）来自本机 Downloads
+- 欧创 4 个原本无文件的产品补挂规格书（CG52LD/DP35LW/DS10LW/CC51LR）
+- 用户补传 10 张图片（替换 9 条坏记录）
+- test.txt 测试残留记录已删除
+
+**当前状态**: 生产与本地一致 — product_files 28 条 0 缺失、product_images 73 条引用 0 缺失、alembic 均到 head。
+
+**遗留风险**: 生产尚无自动备份（无 cron/定时器）。已建议部署每日 DB 快照 + uploads 增量备份，未实施。
+
 ## 最新变更 (2026-07-07, R21)
 
 ### R21: 测试覆盖率大幅提升 + Bug 发现 (2026-07-07)
