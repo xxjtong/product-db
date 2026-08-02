@@ -60,18 +60,44 @@ def _get_agent_prompt(db):
 
 
 @router.post("/agent/cleanup-uploads")
-async def agent_cleanup_uploads(user=Depends(get_current_user)):
-    """Delete upload files older than 7 days."""
+async def agent_cleanup_uploads(user=Depends(get_current_user), db=Depends(get_db)):
+    """Delete orphaned upload files older than 7 days.
+
+    Only files NOT referenced by any product/file/image row are removed.
+    Product documents and images live in the same directory, so a broad
+    sweep would silently destroy them (see production 2026-06 data loss).
+    """
     if user.role != "admin":
         raise HTTPException(403, "Admin only")
     import time
+    from app.models.product import Product
+    from app.models.product_file import ProductFile
+    from app.models.mapping import ProductImage
+
+    referenced = set()
+    for (url,) in db.query(Product.image_url).filter(
+        Product.image_url.like("/product-db/api/uploads/%")
+    ).all():
+        if url:
+            referenced.add(url.rsplit("/", 1)[-1])
+    for (url,) in db.query(ProductFile.file_url).filter(
+        ProductFile.file_url.like("/product-db/api/uploads/%")
+    ).all():
+        if url:
+            referenced.add(url.rsplit("/", 1)[-1])
+    for (url,) in db.query(ProductImage.url).filter(
+        ProductImage.url.like("/product-db/api/uploads/%")
+    ).all():
+        if url:
+            referenced.add(url.rsplit("/", 1)[-1])
+
     cutoff = time.time() - 7 * 86400
     cleaned = 0
     for f in UPLOAD_DIR.iterdir():
-        if f.is_file() and f.stat().st_mtime < cutoff:
+        if f.is_file() and f.stat().st_mtime < cutoff and f.name not in referenced:
             f.unlink()
             cleaned += 1
-    logger.info("agent_cleanup: removed %d old uploads", cleaned)
+    logger.info("agent_cleanup: removed %d orphaned uploads (kept %d referenced)", cleaned, len(referenced))
     return {"cleaned": cleaned}
 
 

@@ -129,7 +129,10 @@ class TestAgentPrompt:
 
 
 class TestAgentCleanup:
-    def test_cleanup_uploads(self, auth_headers):
+    def test_cleanup_uploads(self, auth_headers, tmp_path, monkeypatch):
+        from app.routers.agent import UPLOAD_DIR as _orig
+        monkeypatch.setattr("app.routers.agent.UPLOAD_DIR", tmp_path)
+        # Endpoint must tolerate an empty uploads dir
         resp = client.post("/product-db/api/agent/cleanup-uploads", headers=auth_headers)
         assert resp.status_code == 200
         data = resp.json()
@@ -139,6 +142,46 @@ class TestAgentCleanup:
     def test_cleanup_non_admin(self, regular_headers):
         resp = client.post("/product-db/api/agent/cleanup-uploads", headers=regular_headers)
         assert resp.status_code == 403
+
+    def test_cleanup_keeps_db_referenced_files(self, db, auth_headers, tmp_path, monkeypatch):
+        """Cleanup must never delete files referenced by products/images/file rows."""
+        import time as _time
+        from app.models.mapping import ProductImage
+        from app.services.storage import UPLOAD_DIR as _orig
+
+        monkeypatch.setattr("app.routers.agent.UPLOAD_DIR", tmp_path)
+        old = _time.time() - 8 * 86400  # older than the 7-day cutoff
+
+        ref_doc = tmp_path / "ref_doc_uuid.pdf"
+        ref_doc.write_bytes(b"referenced doc")
+        os.utime(ref_doc, (old, old))
+        db.add(ProductFile(
+            product_id=1, filename="doc.pdf",
+            file_url="/product-db/api/uploads/ref_doc_uuid.pdf", file_size=14,
+        ))
+
+        ref_img = tmp_path / "ref_img.png"
+        ref_img.write_bytes(b"referenced image")
+        os.utime(ref_img, (old, old))
+        db.add(Product(name="P", category_id=1, image_url="/product-db/api/uploads/ref_img.png"))
+        db.flush()
+
+        ref_secondary = tmp_path / "ref_secondary.png"
+        ref_secondary.write_bytes(b"secondary")
+        os.utime(ref_secondary, (old, old))
+        db.add(ProductImage(product_id=1, url="/product-db/api/uploads/ref_secondary.png"))
+        db.commit()
+
+        orphan = tmp_path / "orphan_old.bin"
+        orphan.write_bytes(b"orphan")
+        os.utime(orphan, (old, old))
+
+        resp = client.post("/product-db/api/agent/cleanup-uploads", headers=auth_headers)
+        assert resp.status_code == 200
+        assert ref_doc.exists(), "product document must survive cleanup"
+        assert ref_img.exists(), "product main image must survive cleanup"
+        assert ref_secondary.exists(), "product secondary image must survive cleanup"
+        assert not orphan.exists(), "unreferenced old file should be removed"
 
 
 class TestAgentChat:
