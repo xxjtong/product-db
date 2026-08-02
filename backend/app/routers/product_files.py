@@ -7,11 +7,13 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.config import settings
 from app.utils.helpers import get_or_404
 from app.auth import get_current_user, filter_by_ownership, check_ownership
 from app.models.product_file import ProductFile
 from app.models.product import Product
 from app.services.storage import save_file, delete_file, UPLOAD_DIR
+from app.services.storage import read_limited
 
 
 class LinkCreate(BaseModel):
@@ -46,7 +48,10 @@ async def upload_file(
 ):
     prod = get_or_404(db, Product, product_id, "Product not found")
     check_ownership(prod, user, strict=True)
-    content = await file.read()
+    try:
+        content = await read_limited(file, settings.FILE_MAX_SIZE)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     try:
         file_url = save_file(content, file.filename or "file")
     except ValueError as e:

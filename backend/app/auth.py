@@ -12,6 +12,18 @@ from sqlalchemy.orm import Session
 security = HTTPBearer(auto_error=False)
 
 
+def client_ip(request) -> str:
+    """Best-effort client IP: first X-Forwarded-For hop, else request.client."""
+    xff = (request.headers.get("x-forwarded-for") or "") if request else ""
+    if xff:
+        first = xff.split(",")[0].strip()
+        if first:
+            return first
+    if request and request.client:
+        return request.client.host
+    return ""
+
+
 def hash_password(password: str) -> str:
     # bcrypt has a 72-byte limit on password length
     return _bcrypt.hashpw(

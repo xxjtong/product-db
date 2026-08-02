@@ -202,6 +202,41 @@ class TestRateLimiting:
         })
         assert resp.status_code == 429
 
+    def test_rate_limit_isolated_by_xff(self, db):
+        """Rate limiting must key on X-Forwarded-For when present."""
+        ip_a = "203.0.113.10"
+        for i in range(10):
+            client.post(
+                "/product-db/api/auth/login",
+                json={"username": "admin", "password": f"wrong{i}"},
+                headers={"X-Forwarded-For": ip_a},
+            )
+
+        # ip_a is now rate-limited
+        resp = client.post(
+            "/product-db/api/auth/login",
+            json={"username": "admin", "password": "wrong_x"},
+            headers={"X-Forwarded-For": ip_a},
+        )
+        assert resp.status_code == 429
+
+        # A different IP is not blocked
+        resp = client.post(
+            "/product-db/api/auth/login",
+            json={"username": "admin", "password": "wrong_x"},
+            headers={"X-Forwarded-For": "203.0.113.99"},
+        )
+        assert resp.status_code == 401
+
+    def test_client_ip_prefers_xff(self):
+        from app.auth import client_ip
+
+        class FakeRequest:
+            headers = {"x-forwarded-for": "203.0.113.5, 10.0.0.1"}
+            client = type("C", (), {"host": "127.0.0.1"})()
+
+        assert client_ip(FakeRequest()) == "203.0.113.5"
+
 
 # ============================================================
 # Ownership & Permissions
@@ -261,6 +296,20 @@ class TestProfileUpdate:
                           headers=auth_headers)
         assert resp.status_code == 200
         assert resp.json()["user"]["email"] == "new@test.com"
+
+    def test_update_password_rejects_short(self, db):
+        """Profile password changes must enforce the 8-char minimum."""
+        u = User(username="prof_user", password_hash=hash_password("longpass123"), role="user")
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        token = create_token(u.id, u.username)
+        resp = client.put(
+            "/product-db/api/auth/profile",
+            json={"password": "short1", "current_password": "longpass123"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 400
 
     def test_update_password_requires_current(self, db, auth_headers):
         """Changing password without current password should fail."""

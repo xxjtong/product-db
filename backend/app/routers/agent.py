@@ -21,7 +21,7 @@ from app.models.ai_usage_log import AIUsageLog
 from app.schemas.ai import AgentChatRequest, AgentApprovalRequest
 from app.utils.escape import escape_like, LIKE_ESCAPE
 from app.database import get_db
-from app.services.storage import save_file, UPLOAD_DIR
+from app.services.storage import save_file, UPLOAD_DIR, read_limited
 from app.services.approval_manager import approval_manager
 
 logger = logging.getLogger(__name__)
@@ -125,8 +125,9 @@ async def agent_upload(
     if mime_type not in ALLOWED_UPLOAD_TYPES:
         raise HTTPException(400, f"File type not allowed: {mime_type}")
 
-    contents = await file.read()
-    if len(contents) > MAX_UPLOAD_SIZE:
+    try:
+        contents = await read_limited(file, MAX_UPLOAD_SIZE)
+    except ValueError:
         raise HTTPException(400, f"File too large (max {MAX_UPLOAD_SIZE // 1024 // 1024}MB)")
 
     # Save to uploads dir with UUID filename
@@ -167,6 +168,12 @@ async def agent_approval(
     approved = data.approved
     reason = data.reason
 
+    task = approval_manager.get(task_id)
+    if not task:
+        raise HTTPException(404, "Approval task not found")
+    if user.role != "admin" and task.user_id != user.id:
+        raise HTTPException(403, "无权审批该任务")
+
     ok = approval_manager.decide(task_id, approved, reason)
     if not ok:
         raise HTTPException(404, "Approval task not found")
@@ -201,6 +208,7 @@ async def agent_test_approval(user=Depends(get_current_user)):
         tool_input={"solution_id": 26, "total_price": 636301.50, "customer": "岭南大学"},
         summary="为方案「岭南大学新科学楼 IoT」创建报价单，总价 ¥636,301.50",
         details={"message": "已根据 IoT QTY 需求匹配 11 款产品"},
+        user_id=user.id,
     )
     return {"task_id": task.task_id}
 
@@ -291,9 +299,9 @@ async def _execute_tool(tool_name: str, tool_args: dict, user_id: int) -> dict:
             if keyword:
                 like = f"%{escape_like(keyword)}%"
                 q = q.filter(or_(
-                    Product.name.ilike(like),
-                    Product.model.ilike(like),
-                    Product.description.ilike(like),
+                    Product.name.ilike(like, escape=LIKE_ESCAPE),
+                    Product.model.ilike(like, escape=LIKE_ESCAPE),
+                    Product.description.ilike(like, escape=LIKE_ESCAPE),
                 ))
             if tool_args.get("category_id"):
                 q = q.filter(Product.category_id == tool_args["category_id"])
@@ -453,6 +461,7 @@ async def agent_chat(
             tool_input={"solution_id": 26, "total_price": 636301.50, "customer": "岭南大学"},
             summary="为方案「岭南大学新科学楼 IoT」创建报价单，总价 ¥636,301.50",
             details={"message": "已根据 IoT QTY 需求匹配产品"},
+            user_id=user.id,
         )
         # Emit approval event, wait, then continue
         async def _stream_approval():

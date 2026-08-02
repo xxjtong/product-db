@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -28,7 +29,8 @@ class ApprovalTask:
     tool_input: dict     # The tool call arguments
     summary: str         # One-line summary: "为 岭南大学 创建报价单，总价¥636,301"
     details: dict        # Extra context for the modal card
-    event: asyncio.Event = field(default_factory=asyncio.Event)
+    user_id: int = None  # User who triggered the tool call (approval owner)
+    event: threading.Event = field(default_factory=threading.Event)
     result: Optional[dict] = field(default=None)  # {"approved": True/False, "reason": "..."}
     created_at: float = field(default_factory=lambda: __import__("time").time())
 
@@ -46,6 +48,7 @@ class ApprovalManager:
         tool_input: dict,
         summary: str,
         details: Optional[dict] = None,
+        user_id: int = None,
     ) -> ApprovalTask:
         """Create a new approval task and return it."""
         task_id = uuid.uuid4().hex[:12]
@@ -56,6 +59,7 @@ class ApprovalManager:
             tool_input=tool_input,
             summary=summary,
             details=details or {},
+            user_id=user_id,
         )
         self._tasks[task_id] = task
         logger.info("ApprovalTask %s created: %s", task_id, summary)
@@ -68,10 +72,11 @@ class ApprovalManager:
             return {"approved": False, "reason": "Task not found"}
 
         try:
-            await asyncio.wait_for(task.event.wait(), timeout=TIMEOUT_SECONDS)
-        except asyncio.TimeoutError:
-            logger.warning("ApprovalTask %s timed out", task_id)
-            task.result = {"approved": False, "reason": "审批超时"}
+            loop = asyncio.get_running_loop()
+            decided = await loop.run_in_executor(None, task.event.wait, TIMEOUT_SECONDS)
+            if not decided:
+                logger.warning("ApprovalTask %s timed out", task_id)
+                task.result = {"approved": False, "reason": "审批超时"}
         finally:
             self._tasks.pop(task_id, None)
 
@@ -90,6 +95,10 @@ class ApprovalManager:
     def get_pending(self) -> list[ApprovalTask]:
         """List all pending tasks (for status polling)."""
         return [t for t in self._tasks.values() if not t.event.is_set()]
+
+    def get(self, task_id: str) -> Optional[ApprovalTask]:
+        """Get a task by id (without removing it)."""
+        return self._tasks.get(task_id)
 
 
 # Global singleton

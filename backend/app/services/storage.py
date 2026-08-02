@@ -2,6 +2,7 @@
 import os
 import uuid
 from pathlib import Path
+import httpx
 
 UPLOAD_DIR = Path(os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads"))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -51,15 +52,26 @@ def delete_file(url: str) -> bool:
 def upload_from_url(source_url: str, product_id: int = 0) -> str:
     """Download image from URL and save locally. Returns local URL path."""
     from app.utils.security import validate_url
+    from app.config import settings
     if not validate_url(source_url):
         raise ValueError(f"URL not allowed: {source_url}")
-    import httpx
-    resp = httpx.get(source_url, timeout=30, follow_redirects=False, headers={
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
-    })
-    resp.raise_for_status()
 
-    content = resp.content
+    # Stream with a hard size cap so a malicious URL cannot exhaust memory.
+    limit = settings.IMAGE_MAX_SIZE
+    chunks = []
+    total = 0
+    with httpx.stream(
+        "GET", source_url, timeout=30, follow_redirects=False,
+        headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"},
+    ) as resp:
+        resp.raise_for_status()
+        for chunk in resp.iter_bytes(65536):
+            total += len(chunk)
+            if total > limit:
+                raise ValueError(f"Downloaded file too large (max {limit // (1024 * 1024)}MB)")
+            chunks.append(chunk)
+
+    content = b"".join(chunks)
     if len(content) < 8:
         raise ValueError("Downloaded file is too small to be a valid image")
 
@@ -101,3 +113,22 @@ def save_file(file_bytes: bytes, original_filename: str) -> str:
     with open(filepath, "wb") as f:
         f.write(file_bytes)
     return f"/product-db/api/uploads/{safe_name}"
+
+
+async def read_limited(file, max_size: int) -> bytes:
+    """Stream-read an UploadFile, raising ValueError if it exceeds max_size.
+
+    Reads in 256KB chunks so oversized uploads are rejected without loading
+    the entire body into memory first.
+    """
+    chunks = []
+    total = 0
+    while True:
+        chunk = await file.read(256 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_size:
+            raise ValueError(f"File too large (max {max_size // (1024 * 1024)}MB)")
+        chunks.append(chunk)
+    return b"".join(chunks)

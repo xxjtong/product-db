@@ -1,26 +1,7 @@
-"""Download ticket and log models for secure download tracking."""
+"""Download log models for download audit tracking."""
 from app.database import Base
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from datetime import datetime, timezone
-
-
-class DownloadTicket(Base):
-    __tablename__ = "download_tickets"
-
-    id = Column(Integer, primary_key=True)
-    ticket = Column(String(64), unique=True, nullable=False, index=True)
-    file_path = Column(String(500), nullable=False)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "ticket": self.ticket,
-            "file_path": self.file_path,
-            "expires_at": self.expires_at.strftime("%Y-%m-%d %H:%M:%S") if self.expires_at else "",
-        }
 
 
 class DownloadLog(Base):

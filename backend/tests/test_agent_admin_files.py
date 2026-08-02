@@ -312,6 +312,24 @@ class TestAdminAISettings:
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
 
+    def test_update_ai_settings_keeps_conversations(self, db, auth_headers):
+        """Editing prompts must not delete users' AI conversations."""
+        from app.models.ai_models import AIConversation, AIMessage
+        conv = AIConversation(user_id=1, title="保留的对话")
+        db.add(conv)
+        db.commit()
+        db.refresh(conv)
+        db.add(AIMessage(conversation_id=conv.id, role="user", content="你好"))
+        db.commit()
+
+        resp = client.put("/product-db/api/admin/ai-settings", json={
+            "prompts": {"ai_system_prompt": "新的提示词"},
+        }, headers=auth_headers)
+        assert resp.status_code == 200
+
+        assert db.get(AIConversation, conv.id) is not None
+        assert db.query(AIMessage).filter_by(conversation_id=conv.id).count() == 1
+
     def test_ai_settings_non_admin(self, regular_headers):
         resp = client.get("/product-db/api/admin/ai-settings", headers=regular_headers)
         assert resp.status_code == 403

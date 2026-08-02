@@ -474,16 +474,14 @@ test.describe('Dictionaries — Tab Switching', () => {
 // 12. ADMIN — LLM Config + User Management
 // ════════════════════════════════════
 test.describe('Admin — LLM Config', () => {
-  test('LLM config card has input fields and test buttons', async ({ page }) => {
+  test('LLM config card has base URL fields and test buttons', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/admin`, { waitUntil: 'domcontentloaded' })
     await page.waitForTimeout(3000)
     // Should see LLM config section
     await expect(page.locator('h3:has-text("LLM")').first()).toBeVisible({ timeout: 5000 })
-    // Should have input field for API key
-    const apiKeyInputs = page.locator('input[type="password"]')
-    const count = await apiKeyInputs.count()
-    expect(count).toBeGreaterThan(0)
+    // API keys come from .env only — base URL fields are the editable inputs
+    await expect(page.locator('label:has-text("Base URL")').first()).toBeVisible({ timeout: 3000 })
     // Should have test button
     await expect(page.locator('button:has-text("测试")').first()).toBeVisible({ timeout: 3000 })
   })

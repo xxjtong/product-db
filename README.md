@@ -35,14 +35,14 @@ npx vite --host 0.0.0.0 --port 5173
 
 ```bash
 # Backend
-cd backend && pytest tests/ -v                    # 84 单元测试
+cd backend && pytest tests/ -v                    # 341 单元测试
 
 # Frontend
-cd frontend && npx vitest run                     # 38 组件测试
+cd frontend && npx vitest run                     # 60 组件测试
 cd frontend && npx vue-tsc --noEmit               # 类型检查
 
 # E2E (需要先启动前后端服务)
-cd frontend && npx playwright test                # 75 tests (3 套件)
+cd frontend && npx playwright test                # 96 tests (6 套件)
 ```
 
 ## Docker 部署
@@ -66,7 +66,7 @@ product-db/
 │   │   ├── routers/             # API 路由 (13 个模块)
 │   │   ├── services/            # 业务逻辑
 │   │   └── schemas/             # Pydantic 请求/响应模型
-│   ├── tests/                   # pytest 测试 (66 用例)
+│   ├── tests/                   # pytest 测试 (341 用例)
 │   └── alembic/                 # 数据库迁移
 ├── frontend/
 │   ├── src/

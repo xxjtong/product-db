@@ -175,6 +175,7 @@ export async function* streamAiChat(input: string, conversationId?: number | nul
   const token = localStorage.getItem('token')
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) headers['Authorization'] = `Bearer ${token}`
+  let conversationCaptured = !!conversationId
   const res = await fetch(`${API_BASE}/ai/chat`, {
     method: 'POST',
     headers,
@@ -196,7 +197,8 @@ export async function* streamAiChat(input: string, conversationId?: number | nul
         if (data === '[DONE]') return
         try {
           const parsed = JSON.parse(data)
-          if (parsed.event === 'conversation_id') {
+          if (parsed.conversation_id && !conversationCaptured) {
+            conversationCaptured = true
             yield `[CONVERSATION:${parsed.conversation_id}]`
           } else if (parsed.event === 'component') {
             yield `[COMPONENT:${JSON.stringify(parsed)}]`
@@ -227,5 +229,4 @@ export const deleteConversation = (id: number) => api(`/ai/conversations/${id}`,
 // --- Settings ---
 export const updateSetting = (key: string, value: string) =>
   api('/settings/' + key, { method: 'PUT', body: JSON.stringify({ value }) })
-
 

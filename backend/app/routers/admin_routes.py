@@ -188,8 +188,6 @@ def update_ai_settings(data: dict, db: Session = Depends(get_db), user=Depends(g
             s = db.query(SystemSetting).filter_by(key=key).first()
             if not s: s = SystemSetting(key=key); db.add(s)
             s.value = value
-    if data.get("prompts"):
-        from app.models.ai_models import AIConversation; db.query(AIConversation).delete()
     db.commit()
     return {"ok": True}
 

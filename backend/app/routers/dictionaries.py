@@ -56,22 +56,6 @@ def delete_manufacturer(mfg_id: int, db: Session = Depends(get_db), user=Depends
     return {"ok": True}
 
 
-# --- Dict table caching ---
-
-# TTL cache for dict tables (30s)
-_dict_cache: dict = {"ts": 0}
-
-def _cached_dict_query(key: str, query_fn, db: Session):
-    import time as _time
-    now = _time.time()
-    if now - _dict_cache.get(f"{key}_ts", 0) < 30:
-        return _dict_cache.get(key, [])
-    items = query_fn(db)
-    _dict_cache[key] = items
-    _dict_cache[f"{key}_ts"] = now
-    return items
-
-
 def _dict_list_filtered(model, db: Session, user, order_by=None):
     """List dict items with ownership filter (no cache, for per-user filtering)."""
     q = filter_by_ownership(db.query(model), model, user)

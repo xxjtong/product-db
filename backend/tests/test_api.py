@@ -947,6 +947,49 @@ class TestFieldVisibility:
         assert res.status_code == 200
         assert res.json()["product"]["cost_price"] == 777.77
 
+    def test_quotation_snapshot_hides_cost_price_for_user(self, db):
+        """Quotation item snapshot + BOM must hide cost_price when field visible=false."""
+        self._clear_field_settings(db)
+        self._seed_field_setting(db, "cost_price", False)
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, base_price=100, cost_price=66.6)
+        admin = db.query(User).filter_by(username="admin").first()
+        user = self._make_user(db)
+
+        # User creates own quotation with a product item (snapshot contains cost internally)
+        res = client.post("/product-db/api/quotations", json={"title": "T"}, headers=self._auth_for(user))
+        assert res.status_code == 201
+        qid = res.json()["quotation"]["id"]
+        res = client.post(
+            f"/product-db/api/quotations/{qid}/items",
+            json={"product_id": p.id, "quantity": 1, "unit_price": 50},
+            headers=self._auth_for(user),
+        )
+        assert res.status_code == 201
+
+        # User must NOT see cost_price in the quotation snapshot
+        res = client.get(f"/product-db/api/quotations/{qid}", headers=self._auth_for(user))
+        assert res.status_code == 200
+        snap = res.json()["quotation"]["items"][0]["product_snapshot"]
+        assert "cost_price" not in snap
+
+        # Items endpoint must not leak cost_price either
+        res = client.get(f"/product-db/api/quotations/{qid}/items", headers=self._auth_for(user))
+        assert res.status_code == 200
+        snap = res.json()["items"][0]["product_snapshot"]
+        assert "cost_price" not in snap
+
+        # BOM rows must not expose cost
+        res = client.get(f"/product-db/api/quotations/{qid}/bom", headers=self._auth_for(user))
+        assert res.status_code == 200
+        assert res.json()["rows"][0].get("cost") is None
+
+        # Admin still sees cost_price
+        res = client.get(f"/product-db/api/quotations/{qid}", headers=self._auth_for(admin))
+        assert res.status_code == 200
+        snap = res.json()["quotation"]["items"][0]["product_snapshot"]
+        assert snap.get("cost_price") == 66.6
+
     def test_admin_always_sees_cost_price(self, db):
         """Admin sees cost_price regardless of field visibility setting."""
         self._clear_field_settings(db)
@@ -992,3 +1035,111 @@ class TestFieldVisibility:
         assert res.status_code == 200
         # Without field settings, no fields are filtered
         assert res.json()["product"]["cost_price"] == 333.33
+
+
+class TestOwnershipGaps:
+    """Ownership checks that were missing: dependencies, export, compare."""
+
+    def _make_user(self, db, username):
+        u = User(username=username, password_hash=hash_password("test123"), role="user")
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        return u
+
+    def _auth_for(self, user):
+        return {"Authorization": f"Bearer {create_token(user.id, user.username)}"}
+
+    def test_non_admin_cannot_modify_others_product_dependencies(self, db):
+        """Dependency create/update/delete must enforce product ownership."""
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id)  # created_by NULL → admin/legacy
+        # Give the product an explicit owner for a clean 403 scenario
+        p.created_by = 1
+        db.commit()
+
+        user = self._make_user(db, "dep_user")
+        headers = self._auth_for(user)
+
+        res = client.post(
+            f"/product-db/api/products/{p.id}/dependencies",
+            json={"depends_on_category_id": cat.id, "dependency_type": "required"},
+            headers=headers,
+        )
+        assert res.status_code == 403, res.text
+
+    def test_non_admin_cannot_update_or_delete_others_dependencies(self, db):
+        """Existing dependency owned by another user's product must be 403."""
+        from app.models.dependency import ProductDependency
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id)
+        p.created_by = 1
+        db.commit()
+        dep = ProductDependency(product_id=p.id, depends_on_category_id=cat.id, dependency_type="required")
+        db.add(dep)
+        db.commit()
+        db.refresh(dep)
+
+        user = self._make_user(db, "dep_user2")
+        headers = self._auth_for(user)
+
+        res = client.put(
+            f"/product-db/api/products/{p.id}/dependencies/{dep.id}",
+            json={"description": "hacked"},
+            headers=headers,
+        )
+        assert res.status_code == 403, res.text
+
+        res = client.delete(
+            f"/product-db/api/products/{p.id}/dependencies/{dep.id}",
+            headers=headers,
+        )
+        assert res.status_code == 403, res.text
+
+    def test_export_respects_ownership_filter(self, db):
+        """Export must not include products owned by other regular users."""
+        cat = _seed_category(db)
+        admin = db.query(User).filter_by(username="admin").first()
+        user1 = self._make_user(db, "exp_user1")
+        user2 = self._make_user(db, "exp_user2")
+
+        p_own = _seed_product(db, name="user1产品", category_id=cat.id)
+        p_own.created_by = user1.id
+        db.commit()
+
+        # user2's list must exclude user1's product
+        res = client.get("/product-db/api/products?per_page=100", headers=self._auth_for(user2))
+        assert res.status_code == 200
+        ids = {pp["id"] for pp in res.json()["products"]}
+        assert p_own.id not in ids
+
+        # export must exclude it as well
+        res = client.get("/product-db/api/products/export", headers=self._auth_for(user2))
+        assert res.status_code == 200
+        import io, openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(res.content))
+        ws = wb.active
+        names = []
+        for row in ws.iter_rows(min_row=4, values_only=True):
+            if row and row[1]:
+                names.append(str(row[1]))
+        assert "user1产品" not in names, names[:5]
+
+    def test_compare_respects_ownership_filter(self, db):
+        """Compare must not return products owned by other regular users."""
+        cat = _seed_category(db)
+        user1 = self._make_user(db, "cmp_user1")
+        user2 = self._make_user(db, "cmp_user2")
+
+        p_a = _seed_product(db, name="A产品", category_id=cat.id)
+        p_a.created_by = user1.id
+        p_b = _seed_product(db, name="B产品", category_id=cat.id)
+        p_b.created_by = user2.id
+        db.commit()
+
+        # user2 compares A (not visible) + B (visible) → only 1 visible → 404
+        res = client.get(
+            f"/product-db/api/products/compare?product_ids={p_a.id},{p_b.id}",
+            headers=self._auth_for(user2),
+        )
+        assert res.status_code == 404, res.text

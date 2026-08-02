@@ -346,6 +346,18 @@ class TestAITools:
         result = json.loads(execute_tool("search_products", {"keywords": ["nonexistent_xyz"]}, db))
         assert result["found"] == 0
 
+    def test_search_escapes_like_wildcards(self, db):
+        """Searching '100%' must match the literal string, not any '100*' prefix."""
+        from app.services.ai_tools import execute_tool
+        cat = _seed_category(db)
+        _seed_product(db, name="温湿度100%探头", category_id=cat.id)
+        _seed_product(db, name="温湿度1000探头", category_id=cat.id)
+
+        result = json.loads(execute_tool("search_products", {"keywords": ["100%"]}, db))
+        names = [p["name"] for p in result["products"]]
+        assert "温湿度100%探头" in names
+        assert "温湿度1000探头" not in names
+
     def test_search_products_with_price_filter(self, db):
         from app.services.ai_tools import execute_tool
         cat = _seed_category(db)
@@ -401,8 +413,7 @@ class TestAITools:
         assert result["count"] >= 2
 
     def test_create_quotation_tool(self, db):
-        """NOTE: Found bug in ai_tools.py:312 — passes project_name to Quotation()
-        which doesn't have that column. This test verifies the error is caught."""
+        """create_quotation tool creates a quotation with the user context."""
         from app.services.ai_tools import execute_tool
         cat = _seed_category(db)
         p = _seed_product(db, category_id=cat.id, base_price=100)
@@ -415,20 +426,14 @@ class TestAITools:
                             quantity=2, unit_price=100))
         db.commit()
 
-        # This currently raises TypeError due to project_name bug in ai_tools.py
-        # The test documents this known issue
-        try:
-            result = json.loads(execute_tool("create_quotation",
-                                             {"solution_id": sol.id}, db))
-            # If the bug is fixed, verify the result
-            assert "created_quote" in result
-        except TypeError as e:
-            assert "project_name" in str(e), f"Unexpected error: {e}"
+        result = json.loads(execute_tool("create_quotation",
+                                         {"solution_id": sol.id}, db, user_id=1))
+        assert "created_quote" in result
 
     def test_create_quotation_nonexistent_solution(self, db):
         from app.services.ai_tools import execute_tool
         result = json.loads(execute_tool("create_quotation",
-                                         {"solution_id": 99999}, db))
+                                         {"solution_id": 99999}, db, user_id=1))
         assert "error" in result
 
     def test_create_quotation_empty_solution(self, db):
@@ -439,8 +444,63 @@ class TestAITools:
         db.refresh(sol)
 
         result = json.loads(execute_tool("create_quotation",
-                                         {"solution_id": sol.id}, db))
+                                         {"solution_id": sol.id}, db, user_id=1))
         assert "error" in result
+
+    def test_create_quotation_tool_sets_creator_and_quote_number(self, db):
+        """AI create_quotation must record created_by and a quote_number."""
+        from app.services.ai_tools import execute_tool
+        from app.models.quotation import Quotation
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, base_price=100)
+
+        sol = Solution(name="Tool方案2")
+        db.add(sol)
+        db.commit()
+        db.refresh(sol)
+        db.add(SolutionItem(solution_id=sol.id, product_id=p.id,
+                            quantity=1, unit_price=100))
+        db.commit()
+
+        result = json.loads(execute_tool(
+            "create_quotation", {"solution_id": sol.id}, db, user_id=1
+        ))
+        assert "created_quote" in result
+        qt = db.get(Quotation, result["created_quote"]["id"])
+        assert qt.created_by == 1
+        assert qt.quote_number and qt.quote_number.startswith("QT-")
+
+    def test_create_quotation_tool_rejects_foreign_solution(self, db):
+        """Non-admin user must not create quotations from another user's solution."""
+        from app.services.ai_tools import execute_tool
+        from app.models.quotation import Quotation
+        from app.models.user import User as UserModel
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, base_price=100)
+
+        owner = UserModel(username="owner", password_hash=hash_password("pw123456"), role="user")
+        db.add(owner)
+        db.commit()
+        db.refresh(owner)
+        intruder = UserModel(username="intruder", password_hash=hash_password("pw123456"), role="user")
+        db.add(intruder)
+        db.commit()
+        db.refresh(intruder)
+
+        sol = Solution(name="owner方案", created_by=owner.id)
+        db.add(sol)
+        db.commit()
+        db.refresh(sol)
+        db.add(SolutionItem(solution_id=sol.id, product_id=p.id,
+                            quantity=1, unit_price=100))
+        db.commit()
+
+        result = json.loads(execute_tool(
+            "create_quotation", {"solution_id": sol.id}, db, user_id=intruder.id
+        ))
+        assert "error" in result
+        # No quotation was created for the intruder
+        assert db.query(Quotation).filter_by(created_by=intruder.id).count() == 0
 
     def test_unknown_tool(self, db):
         from app.services.ai_tools import execute_tool
@@ -604,6 +664,93 @@ class TestSecurity:
         for method, path in admin_endpoints:
             resp = client.request(method, path, headers=headers)
             assert resp.status_code == 403, f"{method} {path} should deny non-admin"
+
+    def test_validate_url_rejects_dns_rebinding_to_private_ip(self, monkeypatch):
+        """A public-looking hostname resolving to a private IP must be rejected."""
+        from app.utils.security import validate_url
+        monkeypatch.setattr(
+            "app.utils.security._resolve_host_ips",
+            lambda hostname: ["127.0.0.1"],
+        )
+        assert validate_url("http://evil-rebind.example.com/path") is False
+
+    def test_validate_url_allows_public_resolution(self, monkeypatch):
+        """A hostname resolving to public IPs remains allowed."""
+        from app.utils.security import validate_url
+        monkeypatch.setattr(
+            "app.utils.security._resolve_host_ips",
+            lambda hostname: ["8.8.8.8"],
+        )
+        assert validate_url("http://public.example.com/path") is True
+
+    def test_validate_url_blocks_unresolvable_host(self, monkeypatch):
+        """Hostnames that cannot be resolved must be rejected."""
+        from app.utils.security import validate_url
+        monkeypatch.setattr(
+            "app.utils.security._resolve_host_ips",
+            lambda hostname: [],
+        )
+        assert validate_url("http://no-such-host.invalid/path") is False
+
+    def test_upload_from_url_rejects_oversized_download(self, monkeypatch):
+        """Downloaded images larger than the limit must be rejected."""
+        from app.services import storage
+        from app.config import settings
+
+        class FakeStream:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def raise_for_status(self):
+                return None
+
+            def iter_bytes(self, size):
+                yield b"x" * size
+                yield b"y" * (settings.IMAGE_MAX_SIZE + 1)
+
+        monkeypatch.setattr(storage.httpx, "stream", lambda *a, **k: FakeStream())
+        with pytest.raises(ValueError):
+            storage.upload_from_url("https://example.com/big.jpg")
+
+    def test_ai_fetch_file_rejects_oversized_upload(self, monkeypatch, auth_headers):
+        """ai-fetch-file must reject files over the configured limit."""
+        from app.config import settings
+        monkeypatch.setattr(settings, "FILE_MAX_SIZE", 1024)
+        resp = client.post(
+            "/product-db/api/products/ai-fetch-file",
+            files={"file": ("big.txt", io.BytesIO(b"x" * 2048), "text/plain")},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 400
+        assert "large" in resp.text.lower() or "太大" in resp.text
+
+    def test_product_files_upload_rejects_oversized(self, monkeypatch, db, auth_headers):
+        """Product file upload must reject files over the configured limit."""
+        from app.config import settings
+        monkeypatch.setattr(settings, "FILE_MAX_SIZE", 1024)
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id)
+        resp = client.post(
+            f"/product-db/api/products/{p.id}/files",
+            files={"file": ("big.txt", io.BytesIO(b"x" * 2048), "text/plain")},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 400
+
+    def test_upload_image_rejects_oversized(self, monkeypatch, auth_headers):
+        """upload-image must reject images over the configured limit."""
+        from app.config import settings
+        monkeypatch.setattr(settings, "IMAGE_MAX_SIZE", 1024)
+        png_header = b"\x89PNG\r\n\x1a\n" + b"0" * 2048
+        resp = client.post(
+            "/product-db/api/products/upload-image",
+            files={"file": ("big.png", io.BytesIO(png_header), "image/png")},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 400
 
 
 # ============================================================

@@ -22,6 +22,33 @@ from io import BytesIO
 router = APIRouter()
 
 
+def _should_hide_cost(user, db) -> bool:
+    """True when cost_price must be hidden from this user per field visibility."""
+    if getattr(user, "role", "") == "admin":
+        return False
+    from app.services.field_visibility import get_field_visibility
+    return not get_field_visibility(db).get("cost_price", True)
+
+
+def _strip_cost_from_snapshot(snapshot: dict) -> dict:
+    """Return a snapshot copy without cost_price (used for non-admin responses)."""
+    if isinstance(snapshot, dict) and "cost_price" in snapshot:
+        snapshot = dict(snapshot)
+        snapshot.pop("cost_price", None)
+    return snapshot
+
+
+def _filter_quotation_items_cost(items: list, user, db) -> list:
+    """Remove cost_price from each item's product_snapshot when hidden."""
+    if not _should_hide_cost(user, db):
+        return items
+    for item in items:
+        snap = item.get("product_snapshot") or {}
+        if "cost_price" in snap:
+            item["product_snapshot"] = _strip_cost_from_snapshot(snap)
+    return items
+
+
 def _generate_quote_number(db: Session) -> str:
     """Generate quote number: QT-YYYYMMDD-NNN."""
     today = datetime.now(timezone.utc).strftime("%Y%m%d")
@@ -73,8 +100,11 @@ def list_quotations(
         )
     from app.utils.helpers import paginate
     quotations, total = paginate(q.order_by(Quotation.updated_at.desc()), page, per_page)
+    quotation_list = [qt.to_dict() for qt in quotations]
+    for qt_dict in quotation_list:
+        _filter_quotation_items_cost(qt_dict.get("items") or [], user, db)
     return {
-        "quotations": [qt.to_dict() for qt in quotations],
+        "quotations": quotation_list,
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -127,12 +157,6 @@ def create_quotation(data: QuotationCreate, db: Session = Depends(get_db), user=
             for idx, si in enumerate(sol_items):
                 prod = products_map.get(si.product_id)
                 snapshot = prod.to_dict() if prod else {}
-                # Strip cost_price from snapshot for non-admin users
-                if getattr(user, 'role', '') != 'admin':
-                    from app.services.field_visibility import get_field_visibility
-                    vis = get_field_visibility(db)
-                    if not vis.get('cost_price', True):
-                        snapshot.pop('cost_price', None)
                 qi = QuotationItem(
                     quotation=qt,
                     solution_item_id=si.id,
@@ -153,7 +177,9 @@ def create_quotation(data: QuotationCreate, db: Session = Depends(get_db), user=
     _recalc_total(qt, db)
     db.commit()
     db.refresh(qt)
-    return {"quotation": qt.to_dict()}
+    result = qt.to_dict()
+    _filter_quotation_items_cost(result.get("items") or [], user, db)
+    return {"quotation": result}
 
 
 @router.post("/quotations/batch-delete")
@@ -182,7 +208,9 @@ def get_quotation(quotation_id: int, db: Session = Depends(get_db), user=Depends
     if not qt:
         raise HTTPException(404, "Quotation not found")
     check_ownership(qt, user, strict=True)
-    return {"quotation": qt.to_dict()}
+    result = qt.to_dict()
+    _filter_quotation_items_cost(result.get("items") or [], user, db)
+    return {"quotation": result}
 
 
 @router.put("/quotations/{quotation_id}")
@@ -195,7 +223,9 @@ def update_quotation(quotation_id: int, data: QuotationUpdate, db: Session = Dep
     qt = db.scalar(select(Quotation).options(
         selectinload(Quotation.items),
     ).where(Quotation.id == quotation_id))
-    return {"quotation": qt.to_dict()}
+    result = qt.to_dict()
+    _filter_quotation_items_cost(result.get("items") or [], user, db)
+    return {"quotation": result}
 
 
 @router.delete("/quotations/{quotation_id}")
@@ -215,7 +245,11 @@ def list_quotation_items(quotation_id: int, db: Session = Depends(get_db), user=
     check_ownership(qt, user, strict=True)
     items = db.query(QuotationItem).filter_by(quotation_id=quotation_id)\
         .order_by(QuotationItem.sort_order).all()
-    return {"items": [i.to_dict() for i in items]}
+    item_list = [i.to_dict() for i in items]
+    if _should_hide_cost(user, db):
+        for item in item_list:
+            item["product_snapshot"] = _strip_cost_from_snapshot(item.get("product_snapshot") or {})
+    return {"items": item_list}
 
 
 @router.post("/quotations/{quotation_id}/items", status_code=201)
@@ -402,6 +436,7 @@ def get_quotation_bom(quotation_id: int, db: Session = Depends(get_db), user=Dep
     items = db.query(QuotationItem).filter_by(quotation_id=quotation_id)\
         .order_by(QuotationItem.sort_order).all()
     rows = []
+    hide_cost = _should_hide_cost(user, db)
     for idx, item in enumerate(items):
         snap = item.product_snapshot or {}
         rows.append({
@@ -413,7 +448,7 @@ def get_quotation_bom(quotation_id: int, db: Session = Depends(get_db), user=Dep
             "price": float(item.unit_price or 0),
             "discount": float(item.discount_rate or 100),
             "remark": item.remark or "",
-            "cost": float(snap.get("cost_price", 0) or 0),
+            "cost": None if hide_cost else float(snap.get("cost_price", 0) or 0),
         })
     return {"rows": rows, "total": float(qt.total_amount or 0)}
 

@@ -67,7 +67,7 @@
           <div class="form-group"><label>邮箱</label><input v-model="profileEmail" placeholder="选填" /></div>
           <hr style="margin:12px 0;border:none;border-top:1px solid var(--color-border)" />
           <div class="form-group"><label>当前密码 <span style="color:var(--color-danger)">*</span></label><input v-model="profileCurPw" type="password" placeholder="修改邮箱或密码需验证" /></div>
-          <div class="form-group"><label>新密码 <span class="text-muted">（留空不修改）</span></label><input v-model="profileNewPw" type="password" placeholder="至少6位" /></div>
+          <div class="form-group"><label>新密码 <span class="text-muted">（留空不修改）</span></label><input v-model="profileNewPw" type="password" placeholder="至少8位" /></div>
           <p v-if="profileError" style="color:var(--color-danger);font-size:12px;margin:8px 0 0">{{ profileError }}</p>
         </div>
         <div class="modal-footer">
@@ -154,6 +154,7 @@ provide('currentUser', currentUser)
 async function loadAiStats() {
   try {
     const token = localStorage.getItem('token')
+    if (!token) return
     const res = await fetch('/product-db/api/ai/stats', { headers: { 'Authorization': `Bearer ${token}` } })
     if (res.ok) {
       const data = await res.json()

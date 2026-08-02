@@ -2,6 +2,35 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
+## 最新变更 (2026-08-02, R27)
+
+### R27: 全面评测修复 — 安全边界 + 迁移 + 工程卫生 (2026-08-02)
+
+基于全量评测（代码审查 + 测试实跑 + 真实启动验证）修复的问题：
+
+**严重修复:**
+- **DB 迁移漂移**: 实跑 `alembic upgrade head` 会触发 `fix_explicit_ddl` 删表重建（数据灾难），且该迁移本身缺 `product_files` 表。改为 stamp 到 head + 新增 `c3d4e5f6a7b8_sync_schema_to_models.py` 只补缺失列（product_files.is_link/link_url + login_logs 索引）。当前 models 与 DB schema 完全一致
+- **成本价泄露**: `GET /quotations/{id}`、`/quotations/{id}/items`、`/quotations/{id}/bom` 对非 admin 剥离 product_snapshot.cost_price（响应层过滤，不再写入时剥离，admin 仍可见）
+- **AI 工具越权**: `ai_tools.create_quotation` 增加用户上下文（user_id）、`check_ownership(strict=True)`、`created_by`、`quote_number`；`run_agent`/`run_mock_agent` 透传 user_id
+- **所有权缺口**: 产品依赖 CRUD 补 `check_ownership(strict=True)`；`/products/export`、`/products/compare` 补 `filter_by_ownership`
+- **SSRF DNS 重绑定**: `validate_url` 增加解析后 IP 校验（堵住 `*.nip.io`/数值 IP 绕过），`upload_from_url` 改为流式下载并限制大小
+- **上传内存风险**: 新增 `storage.read_limited()` 流式限读，upload-image / ai-fetch-file / product-files / agent-upload 全部接入
+- **LIKE 转义**: `escape_like` 增加反斜杠转义；ai_tools `_search_kw` 与 agent `_execute_tool` 补齐 `escape=LIKE_ESCAPE`（全仓 0 处遗漏）
+
+**中等修复:**
+- `/auth/profile` 密码修改补 8 位最小长度校验（与注册/重置一致）
+- 审批任务绑定 user_id，非本人/admin 不能审批；`asyncio.Event` → `threading.Event`（修复 Python 3.9 下 2 个测试失败）
+- 登录限流与登录日志改用 X-Forwarded-For 首跳 IP（反代场景正确）
+- 编辑 AI prompt 不再清空全部 AI 对话历史
+- `streamAiChat` 会话 ID 解析修复（方案页内嵌 AI 多轮对话不再断链）
+- 过时 E2E 更新（LLM 配置卡片断言改为 Base URL 字段）
+- 破损图片清理：48 个 product.image_url + 58 条 product_images 引用本地已丢失文件 → 清空/删除（备份 `product_db.db.bak.*_brokenimg`）
+- 未登录不再请求 `/ai/stats`（消除 401 噪音）
+
+**清理:**
+- 删除死代码 `_cached_dict_query`、`DownloadTicket` 模型（无表无引用）、main.py 过时注释与未用导入
+- README/系统功能说明 测试数量更新（341/60/96）
+
 ## 最新变更 (2026-07-07, R21)
 
 ### R21: 测试覆盖率大幅提升 + Bug 发现 (2026-07-07)

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.auth import hash_password, verify_password, create_token, get_current_user
+from app.auth import hash_password, verify_password, create_token, get_current_user, client_ip
 from app.models.user import User
 from app.models.login_log import LoginLog
 from app.schemas.auth import (
@@ -52,7 +52,7 @@ def _check_rate_limit(ip: str, db: Session) -> bool:
 
 @router.post("/auth/login", response_model=TokenResponse)
 def login(data: LoginRequest, request: Request, db: Session = Depends(get_db)):
-    ip = request.client.host if request.client else ""
+    ip = client_ip(request)
     if _check_rate_limit(ip, db):
         raise HTTPException(429, "登录尝试过于频繁，请稍后再试")
     user = db.query(User).filter_by(username=data.username).first()
@@ -95,6 +95,8 @@ def update_profile(data: UpdateProfileRequest, db: Session = Depends(get_db),
         # Require current password for security
         if not data.current_password or not verify_password(data.current_password, user.password_hash):
             raise HTTPException(400, "当前密码错误")
+        if len(data.password) < 8:
+            raise HTTPException(400, "密码至少8位")
         user.password_hash = hash_password(data.password)
     db.commit()
     return {"user": user.to_dict()}
@@ -126,7 +128,7 @@ def register(data: RegistrationRequest, request: Request, db: Session = Depends(
     db.add(u)
     db.commit()
     db.refresh(u)
-    ip = request.client.host if request.client else ""
+    ip = client_ip(request)
     db.add(LoginLog(user_id=u.id, ip_address=ip, success=True,
                     user_agent=request.headers.get("User-Agent", ""),
                     region=_lookup_ip_region(ip)))
@@ -148,5 +150,3 @@ def get_session(user=Depends(get_current_user), db: Session = Depends(get_db)):
         "field_visibility": {} if user.role == 'admin' else get_field_visibility(db),
         "registration_open": s.value == "true" if s else False,
     }
-
-

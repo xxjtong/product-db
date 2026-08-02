@@ -174,7 +174,9 @@ def compare(product_ids: str, db: Session = Depends(get_db), user=Depends(get_cu
     ids = [int(x) for x in product_ids.split(",") if x.strip().isdigit()]
     if len(ids) < 2:
         raise HTTPException(400, "At least 2 product IDs required")
-    products = db.query(Product).options(*product_eager_loads()).filter(Product.id.in_(ids)).all()
+    q = db.query(Product).options(*product_eager_loads()).filter(Product.id.in_(ids))
+    q = filter_by_ownership(q, Product, user)
+    products = q.all()
     if len(products) < 2:
         raise HTTPException(404, "Products not found")
 
@@ -223,6 +225,7 @@ def export_products(
         selectinload(Product.comm_protocols).selectinload(ProductCommProtocol.protocol),
         selectinload(Product.power_supplies).selectinload(ProductPowerSupply.power),
     )
+    q = filter_by_ownership(q, Product, user)
     if category_id:
         from app.services.product_category_helper import get_products_in_categories, get_category_descendants
         cat_ids = get_category_descendants(db, category_id)
@@ -311,15 +314,15 @@ def export_products(
 
 
 @router.post("/products/upload-image")
-def upload_image(file: UploadFile = File(...), user=Depends(get_current_user)):
+async def upload_image(file: UploadFile = File(...), user=Depends(get_current_user)):
     """Upload an image file, return URL."""
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(400, "File must be an image")
-    # Check size before reading to avoid memory exhaustion
-    if file.size and file.size > settings.IMAGE_MAX_SIZE:
-        raise HTTPException(400, "Image must be under 5MB")
-    content = file.file.read()
-    if len(content) > settings.IMAGE_MAX_SIZE:
+    # Stream-read with a hard cap to avoid memory exhaustion on oversized uploads
+    from app.services.storage import read_limited
+    try:
+        content = await read_limited(file, settings.IMAGE_MAX_SIZE)
+    except ValueError:
         raise HTTPException(400, "Image must be under 5MB")
 
     from app.services.storage import ALLOWED_EXTENSIONS, VALID_SIGNATURES
@@ -579,7 +582,11 @@ def _log_ai_usage(user_id: int, operation: str, tokens_in: int = 0, tokens_out: 
 @router.post("/products/ai-fetch-file")
 async def ai_fetch_file(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
     """AI-assisted product info extraction from uploaded file (PDF/docx/txt/image)."""
-    content = await file.read()
+    from app.services.storage import read_limited
+    try:
+        content = await read_limited(file, settings.FILE_MAX_SIZE)
+    except ValueError:
+        raise HTTPException(400, "File too large")
     filename = (file.filename or "").lower()
     text = ""
     is_image = False
@@ -769,6 +776,8 @@ def get_dependencies(product_id: int, db: Session = Depends(get_db), user=Depend
 
 @router.post("/products/{product_id}/dependencies", status_code=201)
 def create_dependency(product_id: int, data: ProductDependencyCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    p = get_or_404(db, Product, product_id)
+    check_ownership(p, user, strict=True)
     dep = ProductDependency(
         product_id=product_id,
         depends_on_product_id=data.depends_on_product_id,
@@ -785,6 +794,8 @@ def create_dependency(product_id: int, data: ProductDependencyCreate, db: Sessio
 
 @router.put("/products/{product_id}/dependencies/{dep_id}")
 def update_dependency(product_id: int, dep_id: int, data: ProductDependencyUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    p = get_or_404(db, Product, product_id)
+    check_ownership(p, user, strict=True)
     dep = db.get(ProductDependency, dep_id)
     if not dep or dep.product_id != product_id:
         raise HTTPException(404)
@@ -795,6 +806,8 @@ def update_dependency(product_id: int, dep_id: int, data: ProductDependencyUpdat
 
 @router.delete("/products/{product_id}/dependencies/{dep_id}")
 def delete_dependency(product_id: int, dep_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    p = get_or_404(db, Product, product_id)
+    check_ownership(p, user, strict=True)
     dep = db.get(ProductDependency, dep_id)
     if not dep or dep.product_id != product_id:
         raise HTTPException(404)

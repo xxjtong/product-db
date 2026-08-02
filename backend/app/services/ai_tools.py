@@ -75,12 +75,13 @@ TOOL_DEFINITIONS = [
 ]
 
 
-def execute_tool(tool_name: str, arguments: dict, db) -> str:
+def execute_tool(tool_name: str, arguments: dict, db, user_id: int = None) -> str:
     """Execute a tool function and return the result as JSON string."""
     from app.models.product import Product
     from app.models.category import Category
     from app.models.dictionary import Manufacturer, DictCommMethod, DictCommProtocol, DictPowerSupply
     from app.models.mapping import ProductCommMethod, ProductCommProtocol, ProductPowerSupply
+    from app.models.user import User as AuthUser
 
     if tool_name == "search_products":
         # Support both "keywords" (array) and "keyword" (string)
@@ -138,9 +139,9 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
             """Search for a single keyword, return up to max_results products."""
             kw_clean = escape_like(kw)
             return base_q.filter(or_(
-                Product.name.ilike(f"%{kw_clean}%"),
-                Product.model.ilike(f"%{kw_clean}%"),
-                Product.description.ilike(f"%{kw_clean}%"),
+                Product.name.ilike(f"%{kw_clean}%", escape=LIKE_ESCAPE),
+                Product.model.ilike(f"%{kw_clean}%", escape=LIKE_ESCAPE),
+                Product.description.ilike(f"%{kw_clean}%", escape=LIKE_ESCAPE),
             )).options(
                 selectinload(Product.category),
                 selectinload(Product.manufacturer),
@@ -284,11 +285,24 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
         from app.models.solution import Solution, SolutionItem
         from app.models.quotation import Quotation, QuotationItem
         from app.models.product import Product as Prod
+        from app.auth import check_ownership
+        from fastapi import HTTPException
+        from app.routers.quotations import _generate_quote_number
+
+        if not user_id:
+            return json.dumps({"error": "缺少用户上下文，无法创建报价单"}, ensure_ascii=False)
+        user = db.get(AuthUser, user_id)
+        if not user:
+            return json.dumps({"error": "用户不存在"}, ensure_ascii=False)
 
         solution_id = arguments.get("solution_id")
         sol = db.get(Solution, solution_id)
         if not sol:
             return json.dumps({"error": "方案不存在"}, ensure_ascii=False)
+        try:
+            check_ownership(sol, user, strict=True)
+        except HTTPException:
+            return json.dumps({"error": "无权访问该方案"}, ensure_ascii=False)
 
         # Auto-add suggested items if provided
         items_data = arguments.get("items") or []
@@ -311,7 +325,8 @@ def execute_tool(tool_name: str, arguments: dict, db) -> str:
                     for it in items)
         qt = Quotation(solution_id=solution_id, title=sol.name,
                        client_name=sol.client_name or "",
-                       status="draft", total_amount=total)
+                       quote_number=_generate_quote_number(db),
+                       status="draft", total_amount=total, created_by=user_id)
         db.add(qt)
         db.commit()
         db.refresh(qt)

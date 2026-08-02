@@ -229,7 +229,7 @@ def _get_done_events(conv_id, db, total_tokens) -> list[dict]:
     return events
 
 
-def run_mock_agent(user_input: str, db: Session, conv_id: int):
+def run_mock_agent(user_input: str, db: Session, conv_id: int, user_id: int = None):
     """Mock agent using keyword matching — no LLM API key needed."""
     yield {"event": "connect"}
     yield {"event": "first_token"}
@@ -249,7 +249,7 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int):
         args = {"keywords": keywords, "limit": 5}
 
         yield {"event": "tool", "text": "搜索产品..."}
-        result_str = execute_tool("search_products", args, db)
+        result_str = execute_tool("search_products", args, db, user_id=user_id)
         save_message(conv_id, "tool", content=result_str, db=db, commit=False)
         try:
             result = json.loads(result_str)
@@ -278,7 +278,7 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int):
 
     elif "品类" in inp or "分类" in inp or "categories" in inp.lower():
         yield {"event": "tool", "text": "查询品类..."}
-        result_str = execute_tool("list_categories", {}, db)
+        result_str = execute_tool("list_categories", {}, db, user_id=user_id)
         result = json.loads(result_str)
         cats = result.get("categories", [])
         response = f"共有 {len(cats)} 个品类：\n" + "、".join(c["name"] for c in cats[:20])
@@ -297,7 +297,7 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int):
         result_str = ""
         for term in search_terms[:3]:
             args = {"keyword": term, "limit": 5}
-            result_str = execute_tool("search_products", args, db)
+            result_str = execute_tool("search_products", args, db, user_id=user_id)
             results = json.loads(result_str)
             if results.get("found", 0) > 0:
                 break
@@ -379,14 +379,14 @@ def _build_db_context(db: Session) -> str:
     return _cache['value']
 
 
-async def run_agent(messages: list, db: Session, conv_id: int):
+async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = None):
     """Run agent loop with tool calling. Yields SSE event dicts."""
     yield {"event": "connect"}
 
     # If no API key, use mock mode
     if not settings.AI_GATEWAY_KEY:
         user_msg = messages[-1]["content"] if messages else ""
-        for event in run_mock_agent(user_msg, db, conv_id):
+        for event in run_mock_agent(user_msg, db, conv_id, user_id=user_id):
             yield event
         return
 
@@ -449,7 +449,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
             if keywords:
                 yield {"event": "tool", "text": f"搜索 {' + '.join(keywords)}..."}
                 args = {"keywords": keywords, "limit": 5}
-                result_str = execute_tool("search_products", args, db)
+                result_str = execute_tool("search_products", args, db, user_id=user_id)
                 save_message(conv_id, "tool", content=result_str, db=db, commit=False)
                 current_messages.append({"role": "assistant", "content": None, "tool_calls": [{
                     "id": "extract_0", "type": "function",
@@ -564,7 +564,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                         # Supplement LLM matches with SQL search when coverage is thin (≤3 results)
                         if len(interleaved) <= 3:
                             args = {"keywords": keywords or [], "limit": 10, **filter_args}
-                            result_str = execute_tool("search_products", args, db)
+                            result_str = execute_tool("search_products", args, db, user_id=user_id)
                             sql_data, _ = _parse_tool_result(result_str)
                             if sql_data:
                                 shown_ids = {p["id"] for p in interleaved}
@@ -577,7 +577,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                 if not products_found:
                     # Fallback: LLM returned no matches → use SQL LIKE search
                     args = {"keywords": keywords or [], "limit": 5, **filter_args}
-                    result_str = execute_tool("search_products", args, db)
+                    result_str = execute_tool("search_products", args, db, user_id=user_id)
                     save_message(conv_id, "tool", content=result_str, db=db, commit=False)
                     current_messages.append({"role": "assistant", "content": None, "tool_calls": [{
                         "id": "extract_0", "type": "function",
@@ -624,7 +624,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
                 return
             # Fall back to mock mode on API error
             user_msg = messages[-1]["content"] if messages else ""
-            for event in run_mock_agent(user_msg, db, conv_id):
+            for event in run_mock_agent(user_msg, db, conv_id, user_id=user_id):
                 yield event
             return
 
@@ -651,7 +651,7 @@ async def run_agent(messages: list, db: Session, conv_id: int):
 
                 # Execute tool
                 try:
-                    result_str = execute_tool(tool_name, args, db)
+                    result_str = execute_tool(tool_name, args, db, user_id=user_id)
                 except Exception as e:
                     result_str = json.dumps({"error": str(e)})
 
@@ -754,7 +754,7 @@ async def ai_chat(data: AiChatRequest, db: Session = Depends(get_db), user=Depen
         tokens = {"in": 0, "out": 0}
         success = True
         try:
-            async for event in run_agent(messages, sse_db, cid):
+            async for event in run_agent(messages, sse_db, cid, user_id=uid):
                 event["conversation_id"] = cid
                 if event.get("event") == "done" and event.get("tokens"):
                     tokens = event["tokens"]

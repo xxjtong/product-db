@@ -1,5 +1,6 @@
 """SSRF prevention utilities."""
 import ipaddress
+import socket
 from urllib.parse import urlparse
 
 _ALLOWED_SCHEMES = {"http", "https"}
@@ -35,6 +36,19 @@ def _is_ip_allowed(ip_str: str) -> bool:
         return False
 
 
+def _resolve_host_ips(hostname: str) -> list:
+    """Resolve a hostname to its IP addresses (empty list on failure)."""
+    try:
+        ips = []
+        for info in socket.getaddrinfo(hostname, None):
+            ip = info[4][0]
+            if ip not in ips:
+                ips.append(ip)
+        return ips
+    except socket.gaierror:
+        return []
+
+
 def validate_url(url: str) -> bool:
     """Validate URL scheme and block private/metadata hosts (SSRF prevention)."""
     parsed = urlparse(url)
@@ -48,14 +62,19 @@ def validate_url(url: str) -> bool:
         if hostname == blocked or hostname.endswith("." + blocked):
             return False
 
-    # Check private/blocked IP ranges
-    if not _is_ip_allowed(hostname):
-        # If it's already an IP, block it. If it looks like a hostname (not an IP),
-        # don't block here — DNS rebinding protection is handled by the transport layer.
-        try:
-            ipaddress.ip_address(hostname)
-            return False  # literal IP in blocked range
-        except ValueError:
-            pass  # hostname, will be checked at connection time
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        # Literal IP: validate directly
+        return _is_ip_allowed(hostname)
+
+    # Hostname: resolve NOW and block if any resolved IP is private/unallowed.
+    # This closes the DNS-rebinding gap (e.g. 169.254.169.254.nip.io).
+    resolved = _resolve_host_ips(hostname)
+    if not resolved:
+        return False
+    return all(_is_ip_allowed(ip) for ip in resolved)
 
     return True

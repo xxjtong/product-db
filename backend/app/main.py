@@ -4,10 +4,10 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi import HTTPException
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from app.database import Base
+from app.auth import client_ip
 from app.models import *  # noqa: ensure all models registered
 from app.routers import products, product_import, categories, suppliers, solutions, quotations, bom_templates, ai, dictionaries, auth_routes, admin_routes, system_settings, product_files, agent
 from app.config import settings
@@ -48,7 +48,7 @@ if settings.DEV_MODE:
 app = FastAPI(title="物联网产品中心", version="2.0.0")
 
 # Global rate limiting: 200 req/day + 60 req/min per IP
-limiter = Limiter(key_func=get_remote_address, default_limits=["200/day", "60/minute"])
+limiter = Limiter(key_func=client_ip, default_limits=["200/day", "60/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, lambda req, exc: JSONResponse(
     status_code=429,
@@ -120,9 +120,6 @@ async def serve_assets(file_path: str):
         raise HTTPException(status_code=404, detail="Not Found")
     media_type, _ = mimetypes.guess_type(full_path)
     return FileResponse(full_path, media_type=media_type)
-
-# API routes need /product-db/ prefix since Nginx preserves it
-# (include_router calls below use prefix="/api" — need prefix="/product-db/api")
 
 # Serve SPA index.html for all routes, except univer-bom.html standalone page
 @app.get("/product-db")

@@ -125,6 +125,45 @@ describe('AiChat API functions', () => {
     const { streamAiChat } = await import('../api')
     expect(typeof streamAiChat).toBe('function')
   })
+
+  it('streamAiChat yields conversation id carried on backend events', async () => {
+    const { streamAiChat } = await import('../api')
+    // The top-level TextDecoder stub always returns ''; restore a real decoder
+    // for this streaming test.
+    const { TextDecoder: RealTextDecoder } = await import('node:util')
+    const events = [
+      { event: 'connect', conversation_id: 123 },
+      { event: 'text', text: 'hi', conversation_id: 123 },
+      { event: 'done', tokens: {}, conversation_id: 123 },
+    ]
+    const chunks = events.map((e) => new TextEncoder().encode(`data: ${JSON.stringify(e)}\n\n`))
+    chunks.push(new TextEncoder().encode('data: [DONE]\n\n'))
+    let cursor = 0
+    const body = {
+      getReader: () => ({
+        read: () => Promise.resolve(
+          cursor < chunks.length
+            ? { done: false, value: chunks[cursor++] }
+            : { done: true, value: undefined },
+        ),
+      }),
+    }
+    const originalFetch = globalThis.fetch
+    const originalTextDecoder = globalThis.TextDecoder
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, body })
+    globalThis.TextDecoder = RealTextDecoder
+    try {
+      const out: string[] = []
+      for await (const chunk of streamAiChat('你好', null)) {
+        out.push(chunk)
+      }
+      expect(out).toContain('[CONVERSATION:123]')
+      expect(out).toContain('hi')
+    } finally {
+      globalThis.fetch = originalFetch
+      globalThis.TextDecoder = originalTextDecoder
+    }
+  })
 })
 
 // --- GenUI SolutionProductCard event contract ---

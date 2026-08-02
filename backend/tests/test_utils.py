@@ -38,12 +38,11 @@ class TestValidateUrl:
         assert validate_url("file:///etc/passwd") is False
         assert validate_url("ftp://example.com") is False
 
-    def test_numeric_ip_bypass_is_known_limitation(self):
+    def test_blocks_numeric_ip_representation(self):
         from app.utils.security import validate_url
         # Numeric IP representations (e.g., http://2130706433/ = 127.0.0.1)
-        # are not blocked by URL-level checks — browsers/DNS do the conversion.
-        # This is a known limitation documented in the module.
-        assert validate_url("http://2130706433/") is True
+        # are resolved by getaddrinfo and blocked by the resolved-IP check.
+        assert validate_url("http://2130706433/") is False
 
     def test_blocks_link_local(self):
         from app.utils.security import validate_url
@@ -80,6 +79,10 @@ class TestEscapeLike:
         assert escape_like("test%") == "test\\%"
         assert escape_like("a_b") == "a\\_b"
         assert escape_like("a%b_c") == "a\\%b\\_c"
+
+    def test_escapes_backslash(self):
+        from app.utils.escape import escape_like
+        assert escape_like("50%_\\") == r"50\%\_\\"
 
     def test_handles_safe_strings(self):
         from app.utils.escape import escape_like

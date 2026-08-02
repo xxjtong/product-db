@@ -231,41 +231,47 @@ class TestAIExtract:
 # Storage upload_from_url (60% → ~85%)
 # ============================================================
 class TestStorageUploadFromUrl:
-    @patch("httpx.get")
-    def test_upload_from_url_jpeg(self, mock_get):
+    @staticmethod
+    def _stream(content: bytes):
+        class FakeStream:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def raise_for_status(self):
+                return None
+
+            def iter_bytes(self, size):
+                for i in range(0, len(content), size):
+                    yield content[i:i + size]
+
+        return FakeStream()
+
+    @patch("httpx.stream")
+    def test_upload_from_url_jpeg(self, mock_stream):
         from app.services.storage import upload_from_url, delete_file
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.content = b"\xff\xd8\xff\xe0" + b"\x00" * 100
-        mock_resp.raise_for_status = MagicMock()
-        mock_get.return_value = mock_resp
+        mock_stream.return_value = self._stream(b"\xff\xd8\xff\xe0" + b"\x00" * 100)
 
         url = upload_from_url("https://example.com/image.jpg")
         assert "/product-db/api/uploads/" in url
         assert url.endswith(".jpg")
         delete_file(url)
 
-    @patch("httpx.get")
-    def test_upload_from_url_png(self, mock_get):
+    @patch("httpx.stream")
+    def test_upload_from_url_png(self, mock_stream):
         from app.services.storage import upload_from_url, delete_file
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
-        mock_resp.raise_for_status = MagicMock()
-        mock_get.return_value = mock_resp
+        mock_stream.return_value = self._stream(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
 
         url = upload_from_url("https://example.com/img.png")
         assert url.endswith(".png")
         delete_file(url)
 
-    @patch("httpx.get")
-    def test_upload_from_url_gif(self, mock_get):
+    @patch("httpx.stream")
+    def test_upload_from_url_gif(self, mock_stream):
         from app.services.storage import upload_from_url, delete_file
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.content = b"GIF89a" + b"\x00" * 100
-        mock_resp.raise_for_status = MagicMock()
-        mock_get.return_value = mock_resp
+        mock_stream.return_value = self._stream(b"GIF89a" + b"\x00" * 100)
 
         url = upload_from_url("https://example.com/img.gif")
         assert url.endswith(".gif")
@@ -276,26 +282,18 @@ class TestStorageUploadFromUrl:
         with pytest.raises(ValueError, match="not allowed"):
             upload_from_url("http://127.0.0.1/admin")
 
-    @patch("httpx.get")
-    def test_upload_from_url_too_small(self, mock_get):
+    @patch("httpx.stream")
+    def test_upload_from_url_too_small(self, mock_stream):
         from app.services.storage import upload_from_url
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.content = b"tiny"
-        mock_resp.raise_for_status = MagicMock()
-        mock_get.return_value = mock_resp
+        mock_stream.return_value = self._stream(b"tiny")
 
         with pytest.raises(ValueError, match="too small"):
             upload_from_url("https://example.com/tiny.jpg")
 
-    @patch("httpx.get")
-    def test_upload_from_url_invalid_format(self, mock_get):
+    @patch("httpx.stream")
+    def test_upload_from_url_invalid_format(self, mock_stream):
         from app.services.storage import upload_from_url
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.content = b"not an image file at all!!"
-        mock_resp.raise_for_status = MagicMock()
-        mock_get.return_value = mock_resp
+        mock_stream.return_value = self._stream(b"not an image file at all!!")
 
         with pytest.raises(ValueError, match="does not match"):
             upload_from_url("https://example.com/fake.jpg")
@@ -413,6 +411,23 @@ class TestAgentEndpoints:
         resp = client.post("/product-db/api/agent/test-approval", headers=auth_headers)
         assert resp.status_code == 200
         assert "task_id" in resp.json()
+
+    def test_agent_approval_denied_for_other_user(self, db, auth_headers):
+        """A user must not approve another user's approval task."""
+        resp = client.post("/product-db/api/agent/test-approval", headers=auth_headers)
+        task_id = resp.json()["task_id"]
+
+        other = User(username="approve_other", password_hash=hash_password("test123"), role="user")
+        db.add(other)
+        db.commit()
+        db.refresh(other)
+        other_token = create_token(other.id, other.username)
+        resp = client.post(
+            f"/product-db/api/agent/approval/{task_id}",
+            json={"approved": True},
+            headers={"Authorization": f"Bearer {other_token}"},
+        )
+        assert resp.status_code == 403
 
     def test_agent_cleanup_non_admin(self, db):
         u = User(username="agent_user", password_hash=hash_password("test123"), role="user")
@@ -576,9 +591,11 @@ class TestApprovalManagerAsync:
         mgr = ApprovalManager()
         task = mgr.create(
             tool_name="test", tool_label="测试",
-            tool_input={"x": 1}, summary="test approval"
+            tool_input={"x": 1}, summary="test approval", user_id=1
         )
         assert task.task_id
+        assert task.user_id == 1
+        assert mgr.get(task.task_id) is task
         assert len(mgr.get_pending()) == 1
 
         ok = mgr.decide(task.task_id, approved=True, reason="ok")
