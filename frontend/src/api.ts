@@ -12,6 +12,16 @@ export class ApiError extends Error {
   }
 }
 
+/** Extract a readable message from a non-OK response body. */
+export async function readErrorDetail(res: Response): Promise<string> {
+  try {
+    const body = await res.json()
+    return typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail ?? body)
+  } catch {
+    return await res.text().catch(() => '') || res.statusText
+  }
+}
+
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem('token')
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -181,6 +191,11 @@ export async function* streamAiChat(input: string, conversationId?: number | nul
     headers,
     body: JSON.stringify({ input, conversation_id: conversationId }),
   })
+  if (!res.ok) {
+    // Non-SSE error response (e.g. 422 validation) — surface it instead of
+    // silently ending the generator with no output.
+    throw new ApiError(res.status, await readErrorDetail(res))
+  }
   if (!res.body) throw new ApiError(res.status, 'Response body is empty')
   const reader = res.body.getReader()
   const decoder = new TextDecoder()

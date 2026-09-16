@@ -164,6 +164,27 @@ describe('AiChat API functions', () => {
       globalThis.TextDecoder = originalTextDecoder
     }
   })
+
+  it('streamAiChat throws instead of ending silently on a non-SSE error response', async () => {
+    const { streamAiChat, ApiError } = await import('../api')
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 422,
+      statusText: 'Unprocessable Entity',
+      json: () => Promise.resolve({ detail: [{ msg: 'Input should be a valid string' }] }),
+      text: () => Promise.resolve(''),
+    })
+    try {
+      const consume = async () => {
+        for await (const _ of streamAiChat('再找个网关', 14)) { /* drain */ }
+      }
+      await expect(consume()).rejects.toThrow(ApiError)
+      await expect(consume()).rejects.toThrow('valid string')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })
 
 // --- GenUI SolutionProductCard event contract ---

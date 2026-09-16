@@ -105,27 +105,63 @@ def get_or_create_conversation(user_id: int, conv_id: int | None, db: Session) -
 
 
 def get_messages_for_context(conv_id: int, db: Session, limit: int = MAX_CONTEXT) -> list:
-    """Get recent messages as OpenAI-compatible format."""
+    """Get recent messages as OpenAI-compatible format.
+
+    History is replayed to the chat LLM, so the sequence must stay valid:
+    a `tool` message is only legal when it answers a `tool_calls` entry of the
+    immediately preceding assistant message, and an assistant `tool_calls`
+    entry is only legal when every call is answered. Rows written by the
+    keyword-extraction / mock paths are bare `tool` records with no matching
+    call — replaying them verbatim makes the provider reject the whole request
+    with 400, and the failure silently degrades to the mock agent.
+    """
     msgs = db.query(AIMessage).filter_by(conversation_id=conv_id)\
-        .order_by(AIMessage.created_at.desc()).limit(limit).all()
+        .order_by(AIMessage.created_at.desc(), AIMessage.id.desc()).limit(limit).all()
     msgs = list(reversed(msgs))
 
-    result = []
+    result: list = []
+    pending_ids: set = set()  # tool_call ids still awaiting a tool result
+    pending_idx = -1          # index in result of the assistant owning them
+
     for m in msgs:
-        if m.role in ("user", "assistant", "system"):
-            msg = {"role": m.role, "content": m.content or ""}
-            if m.tool_calls:
-                try:
-                    msg["tool_calls"] = json.loads(m.tool_calls)
-                except (json.JSONDecodeError, TypeError):
-                    pass
-            result.append(msg)
-        elif m.role == "tool":
-            result.append({
-                "role": "tool",
-                "tool_call_id": m.tool_call_id or "",
-                "content": m.content or "",
-            })
+        if m.role == "tool":
+            tcid = m.tool_call_id or ""
+            if tcid and tcid in pending_ids:
+                pending_ids.discard(tcid)
+                result.append({"role": "tool", "tool_call_id": tcid, "content": m.content or ""})
+            # Unmatched tool row (no preceding tool_calls) — drop it
+            continue
+
+        # Drop an assistant whose tool_calls were never answered
+        if pending_ids:
+            del result[pending_idx]
+            pending_ids = set()
+            pending_idx = -1
+
+        if m.role not in ("user", "assistant", "system"):
+            continue
+
+        msg = {"role": m.role, "content": m.content or ""}
+        if m.tool_calls:
+            try:
+                calls = json.loads(m.tool_calls)
+            except (json.JSONDecodeError, TypeError):
+                calls = None
+            wait_ids = {c.get("id") for c in calls if c.get("id")} if calls else set()
+            if wait_ids:
+                msg["tool_calls"] = calls
+                pending_ids = wait_ids
+                pending_idx = len(result)
+        result.append(msg)
+
+    if pending_ids:
+        del result[pending_idx]
+
+    # Never start the window mid-turn — a leading assistant/tool message with
+    # no user message before it is rejected too.
+    while result and result[0]["role"] != "user":
+        result.pop(0)
+
     return result
 
 
@@ -169,6 +205,42 @@ def _parse_tool_result(result_str: str) -> tuple:
         return tr.get("products"), tr.get("created_quote")
     except (json.JSONDecodeError, TypeError, KeyError):
         return None, None
+
+
+# Raw tool-call markup that some models emit as plain text instead of returning
+# structured `tool_calls`. Tags are wrapped in ASCII or full-width vertical bars.
+_DSML_MARK = r'[\|\uff5c]{2}DSML[\|\uff5c]{2}'
+
+
+def _parse_dsml_tool_calls(content: str) -> list:
+    """Recover plain-text tool-call markup into OpenAI `tool_calls` shape."""
+    if not content or "DSML" not in content:
+        return []
+    invoke_re = re.compile(
+        _DSML_MARK + r'\s*invoke\s+name="([^"]+)"(.*?)</' + _DSML_MARK + r"\s*invoke>",
+        re.DOTALL,
+    )
+    param_re = re.compile(
+        _DSML_MARK + r'\s*parameter\s+name="([^"]+)"[^>]*>(.*?)</' + _DSML_MARK + r"\s*parameter>",
+        re.DOTALL,
+    )
+    calls = []
+    for name, body in invoke_re.findall(content):
+        args: dict = {}
+        for key, value in param_re.findall(body):
+            value = value.strip()
+            if value[:1] in ("[", "{"):
+                try:
+                    value = json.loads(value)
+                except json.JSONDecodeError:
+                    pass
+            args[key] = value
+        calls.append({
+            "id": f"dsml_{len(calls)}",
+            "type": "function",
+            "function": {"name": name, "arguments": json.dumps(args, ensure_ascii=False)},
+        })
+    return calls
 
 
 def _score_and_dedup_products(
@@ -250,7 +322,6 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int, user_id: int = No
 
         yield {"event": "tool", "text": "搜索产品..."}
         result_str = execute_tool("search_products", args, db, user_id=user_id)
-        save_message(conv_id, "tool", content=result_str, db=db, commit=False)
         try:
             result = json.loads(result_str)
             if result.get("products"):
@@ -301,7 +372,6 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int, user_id: int = No
             results = json.loads(result_str)
             if results.get("found", 0) > 0:
                 break
-        save_message(conv_id, "tool", content=result_str, db=db, commit=False)
         if results and results.get("found", 0) > 0:
             products = results["products"]
             yield {"event": "products", "data": products}
@@ -450,7 +520,9 @@ async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = No
                 yield {"event": "tool", "text": f"搜索 {' + '.join(keywords)}..."}
                 args = {"keywords": keywords, "limit": 5}
                 result_str = execute_tool("search_products", args, db, user_id=user_id)
-                save_message(conv_id, "tool", content=result_str, db=db, commit=False)
+                # Not persisted: this is an internal retrieval artifact, not a
+                # real tool call — storing it would leave an unmatched `tool`
+                # row that makes the next round's history invalid.
                 current_messages.append({"role": "assistant", "content": None, "tool_calls": [{
                     "id": "extract_0", "type": "function",
                     "function": {"name": "search_products", "arguments": json.dumps(args)}
@@ -551,7 +623,6 @@ async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = No
                     if interleaved:
                         products_found = True
                         result_str = json.dumps({"found": len(interleaved), "products": interleaved}, ensure_ascii=False)
-                        save_message(conv_id, "tool", content=result_str, db=db, commit=False)
                         current_messages.append({"role": "assistant", "content": None, "tool_calls": [{
                             "id": "extract_0", "type": "function",
                             "function": {"name": "search_products", "arguments": json.dumps({"keywords": keywords, **filter_args})}
@@ -578,7 +649,6 @@ async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = No
                     # Fallback: LLM returned no matches → use SQL LIKE search
                     args = {"keywords": keywords or [], "limit": 5, **filter_args}
                     result_str = execute_tool("search_products", args, db, user_id=user_id)
-                    save_message(conv_id, "tool", content=result_str, db=db, commit=False)
                     current_messages.append({"role": "assistant", "content": None, "tool_calls": [{
                         "id": "extract_0", "type": "function",
                         "function": {"name": "search_products", "arguments": json.dumps(args)}
@@ -606,7 +676,8 @@ async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = No
     chat_model = _get_ai_setting(db, "ai_chat_model", "deepseek-v4-flash")
     for turn in range(max_turns):
         try:
-            response = await engine.chat(current_messages, model=chat_model, temperature=0.3)
+            response = await engine.chat(current_messages, model=chat_model, temperature=0.3,
+                                         tools=TOOL_DEFINITIONS)
             # Accumulate token usage
             usage = response.get("usage", {})
             total_tokens["in"] += usage.get("prompt_tokens", 0)
@@ -630,10 +701,13 @@ async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = No
 
         choice = response["choices"][0]
         msg = choice["message"]
+        content = msg.get("content") or msg.get("reasoning_content", "") or ""
 
-        # If the model wants to call a tool
-        if msg.get("tool_calls"):
-            tool_calls = msg["tool_calls"]
+        # If the model wants to call a tool. Some models ignore the `tools`
+        # declaration and emit the call as plain text instead — recover it so
+        # the tool actually runs instead of leaking the markup to the user.
+        tool_calls = msg.get("tool_calls") or _parse_dsml_tool_calls(content)
+        if tool_calls:
             current_messages.append({"role": "assistant", "content": None, "tool_calls": tool_calls})
 
             # Save assistant message with tool calls
@@ -675,8 +749,11 @@ async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = No
             yield {"event": "first_token"}
             continue
 
-        # Model returned a text response — stream it
-        content = msg.get("content") or msg.get("reasoning_content", "")
+        # Model returned a text response — stream it.
+        # Residual tool-call markup is not a real answer (the parse above
+        # already failed), so never show it to the user.
+        if "DSML" in content:
+            content = "抱歉，我没能理解这个请求，请换个说法再试一次。"
         # Save the full response
         save_message(conv_id, "assistant", content=content, db=db, commit=False)
         db.commit()
@@ -693,7 +770,9 @@ async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = No
     # Max turns exceeded — ask LLM for final response without tools
     try:
         response = await engine.chat(current_messages, temperature=0.3)
-        text = response["choices"][0]["message"].get("content") or response["choices"][0]["message"].get("reasoning_content") or "抱歉，查询超时，请重新提问。"
+        text = response["choices"][0]["message"].get("content") or response["choices"][0]["message"].get("reasoning_content") or ""
+        if "DSML" in text or not text:
+            text = "查询完成，如需进一步了解请告诉我。" if products_found else "抱歉，查询超时，请重新提问。"
     except Exception as e:
         logging.getLogger("uvicorn").warning(f"run_agent: max-turns LLM call failed: {e}")
         if products_found:
@@ -806,7 +885,7 @@ def get_conversation(conv_id: int, db: Session = Depends(get_db), user=Depends(g
     if not conv or conv.user_id != user.id:
         raise HTTPException(404, "Conversation not found")
     messages = db.query(AIMessage).filter_by(conversation_id=conv_id)\
-        .order_by(AIMessage.created_at).all()
+        .order_by(AIMessage.created_at, AIMessage.id).all()
     return {"conversation": conv.to_dict(), "messages": [m.to_dict() for m in messages]}
 
 

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 class AiChatRequest(BaseModel):
     input: str
-    conversation_id: Optional[str] = None
+    conversation_id: Optional[int] = None
 
 
 class AgentApprovalRequest(BaseModel):

@@ -97,7 +97,7 @@ import { useRouter } from 'vue-router'
 import { MessageCircleIcon, Minimize2Icon } from 'lucide-vue-next'
 import SolutionProductCard from './GenUI/SolutionProductCard.vue'
 import QuoteDraftCard from './GenUI/QuoteDraftCard.vue'
-import { fetchConversations, fetchConversation, deleteConversation, createSolution, addSolutionItem } from '../api'
+import { fetchConversations, fetchConversation, deleteConversation, createSolution, addSolutionItem, ApiError, readErrorDetail } from '../api'
 import DOMPurify from 'dompurify'
 import { formatAiContent, escapeHtml, extractProducts } from '../utils/markdown'
 import { formatTime } from '../utils/time'
@@ -346,11 +346,15 @@ async function send(question?: string) {
     const headers: Record<string,string> = { 'Content-Type': 'application/json' }
     const token = localStorage.getItem('token')
     if (token) headers['Authorization'] = `Bearer ${token}`
-    const reader = (await fetch('/product-db/api/ai/chat', {
+    const res = await fetch('/product-db/api/ai/chat', {
       method: 'POST',
       headers,
       body: JSON.stringify({ input: q, conversation_id: convId.value }),
-    })).body!.getReader()
+    })
+    // Non-SSE error response (e.g. 422) has no `data:` lines — fail loudly
+    // instead of ending the stream silently with no reply.
+    if (!res.ok) throw new ApiError(res.status, await readErrorDetail(res))
+    const reader = res.body!.getReader()
 
     const decoder = new TextDecoder()
     let buffer = ''

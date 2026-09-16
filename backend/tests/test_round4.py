@@ -94,6 +94,20 @@ class TestAIConversationCRUD:
         }, headers=auth_headers)
         assert resp.status_code == 200
 
+    def test_second_round_accepts_int_conversation_id(self, db, auth_headers):
+        """Regression: frontend sends conversation_id as a JSON number. With the
+        old `Optional[str]` schema every round after the first got a 422, and the
+        SSE client silently rendered nothing."""
+        conv = AIConversation(user_id=1, title="Round 2")
+        db.add(conv)
+        db.commit()
+        db.refresh(conv)
+
+        resp = client.post("/product-db/api/ai/chat", json={
+            "input": "再找个网关", "conversation_id": conv.id,
+        }, headers=auth_headers)
+        assert resp.status_code == 200, resp.text
+
     def test_list_conversations(self, db, auth_headers):
         # Create a conversation first
         conv = AIConversation(user_id=1, title="Test Conv")
@@ -156,8 +170,138 @@ class TestAIConversationCRUD:
 
 
 # ============================================================
-# AI: build_context (uncovered lines 60-90)
+# AI: message history must stay a valid tool-call sequence
 # ============================================================
+class TestAIContextMessageValidity:
+    """Regression: orphan `tool` rows made every round 2+ request a 400 and the
+    failure silently degraded to the keyword mock agent."""
+
+    def _conv(self, db, title="Ctx"):
+        conv = AIConversation(user_id=1, title=title)
+        db.add(conv)
+        db.commit()
+        db.refresh(conv)
+        return conv
+
+    def test_drops_orphan_tool_rows_from_legacy_keyword_path(self, db):
+        from app.routers.ai import get_messages_for_context
+
+        conv = self._conv(db, "Legacy")
+        db.add(AIMessage(conversation_id=conv.id, role="user", content="找网关"))
+        # What the old keyword-extraction path wrote: a bare tool row with no
+        # matching assistant tool_calls
+        db.add(AIMessage(conversation_id=conv.id, role="tool",
+                         content='{"found": 1, "products": []}'))
+        db.add(AIMessage(conversation_id=conv.id, role="assistant", content="查询完成。"))
+        db.commit()
+
+        msgs = get_messages_for_context(conv.id, db)
+        assert [m["role"] for m in msgs] == ["user", "assistant"]
+        assert all(m.get("tool_call_id") for m in msgs if m["role"] == "tool")
+
+    def test_keeps_well_formed_tool_call_pair(self, db):
+        from app.routers.ai import get_messages_for_context
+
+        conv = self._conv(db, "Paired")
+        db.add(AIMessage(conversation_id=conv.id, role="user", content="找网关"))
+        db.add(AIMessage(conversation_id=conv.id, role="assistant",
+                         tool_calls=json.dumps([{"id": "call_1", "type": "function",
+                                                 "function": {"name": "search_products",
+                                                              "arguments": "{}"}}])))
+        db.add(AIMessage(conversation_id=conv.id, role="tool",
+                         tool_call_id="call_1", content='{"found": 0}'))
+        db.add(AIMessage(conversation_id=conv.id, role="assistant", content="没有找到。"))
+        db.commit()
+
+        msgs = get_messages_for_context(conv.id, db)
+        assert [m["role"] for m in msgs] == ["user", "assistant", "tool", "assistant"]
+        assert msgs[2]["tool_call_id"] == "call_1"
+
+    def test_drops_assistant_tool_calls_that_were_never_answered(self, db):
+        from app.routers.ai import get_messages_for_context
+
+        conv = self._conv(db, "Unanswered")
+        db.add(AIMessage(conversation_id=conv.id, role="user", content="找网关"))
+        db.add(AIMessage(conversation_id=conv.id, role="assistant",
+                         tool_calls=json.dumps([{"id": "call_x", "type": "function",
+                                                 "function": {"name": "search_products",
+                                                              "arguments": "{}"}}])))
+        db.add(AIMessage(conversation_id=conv.id, role="user", content="在吗"))
+        db.commit()
+
+        msgs = get_messages_for_context(conv.id, db)
+        assert [m["role"] for m in msgs] == ["user", "user"]
+        assert all("tool_calls" not in m for m in msgs)
+
+    def test_history_never_starts_mid_turn(self, db):
+        from app.routers.ai import get_messages_for_context
+
+        conv = self._conv(db, "MidTurn")
+        db.add(AIMessage(conversation_id=conv.id, role="user", content="第一轮"))
+        db.add(AIMessage(conversation_id=conv.id, role="assistant",
+                         tool_calls=json.dumps([{"id": "call_1", "type": "function",
+                                                 "function": {"name": "search_products",
+                                                              "arguments": "{}"}}])))
+        db.add(AIMessage(conversation_id=conv.id, role="tool",
+                         tool_call_id="call_1", content='{"found": 0}'))
+        db.add(AIMessage(conversation_id=conv.id, role="assistant", content="没有找到。"))
+        db.commit()
+
+        # limit=2 slices off the leading user message, leaving a dangling pair
+        msgs = get_messages_for_context(conv.id, db, limit=2)
+        assert msgs == []
+
+
+# ============================================================
+# AI: recovering plain-text tool-call markup
+# ============================================================
+class TestDsmlToolCallRecovery:
+    """Regression: deepseek-v4-flash sometimes ignores the `tools` declaration
+    and writes the call as plain text, which used to be streamed to the user
+    verbatim instead of being executed."""
+
+    def _invoke(self, name, **params):
+        bar = "\uff5c\uff5cDSML\uff5c\uff5c"
+        body = "".join(
+            f'<{bar} parameter name="{k}" string="true">{v}</{bar} parameter>\n'
+            for k, v in params.items()
+        )
+        return f'<{bar} calls>\n<{bar} invoke name="{name}">\n{body}</{bar} invoke>\n</{bar} calls>'
+
+    def test_parses_invoke_and_parameters(self):
+        from app.routers.ai import _parse_dsml_tool_calls
+
+        calls = _parse_dsml_tool_calls(self._invoke("search_products", category="温湿度传感器"))
+        assert len(calls) == 1
+        assert calls[0]["function"]["name"] == "search_products"
+        assert json.loads(calls[0]["function"]["arguments"]) == {"category": "温湿度传感器"}
+
+    def test_parses_multiple_invokes(self):
+        from app.routers.ai import _parse_dsml_tool_calls
+
+        content = self._invoke("search_products", category="网关") + self._invoke("get_product_detail", product_id="7")
+        calls = _parse_dsml_tool_calls(content)
+        assert [c["function"]["name"] for c in calls] == ["search_products", "get_product_detail"]
+        assert len({c["id"] for c in calls}) == 2
+
+    def test_plain_text_yields_nothing(self):
+        from app.routers.ai import _parse_dsml_tool_calls
+
+        assert _parse_dsml_tool_calls("找到 3 个产品。") == []
+
+    def test_recovered_call_executes_and_returns_products(self, db):
+        from app.routers.ai import _parse_dsml_tool_calls
+        from app.services.ai_tools import execute_tool
+
+        cat = _seed_category(db, name="温湿度传感器", slug="th-sensor")
+        _seed_product(db, name="温湿度传感器T1", model="WSDCGQ12LM", category_id=cat.id)
+
+        calls = _parse_dsml_tool_calls(self._invoke("search_products", keyword="温湿度传感器"))
+        result = json.loads(execute_tool(calls[0]["function"]["name"],
+                                         json.loads(calls[0]["function"]["arguments"]), db))
+        assert result["found"] >= 1
+
+
 class TestAIBuildContext:
     def test_build_context_with_data(self, db):
         from app.routers.ai import build_context
