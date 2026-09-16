@@ -193,10 +193,27 @@ chmod 600 /opt/product-db/backend/.env
 chmod 600 /opt/product-db/backend/product_db.db /opt/product-db/backend/product_db.db-wal /opt/product-db/backend/product_db.db-shm
 chmod 600 /opt/product-db/backend/app*.log
 
-# 备份目录不对其他本地账号开放
-chmod 700 /opt/product-db-backups /opt/product-db-backups/db
-chmod 600 /opt/product-db-backups/db/*
+# 上传目录：产品图片/文档。父目录链是 755，文件若为 644 则同机其他账号可读
+chmod 700 /opt/product-db/backend/app/uploads
+find /opt/product-db/backend/app/uploads -type d -exec chmod 700 {} +
+find /opt/product-db/backend/app/uploads -type f -exec chmod 600 {} +
+
+# 备份目录（含 manual/ 历史归档）不对其他本地账号开放
+find /opt/product-db-backups -type d -exec chmod 700 {} +
+find /opt/product-db-backups -type f -exec chmod 600 {} +
 ```
+
+**加固后必须验证应用仍能提供文件**（应用以 tong 运行，属主不变应无影响）：
+
+```bash
+# 从库里取一个真实的本地上传图片，确认加固前后都是 200
+URL=$(sqlite3 /opt/product-db/backend/product_db.db \
+  "SELECT image_url FROM products WHERE image_url LIKE '/product-db/api/uploads/%' LIMIT 1;")
+curl -s -o /dev/null -w '图片 → HTTP %{http_code}\n' "https://product-db.cn$URL"
+```
+
+> 用 `find` 分别处理目录与文件，而不是 `chmod -R`：后者只能给同一个模式，而目录要 `700`（可进入）、文件要 `600`（不给执行位）。
+> 新建文件的权限由 systemd 的 `UMask=0077` 保证（见上），这里只处理存量。
 
 ## 日志
 
@@ -213,9 +230,15 @@ chmod 600 /opt/product-db-backups/db/*
 
 ```
 /opt/product-db-backups/
-├── db/        数据库快照 product_db.db.bak.YYYYmmdd_HHMMSS
-└── uploads/   上传文件镜像（129M / 937 文件）
+├── db/        自动快照 product_db.db.bak.YYYYmmdd_HHMMSS
+│              受保留策略管理：只留最新 14 份（脚本用 -maxdepth 1，不递归子目录）
+├── uploads/   上传文件镜像（129M / 937 文件，由手动命令维护）
+└── manual/    手工/历史归档，**不受保留策略影响**（清理时不会被动）
+               · app-log-archive-YYYYMMDD.tar.gz — 旧日志归档
+               · product_db.db.bak.<日期>_<说明> — 里程碑快照，如 pre_r27 / pre_ouchuang
 ```
+
+> 归类规则：**自动产物进 `db/`，值得长期留存的进 `manual/`**。`manual/` 里的文件不会被备份脚本的保留策略删除。
 
 ### 一次性初始化（需要 sudo，只做一次）
 
