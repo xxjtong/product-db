@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     DISABLE_IP_LOOKUP: bool = False
     LOGIN_RATE_LIMIT: int = 10  # max failed attempts per window
     LOGIN_RATE_WINDOW: int = 300  # window in seconds
+    # 全局限流（每 IP）—— 可配置：回归测试期间需要临时放宽，
+    # 否则一次全量 E2E 就会撞上日配额。
+    RATE_LIMIT_PER_DAY: int = 200
+    RATE_LIMIT_PER_MINUTE: int = 60
     WEASYPRINT_PATH: str = ""  # custom weasyprint binary path, blank = auto-detect
     FRONTEND_DIST: str = "frontend/dist"  # relative to backend dir
     IMAGE_MAX_SIZE: int = 5 * 1024 * 1024  # 5MB

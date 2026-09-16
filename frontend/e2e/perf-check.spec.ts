@@ -1,22 +1,14 @@
 import { test, expect } from '@playwright/test'
-
-const BASE = 'http://localhost:5173/product-db'
-const API = 'http://localhost:8000/product-db/api'
+import { API, injectAuth, login } from './auth'
 
 let token: string
 
 test.beforeAll(async ({ playwright }) => {
-  const ctx = await playwright.request.newContext()
-  const r = await ctx.post(`${API}/auth/login`, { data: { username: 'admin', password: 'admin' } })
-  token = (await r.json()).token
-  await ctx.dispose()
+  token = await login(playwright)
 })
 
 async function setupPage(page: any) {
-  await page.context().addInitScript((t: string) => {
-    window.localStorage.setItem('token', t)
-    window.localStorage.setItem('user', JSON.stringify({ id: 1, username: 'admin', role: 'admin' }))
-  }, token)
+  await injectAuth(page, token)
   // Collect console errors
   page.on('console', (msg: any) => {
     if (msg.type() === 'error') {

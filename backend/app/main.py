@@ -53,8 +53,14 @@ if settings.DEV_MODE:
 
 app = FastAPI(title="物联网产品中心", version="2.0.0")
 
-# Global rate limiting: 200 req/day + 60 req/min per IP
-limiter = Limiter(key_func=client_ip, default_limits=["200/day", "60/minute"])
+# Global rate limiting — per IP, configurable via RATE_LIMIT_PER_DAY / RATE_LIMIT_PER_MINUTE
+limiter = Limiter(
+    key_func=client_ip,
+    default_limits=[
+        f"{settings.RATE_LIMIT_PER_DAY}/day",
+        f"{settings.RATE_LIMIT_PER_MINUTE}/minute",
+    ],
+)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, lambda req, exc: JSONResponse(
     status_code=429,

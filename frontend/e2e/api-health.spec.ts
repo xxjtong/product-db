@@ -1,14 +1,10 @@
 import { test, expect } from '@playwright/test'
-
-const API = 'http://localhost:8000/product-db/api'
+import { API, CRED, login } from './auth'
 
 let token: string
 
 test.beforeAll(async ({ playwright }) => {
-  const ctx = await playwright.request.newContext()
-  const r = await ctx.post(`${API}/auth/login`, { data: { username: 'admin', password: 'admin' } })
-  token = (await r.json()).token
-  await ctx.dispose()
+  token = await login(playwright)
 })
 
 function authHeaders() {
@@ -23,7 +19,7 @@ test.describe('API — Health & Auth', () => {
   })
 
   test('POST /auth/login returns token', async ({ request }) => {
-    const r = await request.post(`${API}/auth/login`, { data: { username: 'admin', password: 'admin' } })
+    const r = await request.post(`${API}/auth/login`, { data: { username: CRED.username, password: CRED.password } })
     expect(r.status()).toBe(200)
     expect((await r.json()).token).toBeTruthy()
   })
@@ -32,7 +28,7 @@ test.describe('API — Health & Auth', () => {
     const r = await request.get(`${API}/auth/session`, { headers: authHeaders() })
     expect(r.status()).toBe(200)
     const body = await r.json()
-    expect(body.user.username).toBe('admin')
+    expect(body.user.username).toBe(CRED.username)
   })
 
  test('unauthenticated request returns 401', async ({ request }) => {

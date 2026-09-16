@@ -1,26 +1,15 @@
 import { test, expect } from '@playwright/test'
-
-const BASE = 'http://localhost:5173/product-db'
-const API = 'http://localhost:8000/product-db/api'
+import { BASE, API, CRED, injectAuth, login } from './auth'
 
 let token: string
 
 test.beforeAll(async ({ playwright }) => {
-  const apiCtx = await playwright.request.newContext()
-  const resp = await apiCtx.post(`${API}/auth/login`, {
-    data: { username: 'admin', password: 'admin' },
-  })
-  const body = await resp.json()
-  token = body.token
+  token = await login(playwright)
   expect(token).toBeTruthy()
-  await apiCtx.dispose()
 })
 
 async function setupPage(page: any) {
-  await page.context().addInitScript((t: string) => {
-    window.localStorage.setItem('token', t)
-    window.localStorage.setItem('user', JSON.stringify({ id: 1, username: 'admin', role: 'admin' }))
-  }, token)
+  await injectAuth(page, token)
 }
 
 // ════════════════════════════════════
@@ -290,7 +279,7 @@ test.describe('Admin Page', () => {
     // Trigger a failed login from a real IP (not localhost, which gets "本地")
     // Even with localhost, the entry should have region="本地" now (not empty)
     const resp = await request.post(`${API}/auth/login`, {
-      data: { username: 'admin', password: 'thisiswrongpassword' },
+      data: { username: CRED.username, password: 'thisiswrongpassword' },
     })
     expect(resp.status()).toBe(401)
 

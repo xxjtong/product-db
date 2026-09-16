@@ -1,20 +1,13 @@
 import { test, expect } from '@playwright/test'
+import { BASE, API, CRED, injectAuth, login } from './auth'
 
-const BASE = 'http://localhost:5173/product-db'
-const API = 'http://localhost:8000/product-db/api'
-
-test('full E2E: product list → solution → quotation with 功能描述 specs verification', async ({ page }) => {
+test('full E2E: product list → solution → quotation with 功能描述 specs verification', async ({ page, playwright }) => {
   // 1. Login and get token
-  const resp = await page.request.post(`${API}/auth/login`, {
-    data: { username: 'admin', password: 'admin' },
-  })
-  const { token } = await resp.json()
+  const token = await login(playwright)
   expect(token).toBeTruthy()
 
   // 2. Set token BEFORE SPA scripts run via addInitScript
-  await page.context().addInitScript((t) => {
-    window.localStorage.setItem('token', t)
-  }, token)
+  await injectAuth(page, token)
 
   // 3. Load SPA
   await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' })

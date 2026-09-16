@@ -1,7 +1,5 @@
 import { test, expect } from '@playwright/test'
-
-const BASE = 'http://localhost:5173/product-db'
-const API = 'http://localhost:8000/product-db/api'
+import { BASE, API, CRED, IS_REMOTE } from './auth'
 
 // ════════════════════════════════════
 // Agent history user isolation (R21.1)
@@ -11,8 +9,8 @@ test.describe('Agent History Isolation', () => {
 
   test('localStorage keys include user ID prefix', async ({ page }) => {
     await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' })
-    await page.fill('input[placeholder="用户名"]', 'admin')
-    await page.fill('input[type="password"]', 'admin')
+    await page.fill('input[placeholder="用户名"]', CRED.username)
+    await page.fill('input[type="password"]', CRED.password)
     await page.click('button:has-text("登录")')
     await page.waitForURL('**/products', { timeout: 10000 })
 
@@ -37,25 +35,28 @@ test.describe('Agent History Isolation', () => {
   })
 
   test('localStorage isolation: user B does not see user A agent keys', async ({ browser }) => {
-    // ── User A: admin (id=1) ──
+    // 生产关闭了自助注册（/auth/register 返回 open:false），且本用例会创建用户 —— 仅在本地跑。
+    test.skip(IS_REMOTE, '需要开放注册且会创建用户；生产不开注册，已跳过')
+
+    // ── User A: 配置的凭据 (id=CRED.id) ──
     const ctxA = await browser.newContext()
     const pageA = await ctxA.newPage()
     await pageA.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' })
-    await pageA.fill('input[placeholder="用户名"]', 'admin')
-    await pageA.fill('input[type="password"]', 'admin')
+    await pageA.fill('input[placeholder="用户名"]', CRED.username)
+    await pageA.fill('input[type="password"]', CRED.password)
     await pageA.click('button:has-text("登录")')
     await pageA.waitForURL('**/products', { timeout: 10000 })
 
     await pageA.goto(`${BASE}/agent`, { waitUntil: 'domcontentloaded' })
     await pageA.waitForTimeout(1000)
 
-    // Inject a fake chat for admin
-    await pageA.evaluate(() => {
-      localStorage.setItem('agent_1_chats', JSON.stringify([{ id: 'c_test', title: 'Admin chat', updatedAt: Date.now() }]))
-    })
+    // Inject a fake chat for user A
+    await pageA.evaluate((uid: number) => {
+      localStorage.setItem(`agent_${uid}_chats`, JSON.stringify([{ id: 'c_test', title: 'Admin chat', updatedAt: Date.now() }]))
+    }, CRED.id)
 
-    // Verify admin sees agent_1_chats
-    const hasAdminChat = await pageA.evaluate(() => localStorage.getItem('agent_1_chats') !== null)
+    // Verify user A sees their own key
+    const hasAdminChat = await pageA.evaluate((uid: number) => localStorage.getItem(`agent_${uid}_chats`) !== null, CRED.id)
     expect(hasAdminChat).toBe(true)
 
     // ── User B: register via API, then login in browser ──
@@ -77,11 +78,11 @@ test.describe('Agent History Isolation', () => {
     await pageB.goto(`${BASE}/agent`, { waitUntil: 'domcontentloaded' })
     await pageB.waitForTimeout(1000)
 
-    // User B must NOT see admin's agent_1_chats
-    const seesAdminChat = await pageB.evaluate(() => localStorage.getItem('agent_1_chats') !== null)
+    // User B must NOT see user A's agent chats
+    const seesAdminChat = await pageB.evaluate((uid: number) => localStorage.getItem(`agent_${uid}_chats`) !== null, CRED.id)
     expect(seesAdminChat).toBe(false)
 
-    // User B's agent keys must use their own user ID (not "agent_1_")
+    // User B's agent keys must use their own user ID (not user A's)
     const keysB: string[] = await pageB.evaluate(() => {
       const ks: string[] = []
       for (let i = 0; i < localStorage.length; i++) ks.push(localStorage.key(i)!)
@@ -89,7 +90,7 @@ test.describe('Agent History Isolation', () => {
     })
     const bAgentKeys = keysB.filter(k => k.startsWith('agent_'))
     for (const k of bAgentKeys) {
-      expect(k).not.toMatch(/^agent_1_/)
+      expect(k).not.toMatch(new RegExp(`^agent_${CRED.id}_`))
       expect(k).toMatch(/^agent_\d+_/)
     }
 

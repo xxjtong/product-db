@@ -1,45 +1,28 @@
 import { test, expect } from '@playwright/test'
-
-const BASE = 'http://localhost:5173/product-db'
-const API = 'http://localhost:8000/product-db/api'
+import { BASE, API, injectAuth, login } from './auth'
 
 let token: string
 
 test.beforeAll(async ({ playwright }) => {
-  const apiCtx = await playwright.request.newContext()
-  const resp = await apiCtx.post(`${API}/auth/login`, {
-    data: { username: 'admin', password: 'admin' },
-  })
-  const body = await resp.json()
-  token = body.token
+  token = await login(playwright)
   expect(token).toBeTruthy()
-  await apiCtx.dispose()
 })
 
 /** Inject a valid token + user into localStorage before SPA loads */
 async function setupPage(page: any, t?: string) {
-  await page.context().addInitScript((tkn: string) => {
-    window.localStorage.setItem('token', tkn)
-    window.localStorage.setItem('user', JSON.stringify({ id: 1, username: 'admin', role: 'admin' }))
-  }, t ?? token)
+  await injectAuth(page, t ?? token)
 }
 
 /** Inject a deliberately invalid token */
 async function setupBadToken(page: any) {
-  await page.context().addInitScript(() => {
-    window.localStorage.setItem('token', 'invalid.token.value')
-    window.localStorage.setItem('user', JSON.stringify({ id: 1, username: 'admin', role: 'admin' }))
-  })
+  await injectAuth(page, 'invalid.token.value')
 }
 
 /** Inject an expired JWT (exp = 0 → 1970-01-01) */
 async function setupExpiredToken(page: any) {
   // Minimal JWT structure with exp=0 — backend should reject this
   const expiredJwt = 'eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjAsInVzZXJfaWQiOjEsInVzZXJuYW1lIjoiYWRtaW4iLCJyb2xlIjoiYWRtaW4ifQ.invalid'
-  await page.context().addInitScript((tkn: string) => {
-    window.localStorage.setItem('token', tkn)
-    window.localStorage.setItem('user', JSON.stringify({ id: 1, username: 'admin', role: 'admin' }))
-  }, expiredJwt)
+  await injectAuth(page, expiredJwt)
 }
 
 // ════════════════════════════════════
