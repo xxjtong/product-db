@@ -2,7 +2,73 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-08-02, R27)
+## 最新变更 (2026-09-16, R29)
+
+### R29: 方案页 AI 多轮对话修复 — 会话 ID 类型 + 历史序列合法性 + DSML 还原 (2026-09-16)
+
+**现象**: `solutions/{id}` 页 AI 方案助手只能聊一轮，第二轮起完全无响应（无报错、无提示）。
+
+**根因 1 — 会话 ID 类型不匹配（P0，用户直接症状）**
+- `schemas/ai.py` `AiChatRequest.conversation_id` 声明为 `Optional[str]`，前端 `JSON.stringify` 传的却是数字 → Pydantic v2 不做隐式转换 → **422 Unprocessable Entity**
+- 前端 SSE 客户端（`api.ts` `streamAiChat`、`AiChat.vue`）只判 `res.body` 不判 `res.ok`，而 422 返回的是 JSON 错误体、不含任何 `data:` 行 → 生成器静默结束、不抛错不提示
+- 引入于 R18 (`c58025a`) 的裸 dict → Pydantic schema 改造；R27 修好前端会话 ID 捕获（`conversationCaptured`）后引爆 —— 此前方案页 `chatCid` 恒为 `null`，歪打正着绕过了 422
+- 影响面：方案页内嵌 AI **与**全局浮动 `AiChat.vue`（后者从 R18 起同样只能聊一轮）
+
+**根因 2 — 多轮上下文消息序列非法（P1）**
+- keyword-extraction / mock 路径只持久化 `tool` 消息、不写配对的 assistant `tool_calls`（`ai.py` 共 5 处）
+- `get_messages_for_context` 原样拼回 → 孤儿 `tool` 行（`tool_call_id` 为空、无前置 `tool_calls`）
+- DeepSeek 返回 **400**，异常被 `run_agent` 吞掉 → 静默降级到 mock agent → 第二轮答案是关键词傻搜结果（实测问"网关"库中有货，却答"没有找到匹配的产品"）
+- 附带：`ORDER BY created_at` 无并列项，而同批写入的消息 `created_at` 精确到同一微秒 → 历史顺序不确定
+
+**根因 3 — 工具声明缺失 + DSML 泄露（P1）**
+- `ai.py` 自 commit `292d725` 起 `TOOL_DEFINITIONS` 只 import 未使用，`engine.chat()` 从未传 `tools=` → `run_agent` 里 `if msg.get("tool_calls")` 整段工具执行分支是死代码
+- 模型被提示词要求调工具、却没拿到工具声明，只能把 DeepSeek 原生 tool-call 标记当**正文**输出
+- Round 0 有 DSML 兜底解析，Round 1 没有 → 第二轮把这串原始标记直接流给用户
+- 修复前被根因 2 的 400 掩盖（第二轮在 400 就死了，走不到这一步）
+
+**修复:**
+- **P0 类型对齐**: `schemas/ai.py` → `conversation_id: Optional[int]`
+- **P0 前端不再静默**: `api.ts` 新增 `readErrorDetail()`；`streamAiChat` 与 `AiChat.vue` 读 body 前补 `if (!res.ok) throw new ApiError(...)`
+- **P1 历史合法性**: `get_messages_for_context` 重写 —— 只回放合法序列（丢弃孤儿 `tool` 行、丢弃未被应答的 assistant `tool_calls`、截断窗口不从一轮中间开始）；排序补 `id` 并列项；`get_conversation` 同修
+- **P1 写入侧**: 5 处 keyword/mock 路径不再持久化合成的 `tool` 行（Round 0 检索产物是内部中间态，不是真实 tool call）
+- **P1 DSML**: 新增 `_parse_dsml_tool_calls()` 把纯文本形态的工具调用还原为标准 `tool_calls`（兼容全角/半角竖线、多 invoke、参数内 JSON）；chat LLM 补 `tools=TOOL_DEFINITIONS`；还原失败时不再把原始标记当正文输出
+
+**测试:**
+- backend pytest: **372 passed** (1 skipped)，+9（会话 ID int 回归 1 + 历史序列合法性 4 + DSML 还原 4）
+- frontend vitest: **62 passed**，+1（`streamAiChat` 遇 422 抛 `ApiError`）
+- vue-tsc: 0 errors
+- 端到端 3 轮实测（真实 DeepSeek key）：第 2/3 轮均正确引用前文、未降级 mock、无标记泄露
+
+**变更统计:** 6 文件, +298/-35
+
+## 历史变更 (2026-08-02, R28)
+
+### R28: 生产文件丢失事故 — 根因修复 + 全量恢复 + 生产部署 (2026-08-02)
+
+**事故**: 生产环境 25 条 product_files 中 21 条引用的文件在磁盘上不存在（全部为 2026-06-04~06-07 上传），另有 9 张 product_images 副图缺失。
+
+**根因**: `POST /agent/cleanup-uploads` 会删除 uploads 目录中所有超过 7 天的文件（本意是清理 Agent 临时上传），导致产品文档/图片被误删。本地开发库的 48 个破损主图同因。
+
+**修复** (commit 43ea6a8): cleanup 只删除"未被任何 DB 记录引用"的旧文件（products.image_url / product_images.url / product_files.file_url 三重引用保护），并新增 TDD 测试 `test_cleanup_keeps_db_referenced_files`。
+
+**生产部署 (R27 + 修复)**:
+- 生产已更新至 5c1e7d1 (R27 安全修复) + 43ea6a8 (cleanup 修复)，服务重启验证 health OK
+- 生产 DB stamp 到 head + 应用幂等迁移 `c3d4e5f6a7b8`（补 login_logs 索引），schema 与 models 完全一致
+- 修正生产 `.env` 的 `DATABASE_PATH`（原为本地 Mac 路径）
+- 前端 dist 重新构建部署
+
+**数据恢复**:
+- 生产库同步到本地：SQLite WAL 模式必须用 `VACUUM INTO`/`.backup` 快照，直接 cp 会丢 WAL 数据
+- 从本机 OneDrive `供应商/` 目录按字节级核对找回 16 个产品文件（欧创 6 + 智绘源 4 + 微光 4 + 迭代 1 + 商米 1），另 4 个（iBreaker/PMC-340/R720F×2）来自本机 Downloads
+- 欧创 4 个原本无文件的产品补挂规格书（CG52LD/DP35LW/DS10LW/CC51LR）
+- 用户补传 10 张图片（替换 9 条坏记录）
+- test.txt 测试残留记录已删除
+
+**当前状态**: 生产与本地一致 — product_files 28 条 0 缺失、product_images 73 条引用 0 缺失、alembic 均到 head。
+
+**遗留风险**: 生产尚无自动备份（无 cron/定时器）。已建议部署每日 DB 快照 + uploads 增量备份，未实施。
+
+## 历史变更 (2026-08-02, R27)
 
 ### R27: 全面评测修复 — 安全边界 + 迁移 + 工程卫生 (2026-08-02)
 
@@ -31,36 +97,126 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 - 删除死代码 `_cached_dict_query`、`DownloadTicket` 模型（无表无引用）、main.py 过时注释与未用导入
 - README/系统功能说明 测试数量更新（341/60/96）
 
-## 最新变更 (2026-08-02, R28)
+## 历史变更 (2026-07-23, R26)
 
-### R28: 生产文件丢失事故 — 根因修复 + 全量恢复 + 生产部署 (2026-08-02)
+### R26: 全面迭代 — 导出模板改进、成本列、Agent Token 统计、拖拽排序、安全加固
 
-**事故**: 生产环境 25 条 product_files 中 21 条引用的文件在磁盘上不存在（全部为 2026-06-04~06-07 上传），另有 9 张 product_images 副图缺失。
+**导出模板改进:**
+- 按钮改名: 「导出 xlsx」→「导出表格」(2 文件)
+- 所有导出表格「备注」列右侧增加「成本」列 (Excel 列 M)
+- 成本列纯数值无样式，M 列独立于 A-L 样式网格，可安全删除
+- 导出信息行: 删除「公司」→ 改为 `客户 / 项目 / 日期`
+- 导出页脚: 「产品数据库」→ 用户名
 
-**根因**: `POST /agent/cleanup-uploads` 会删除 uploads 目录中所有超过 7 天的文件（本意是清理 Agent 临时上传），导致产品文档/图片被误删。本地开发库的 48 个破损主图同因。
+**Agent Token 统计:**
+- Agent SSE 流拦截 Hermes 返回的 usage，写入 `ai_usage_logs` (operation="agent_chat")
+- Admin 面板 AI 统计自动纳入 agent 用量
+- `_call_hermes`: `aiter_bytes()` → `aiter_lines()` 文本行流
 
-**修复** (commit 43ea6a8): cleanup 只删除"未被任何 DB 记录引用"的旧文件（products.image_url / product_images.url / product_files.file_url 三重引用保护），并新增 TDD 测试 `test_cleanup_keeps_db_referenced_files`。
+**方案产品清单增强:**
+- 拖拽排序: HTML5 drag-and-drop，拖拽行半透明 + 目标蓝色顶线
+- `PUT /solutions/{id}/items/reorder` — 批量更新 sort_order
+- 单价格式化: `¥1,234` + `—` 备选 (null 安全)
+- 方案项 `unit_price` 不再强制 0 — `base_price` 为 0/None 时留空
+- 生成报价单按方案排序正确复制 (`order_by sort_order`)
 
-**生产部署 (R27 + 修复)**:
-- 生产已更新至 5c1e7d1 (R27 安全修复) + 43ea6a8 (cleanup 修复)，服务重启验证 health OK
-- 生产 DB stamp 到 head + 应用幂等迁移 `c3d4e5f6a7b8`（补 login_logs 索引），schema 与 models 完全一致
-- 修正生产 `.env` 的 `DATABASE_PATH`（原为本地 Mac 路径）
-- 前端 dist 重新构建部署
+**部署文档:**
+- `DEPLOY.md` — 完整部署架构/命令/位置/Nginx/systemd 配置
 
-**数据恢复**:
-- 生产库同步到本地：SQLite WAL 模式必须用 `VACUUM INTO`/`.backup` 快照，直接 cp 会丢 WAL 数据
-- 从本机 OneDrive `供应商/` 目录按字节级核对找回 16 个产品文件（欧创 6 + 智绘源 4 + 微光 4 + 迭代 1 + 商米 1），另 4 个（iBreaker/PMC-340/R720F×2）来自本机 Downloads
-- 欧创 4 个原本无文件的产品补挂规格书（CG52LD/DP35LW/DS10LW/CC51LR）
-- 用户补传 10 张图片（替换 9 条坏记录）
-- test.txt 测试残留记录已删除
+**安全修复 (CRITICAL):**
+- C1: LIKE 注入防护 — 26 处 `ilike()` 加 `escape=LIKE_ESCAPE` (8 文件)
+- C3: 产品成本导出 — 非 admin 隐藏 M 列成本值
+- C4: 报价单快照 — 创建时 strip `cost_price`，导出时检查 field_visibility
 
-**当前状态**: 生产与本地一致 — product_files 28 条 0 缺失、product_images 73 条引用 0 缺失、alembic 均到 head。
+**测试:** backend pytest 298/298 / frontend vue-tsc 0 / vitest 60/60 / E2E 94/96 (2 预存失败)
 
-**遗留风险**: 生产尚无自动备份（无 cron/定时器）。已建议部署每日 DB 快照 + uploads 增量备份，未实施。
+**变更统计:** 17 commits, 14 files, +380/-70
 
-## 最新变更 (2026-07-07, R21)
+## 历史变更 (2026-07-23, R25)
 
-### R21: 测试覆盖率大幅提升 + Bug 发现 (2026-07-07)
+### R25: 移除产品列表导出按钮
+
+- 产品列表页「导出」按钮功能失效，暂移除
+
+## 历史变更 (2026-07-16, R24)
+
+### R24: 产品文件链接功能
+
+**新功能:**
+- 产品文件卡片支持添加 URL 链接，与文件混合展示
+- POST `/products/{id}/links` — 创建链接（JSON: `{label, link_url}`）
+- PATCH `/products/files/{id}` — 编辑文件/链接的 label，链接可更新 link_url
+- 前端「添加链接」按钮 + 对话框，链接标题点击新标签跳转
+- 链接操作：打开 + 编辑 + 删除
+
+**模型变更:**
+- `ProductFile` 加 `is_link` (Boolean) + `link_url` (String 500) 列
+- `to_dict()` 返回新字段
+
+**修复:**
+- `7db0c6d785b3_initial_schema.py` `import *` inside function → 修复 Python 3.9 兼容
+- `add_login_log_indexes.py` `down_revision` typo 修正
+
+**测试:** backend pytest 339/341 / frontend vue-tsc 0 / vitest 60/60
+
+## 历史变更 (2026-07-07, R23)
+
+### R23: 安全加固 + 代码质量 + Bug 修复
+
+**安全加固 (P0):**
+- Raw SQL → ORM: `products.py` 2 处 `text()` JOIN 查询替换为 SQLAlchemy Core `select()` + `.join()`，消除 SQL 注入面
+- 全局速率限制: 新增 `slowapi` 中间件，200 req/day + 60 req/min per IP
+- DEV_MODE 生产防护: 检测 systemd `INVOCATION_ID`，`DEV_MODE=true` 下拒绝启动，需 `FORCE_DEV_MODE=true` 覆盖
+
+**前端清理 (P0):**
+- `package.json`: 删除 `react`/`react-dom` 依赖（Vue 项目残留）
+
+**代码质量 (P1):**
+- `ai.py` `run_agent()`: 提取 `_build_db_context()` + `_score_and_dedup_products()`，429→336 lines (-22%)
+- `agent.py` `_execute_tool()`: `get_product_detail` batch 查询 DictCommMethod（消除 N+1）+ eager load manufacturer/category
+- `admin_routes.py` `test_llm_config`: 同步 `requests` → `httpx`（全项目统一 HTTP 库）
+- `main.py`: `import mimetypes` 移至文件顶部
+
+**Bug 修复:**
+- `ai_tools.py:313`: `create_quotation` 工具删除 `project_name=sol.project_name` 传参（`Quotation` 模型无此列，调必抛 `TypeError`）
+
+**测试:** backend pytest 129/129 / frontend vue-tsc 0 errors, vitest 60/60
+
+**变更统计:** 9 files, +159/-111
+
+## 历史变更 (2026-07-07, R22)
+
+### R22: 用户隔离 — Agent 历史 + 登录日志地区
+
+**Agent 会话历史用户隔离:**
+- `AgentView.vue`: localStorage 前缀 `agent_` → `agent_{userId}_`，不同用户独立存储
+- `inject('currentUser')` 获取当前用户 ID
+- 新增 E2E 测试 `e2e/agent-isolation.spec.ts` (2 tests)
+
+**登录日志地区补全:**
+- `auth_routes.py`: 失败登录 + 注册 补 `_lookup_ip_region(ip)`
+- 之前仅登录成功调用，失败/注册 → region=NULL → 前端显示"—"
+- 新增 E2E 测试 (admin 登录日志 2 tests +)
+
+**产品搜索增强 — 厂商名:**
+- `products.py`: 搜索 OR 条件新增厂商名 JOIN
+- 搜索"智嵌"（厂商名）从 1 条 → 6 条（之前仅 description 含"智嵌"的 1 条能匹配）
+- 搜索覆盖: name / model / sku / description / pinyin / 品类名 / **厂商名**（新增）
+
+**AI 助手用户隔离审计:**
+- AiChat.vue: 后端 `AIConversation` 表 `filter_by(user_id=user.id)` ✅
+- SolutionDetailView.vue: 同后端 ✅
+- AgentView.vue: localStorage `agent_{userId}_` ✅ 已修复
+- Agent 后端: 无状态代理 ✅
+- 后端 3 端点 (`GET/DELETE /ai/conversations`) 全部校验所有权
+
+**.gitignore:** 添加 `frontend/test-results/`, `backend/test-results/`, `frontend/playwright-report/`
+
+**测试:** backend pytest 129/129 / frontend vue-tsc 0 errors, vitest 60/60 / E2E: 96 tests (2 agent + 2 login-log + 2 error-scenarios + 75 full-regression + 19 API + 4 perf), 1 pre-existing failure (LLM config — R20 API key input removed)
+
+## 历史变更 (2026-07-07, R21.1)
+
+### R21.1: 测试覆盖率大幅提升 + Bug 发现 (2026-07-07)
 
 **测试覆盖率提升 (+212 tests, +17%):**
 
@@ -89,9 +245,72 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 
 **变更统计:** 5 文件新增
 
-## 最新变更 (2026-06-27, R20)
+## 历史变更 (2026-07-06, R21)
 
-### R20: 测试覆盖率提升 + 生产环境 E2E 验证 (2026-06-27)
+### R21: 时区显示修复 + 端口统一 + 环境配置完善
+
+**时区显示修复:**
+- 新增 `frontend/src/utils/time.ts` — `formatTime()` 统一将 UTC 时间转本地时区显示
+- 10 处 raw `created_at`/`updated_at` → `formatTime()`
+- SQLite 存 UTC 但返回 naive datetime（无时区戳），JS 按本地时区解析 → 显示晚 8 小时
+- 修复：`formatTime` 检测 naive ISO 自动追加 `Z` 后缀，强制 UTC 解释
+- AgentView 删除本地 `formatTime`，统一用共享版
+
+**端口统一 (8002→8000):**
+- 生产 systemd + Nginx 端口改为 8000，与开发环境一致
+- 本文档同步更新
+
+**环境配置:**
+- `.env.example` 补全 24 个配置项（含注释），新机器 `cp .env.example .env` 即可
+- Vite 启动命令改为 `npm run dev`，锁定项目 Vite 6.x（全局 Vite 8 不兼容）
+
+**测试:** vue-tsc 0 errors / vitest 60/60
+
+## 历史变更 (2026-07-06, R20)
+
+### R20: API Key 统一 + 搜索评分优化 + UX 增强
+
+**API Key 统一管理 (.env only):**
+- `ai_engine.py`: 删除 DB 查 key 逻辑，仅用构造参数 → `.env` `AI_GATEWAY_KEY`
+- `admin_routes.py`: `_LLM_CONFIG_DEFAULTS` 去 `api_key`；`_load_llm_config` 过滤 key；`update_llm_config` 保存前剔除；`test_llm_config` vision 测试用 `VISION_API_KEY`
+- `products.py` `_ocr_image`: 改用 `.env` `VISION_API_KEY`（不再 fallback 到主 key）
+- `config.py`: 新增 `VISION_BASE_URL`/`VISION_MODEL`/`VISION_API_KEY`
+- DB `llm_config`: 清除存储的 `api_key`
+- 前端 AdminView: API Key 输入框改为禁用 + `.env` 提示
+
+**AI 搜索评分优化:**
+- `ai.py` Round 0 关键词提取：prompt 加优先级规则（name>品类标签>描述）；LLM 匹配后 thin(≤3)时补 SQL 搜索合并
+- `ai.py` mock agent: 拆分复合词为多关键词（"lorawan网关"→["lorawan","网关"]）
+- `ai_tools.py`: 多关键词改评分制（name=3/model=2/desc=1）替代交错合并；候选池扩大到 limit×3；单关键词也加评分排序
+- 搜索"lorawan网关"之前返回智能开关面板(描述含"兼容LoRaWAN网关")，现在返回真正的网关产品
+
+**401 降级提示:**
+- `ai.py`: LLM 401 时 yield warning 事件
+- `api.ts` + `SolutionDetailView.vue`: 前端消费 warning 事件，黄色警告条展示
+
+**UX 增强:**
+- `SolutionsView.vue`: 新增方案对话框名称字段下移，客户+项目联动生成名称（`客户-项目`），手动编辑后断开联动
+- `SolutionDetailView.vue` 批量选品: 搜索支持厂商/品类/名称/型号过滤；移除 6 项上限；产品行新增厂商列
+
+**Bug 修复:**
+- 首页 404: 服务器 `/opt/product-db/static/` 目录丢失，`git clean -fd` 清掉 untracked 目录 → `static/coming-soon.html` 入 git
+- `admin_routes.py` `cfg[k].pop()` 加 `isinstance` 检查防类型错误
+- `ai_tools.py:185` `escape_like(kw)` 错误用于 Python 字符串匹配 → 改用 `kw.lower()`
+
+**测试:** Backend import OK / Frontend vue-tsc 0 errors / AI 对话 3 场景验证通过
+
+## 历史变更 (2026-07-01, R19.1)
+
+### R19.1: 页脚增加公安备案号 (2026-07-01)
+
+- footer 增加公安备案号: 陕公网安备61019002004032号（`App.vue` 新增链接，`main.css` 调整样式）
+- footer 改为 flexbox 布局，双链接并排显示，`gap: 12px`
+
+**变更统计:** 2 文件, +5
+
+## 历史变更 (2026-06-27, R19)
+
+### R19: 测试覆盖率提升 + 生产环境 E2E 验证 (2026-06-27)
 
 **测试覆盖率提升 (+84 测试, +43%):**
 
@@ -130,40 +349,69 @@ E2E 新增 17 测试 (`error-scenarios.spec.ts`):
 
 **变更统计:** 6 文件新增
 
-### R19: 安全加固 + 代码质量提升 (2026-06-26)
+## 历史变更 (2026-06-26, R18)
+
+### R18: 安全加固 — 权限收敛 + 漏洞修复 + 代码质量 (2026-06-26)
+
+**权限收敛:**
+- products.py PUT/DELETE: `check_ownership(strict=True)` — 普通用户只能改/删自己产品
+- `check_ownership` strict 模式修复: NULL 旧数据拒绝写入，admin 判断改用 `_get_admin_ids()`
 
 **安全加固 (5 严重 → 0):**
 - S1: DEV_MODE 启动横幅 + auto-admin 日志警告
-- S2: ?token= 限制仅 GET 请求
-- S5: SHA256 回退加 warning log（自动升级已在）
-- S7: BOM 模板删除加 check_ownership(strict=True)
-- S9: 产品文件 4 端点加所有权检查（读→view, 写→strict）
-- S10: GET /settings + /settings/{key} 加 admin 检查
-
-**中等修复:**
+- S2: JWT `?token=` 限制仅 GET 请求
+- S5: SHA256 遗留哈希加 warning log（自动升级已在 auth_routes）
+- S7: BOM 模板删除补 `check_ownership(strict=True)`
+- S9: product_files 4 端点所有权检查（读→view, 写→strict）
+- S10: `/settings` + `/settings/{key}` 加 admin 检查
 - N2: cleanup-uploads 加 admin 检查
 - N6: BOM snapshot 4 端点加方案所有权检查
-- M1: 6 文件 9 处 datetime.now() → datetime.now(timezone.utc)
-- D1: python-jose → PyJWT，移除 ecdsa/rsa/pyasn1 依赖
-- B3: AI/Agent 3 端点 raw dict → Pydantic schema
-- F6: api.ts 23 处 data: any → Record<string, unknown> + 返回类型修正
+- agent.py:297 LIKE 注入: keyword + manufacturer_name 加 `escape_like()`
+
+**代码质量:**
+- M1: 10 model 文件 + 6 router 文件 `datetime.now()` → `datetime.now(timezone.utc)`
+- D1: python-jose → PyJWT 2.13, 移除 ecdsa/rsa/pyasn1 依赖
+- B1: 17 个 POST 创建端点 → `status_code=201`
+- B3: AI/Agent 3 端点 raw dict → Pydantic schema (`schemas/ai.py`)
+- F6: api.ts 23 处 `data: any` → `Record<string, unknown>`, 返回类型修正
 - F8: flattenTree 集中到 markdown.ts
-- F10: AiChat.vue 死代码 mdToHtml 删除
-- F15: 404 catch-all 路由
-- F17: SolutionDetailView 流式 50ms 节流
-- B1: 10 个 POST 端点 → 201 Created
-- M2: created_by 列全部加 index
-- agent.py:297 LIKE 注入修复（escape_like）
+- M2: 8 张表 `created_by` 列加 `index=True`
+
+**前端:**
+- F10: AiChat.vue 删除 48 行死代码 `mdToHtml`
+- F15: 404 路由 + NotFoundView.vue
+- F17: SolutionDetailView 流式渲染 50ms 节流（减少 ~90% 重渲染）
+- 登录页: 注册字段填写说明 + 注册关闭时隐藏链接
+
+**测试:** backend pytest 84/84, frontend vue-tsc 0 errors
+
+**评级:** B+ → **A-**
+
+**变更统计:** 36 文件, +317/-244
+
+## 历史变更 (2026-06-19, R17.1)
+
+### R17.1: 后端 Bug 修复 + E2E 测试全覆盖 (2026-06-19)
+
+**Bug 修复 (4 项):**
+- **`_extract_product_info` async bug**（严重）: `products.py` 中 `_extract_product_info` 从 `ai_fetch_file`（async route）调用时使用 `asyncio.run()`，在已有事件循环中抛 `RuntimeError`，被 `except Exception: pass` 静默吞掉 → 文件上传的 AI 提取从未真正调用 LLM，始终静默降级到 regex。修复：函数改为 `async def`，`asyncio.run()` → `await engine.chat()`
+- **`_ocr_image` 同步阻塞**: 去掉 `requests.post` + `ThreadPoolExecutor`，改用 `httpx.AsyncClient`
+- **图片上传硬编码 5MB**: 两处 `5 * 1024 * 1024` → `settings.IMAGE_MAX_SIZE`
+- **`update_quotation_item` 一致性**: 手动 `for f in [...]` + `setattr` → `apply_partial_update()`
+
+**E2E 测试全覆盖:**
+- 3 个测试套件，**75 个测试，100% 通过**
+- `e2e/full-regression.spec.ts`（51 tests）：17 个功能组全覆盖
+- `e2e/api-health.spec.ts`（19 tests）：19 个 API 端点直连验证
+- `e2e/perf-check.spec.ts`（4 tests）：性能 + 可访问性 + console 错误检测
 
 **测试结果:**
 - Backend pytest: 84/84 pass
 - Frontend vitest: 38/38 pass
 - vue-tsc: 0 errors
-- Playwright E2E: 75/75 pass
+- Playwright E2E: 75/75 pass（全功能 2.6m + API 1.4s + Perf 14.6s）
 
-**评级:** B+ → **A-**
-
-**变更统计:** 31 文件, +247/-193 行
+**变更统计:** 4 文件, +560/-40 行
 
 ## 历史变更 (2026-06-18, R17)
 
@@ -210,30 +458,6 @@ E2E 新增 17 测试 (`error-scenarios.spec.ts`):
 
 **变更统计:** 23 文件, +370/-3915 行
 
-### R17.1: 后端 Bug 修复 + E2E 测试全覆盖 (2026-06-19)
-
-**Bug 修复 (4 项):**
-- **`_extract_product_info` async bug**（严重）: `products.py` 中 `_extract_product_info` 从 `ai_fetch_file`（async route）调用时使用 `asyncio.run()`，在已有事件循环中抛 `RuntimeError`，被 `except Exception: pass` 静默吞掉 → 文件上传的 AI 提取从未真正调用 LLM，始终静默降级到 regex。修复：函数改为 `async def`，`asyncio.run()` → `await engine.chat()`
-- **`_ocr_image` 同步阻塞**: 去掉 `requests.post` + `ThreadPoolExecutor`，改用 `httpx.AsyncClient`
-- **图片上传硬编码 5MB**: 两处 `5 * 1024 * 1024` → `settings.IMAGE_MAX_SIZE`
-- **`update_quotation_item` 一致性**: 手动 `for f in [...]` + `setattr` → `apply_partial_update()`
-
-**E2E 测试全覆盖:**
-- 3 个测试套件，**75 个测试，100% 通过**
-- `e2e/full-regression.spec.ts`（51 tests）：17 个功能组全覆盖
-- `e2e/api-health.spec.ts`（19 tests）：19 个 API 端点直连验证
-- `e2e/perf-check.spec.ts`（4 tests）：性能 + 可访问性 + console 错误检测
-
-**测试结果:**
-- Backend pytest: 84/84 pass
-- Frontend vitest: 38/38 pass
-- vue-tsc: 0 errors
-- Playwright E2E: 75/75 pass（全功能 2.6m + API 1.4s + Perf 14.6s）
-
-**变更统计:** 4 文件, +560/-40 行
-
-## 历史变更 (2026-06-17, R17-prior)
-
 ## 历史变更 (2026-06-17, R17-prior)
 
 ### R17-prior: Agent 全功能完善 — 文件上传 + 审批 + API 认证 + 工具定义
@@ -279,6 +503,17 @@ E2E 新增 17 测试 (`error-scenarios.spec.ts`):
 ## 历史变更 (2026-06-17, R16)
 
 ### R16: Agent prompt DB 化 + API 查询引导 + 流式动画 + ICP 页脚
+
+- Agent system prompt 从硬编码改为管理页 AI 设置可编辑（DB 存储）
+- 新增 `GET /agent/config`、`GET /agent/prompt` 端点，返回 `db_path` / `api_base` / `prompt`
+- `config.py` 新增 `AGENT_API_BASE` / `DATABASE_PATH` 配置项
+- `AgentView` 头像静态化 + `▊` 高频闪烁光标（SSE 完成后消失）
+- 页脚加陕ICP备2026015306号
+- 修复 pdb 前端部署路径（`frontend/dist`）+ Hermes `execute_code` allowlist
+
+**变更统计:** 10 文件, +152/-83
+
+## 历史变更 (2026-06-16, R15)
 
 ### R15: Hermes Agent 全屏对话页 (2026-06-16)
 - DOMPurify XSS 防护
@@ -379,9 +614,9 @@ E2E 新增 17 测试 (`error-scenarios.spec.ts`):
 - `solution_items.sort_order` 同步修复
 - DB `ai_keyword_model` 改回 `deepseek-chat`
 
-### R12.2: 提示词 DB 化 + URL 按钮修复
+## 历史变更 (2026-06-08, R12.2)
 
-## 最新变更 (2026-06-08, R12.2)
+### R12.2: 提示词 DB 化 + URL 按钮修复
 
 - 提示词 DB 化: `build_extraction_prompt` 从 `ai_extract_prompt` 读取, 管理页可编辑+重置
 - 产品 URL 按钮: 裸 `www.` 域名自动识别, async/await 提取, 自动 `https://` 前缀
@@ -389,11 +624,22 @@ E2E 新增 17 测试 (`error-scenarios.spec.ts`):
 - 新建产品页: 依赖关系卡片可见, 保存后跳转编辑页
 - AI 卡片拖拽区文字改为"粘贴图片、拖拽文件到此处 或"
 
+## 历史变更 (2026-06-07, R12.1)
+
 ### R12.1: AI按钮恢复, 依赖卡片/自动滚动/URL提取联动
 
-### R12: 全面优化 — 性能/架构/CSS/LLM/OCR/组件/安全
+- 恢复产品 Header AI 智能录入按钮 + 产品 URL 右侧 AI 识别按钮
+- `AiExtractCard` 暴露 `fetchFromUrl()` — URL 联动填入 + 自动提取
+- AI 提取完成自动滚动到预览区
+- 新建产品页显示依赖卡片（提示先保存），保存后跳转编辑页
+- 修复 `v-else` 孤儿（SolutionsView / QuotationsView / AdminView）
+- `ai-drop` CSS 移至 main.css 全局
 
-### R12: 全面优化 — 性能/架构/CSS/LLM/OCR
+**变更统计:** 前端 3 文件（`AiExtractCard.vue` / `DependencyEditor.vue` / `ProductFormView.vue`）
+
+## 历史变更 (2026-06-07, R12)
+
+### R12: 全面优化 — 性能/架构/CSS/LLM/OCR/组件/安全
 
 **性能优化:**
 - +7 索引 (login_logs, product_categories, solution_items, quotation_items, product_dependencies, products(status,mfg), ai_conversations) / -2 重复索引
@@ -451,6 +697,43 @@ E2E 新增 17 测试 (`error-scenarios.spec.ts`):
 - 系统功能说明.md 数据统计 + 组件列表更新
 - docs/architecture.md + docs/database.md 已补充最新架构
 
+## 历史变更 (2026-06-06, R11)
+
+### R11: 代码审计修复 + 架构/数据库文档 (2026-06-06)
+
+**安全修复:**
+- 11 处 PUT/DELETE 端点补全 `check_ownership()`（字典 8 + 供应商 2 + delete_manufacturer）
+- 所有 `except: pass` 改为至少 log 警告（ai_extract / ai / auth_routes / product_files）
+- `upload_image` 加 `file.size` 预检防大文件 OOM
+- `uploadProductImage` 加 `resp.ok` 检查
+
+**类型安全:**
+- 8 个 Dict CRUD 端点 `data: dict` → Pydantic Schema（Create/Update × 4 类型）
+- 新增 CommMethod / Protocol / PowerSupply / SensorMetric 的 Create/Update schemas
+
+**错误处理:**
+- `onAiFetch` 加 HTTP 状态码检查 + finally；`onAiFill` 加 try-catch
+- 4 个 dict load 函数加 try-catch；`deleteSup` 加错误处理，`loadCategories` 加空对象回退
+
+**数据一致性:**
+- regex fallback spec key 英→中（`ip_rating` → 防护等级 等）
+- `quotation_items.product_id` 改 nullable（BOM 手动行用 NULL 代替哨兵 0）
+- 导出改用 `product_categories` 多对多筛选（与列表查询逻辑对齐）
+
+**代码整洁:**
+- products / ai / quotation 模块级 `import logging`；移除未用 `literal_column`；suppliers 重复 import 修复
+- `DictItem` 接口补 `accuracy` / `resolution`；`_log_ai_usage` 加 try/finally 防连接泄漏
+
+**文档:**
+- 新增 `docs/architecture.md`（架构总览）+ `docs/database.md`（数据库设计）
+- 系统功能说明.md 更新数据统计 + 文档索引
+
+**验证:** pytest 78/78, vitest 38/38, vue-tsc 0 errors, smoke 11/11
+
+**变更统计:** 19 文件, +994/-120
+
+## 历史变更 (2026-06-05, R9-R10)
+
 ### R9-R10: 产品筛选 UI 重构 + 字典增强 + 规格编辑器
 
 - 产品列表筛选全部改为流式标签按钮(品类/厂商/通讯/协议/供电), 收起时只显示第一行(CSS max-height)
@@ -470,6 +753,8 @@ E2E 新增 17 测试 (`error-scenarios.spec.ts`):
 - 所有产品 spec key 中文化 (ip_rating→防护等级 等)
 - -P 版产品清理 LoRaWAN 通讯+网关依赖
 - 测试 78/78, vue-tsc 0 errors
+
+## 历史变更 (2026-06-05, R7-R8)
 
 ### R7-R8: 权限系统
 - 8 张表加 `created_by` 列: products, categories, manufacturers, suppliers, 4 dict tables
@@ -531,7 +816,7 @@ E2E 新增 17 测试 (`error-scenarios.spec.ts`):
 | XSS | DOMPurify (所有 v-html 已清洗) |
 | SSRF | validate_url() + 手动重定向验证 |
 | Logging | loguru (structured + rotation) |
-| Testing | pytest 341 tests + vitest 60 tests + Playwright 92 tests |
+| Testing | pytest 372 tests + vitest 62 tests + Playwright 96 tests |
 | Deployment | Docker Compose + Nginx |
 
 ## 开发命令
@@ -544,7 +829,7 @@ pytest tests/ -v
 
 # 前端
 cd frontend
-npx vite --host 0.0.0.0 --port 5173
+npm run dev -- --host 0.0.0.0 --port 5173    # 本地 vite (^6.3)，不用 npx vite（可能拿全局 v8）
 npx vitest run
 npx vue-tsc --noEmit
 
@@ -557,7 +842,7 @@ npx playwright test --reporter=list                               # 全部套件
 
 ## 路径前缀配置
 
-生产部署在 Nginx 反向代理子路径 `/product-db/`。Nginx 配置 `proxy_pass http://127.0.0.1:8002;`（**无**末尾斜杠）保留前缀透传。
+生产部署在 Nginx 反向代理子路径 `/product-db/`。Nginx 配置 `proxy_pass http://127.0.0.1:8000;`（**无**末尾斜杠）保留前缀透传。
 
 | 组件 | 配置 |
 |------|------|
@@ -577,7 +862,7 @@ backend/app/
 ├── config.py            # Pydantic Settings (SECRET_KEY, DEV_MODE, CORS_ORIGINS...)
 ├── database.py          # SQLAlchemy engine + JSONBType
 ├── auth.py              # JWT + bcrypt (passlib) + 旧 SHA256 兼容
-├── models/              # 27+ 张表 (product_categories 多对多)
+├── models/              # 32 张业务表 (product_categories 多对多)
 │   ├── product.py, category.py       # 核心 (产品支持多品类)
 │   ├── dictionary.py, mapping.py     # 字典+映射
 │   ├── solution.py, quotation.py     # 方案+报价
@@ -607,7 +892,7 @@ backend/app/
 │   ├── helpers.py       # apply_partial_update
 │   └── escape.py        # SQL LIKE 转义
 ├── schemas/             # Pydantic 请求/响应模型
-└── tests/               # pytest 78 tests
+└── tests/               # pytest 372 tests
 
 frontend/src/
 ├── App.vue              # 主布局 (暗侧边栏 + 全局搜索 + toast + 用户菜单)
@@ -616,7 +901,7 @@ frontend/src/
 ├── types.ts             # TypeScript 类型定义 (Product, Category, Solution...)
 ├── utils/
 │   └── markdown.ts      # 共享 HTML/markdown 格式化工具
-├── views/               # 14 个页面视图
+├── views/               # 16 个页面视图
 │   ├── SolutionDetailView.vue # 方案详情 (客户信息 + AI 气泡 + 产品清单)
 │   └── SolutionsView.vue     # 方案列表 (行内状态下拉, 批量选择)
 ├── components/          # 通用组件
@@ -628,7 +913,7 @@ frontend/src/
 │   ├── PageHeader, Pagination, SearchInput, Modal, TagBadge, ConfirmDialog
 │   └── GenUI/                # AI 动态组件 (SolutionProductCard, QuoteDraftCard)
 ├── univer-bom-main.js   # Univer 全屏编辑器入口 (实验中)
-└── __tests__/           # vitest 22 tests
+└── __tests__/           # vitest 62 tests
 ```
 
 ## AI 架构
@@ -879,7 +1164,7 @@ API key 存在?
 
 - 业务索引: ai_messages(conv_id), product_files(product_id), solution_items(solution_id), quotation_items(quotation_id), quotations(solution_id)
 - 报价单下载计数: `quotations.download_count` + `download_logs` 表 (下载端点无 auth 但需 token 参数)
-- SQLite 31 张表, ~4000 行, 单文件运行
+- SQLite 32 张业务表, ~6,000 行, 单文件运行
 - 图片: 90% 远程 URL, 10% 本地 `app/uploads/`
 - `product_category_helper.py` 消除 5 处 raw SQL, 统一 ORM 参数化查询
 

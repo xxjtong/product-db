@@ -28,7 +28,7 @@
 | **环境变量** | `backend/.env` | `/opt/product-db/backend/.env` | 手动编辑（不入 git） |
 | **数据库** | `backend/product_db.db` | `/opt/product-db/backend/product_db.db` | 不入 git，部署时不覆盖 |
 | **上传文件** | `backend/app/uploads/` | `/opt/product-db/backend/app/uploads/` | 不入 git |
-| **文档** | `docs/`, `CLAUDE.md` | `/opt/product-db/` | `git push` → `git pull` |
+| **文档** | `docs/`, `AGENTS.md` | `/opt/product-db/` | `git push` → `git pull` |
 | **Nginx 配置** | — | `/etc/nginx/sites-enabled/product-db` | 手动编辑，`sudo nginx -t && sudo nginx -s reload` |
 | **systemd** | — | `/etc/systemd/system/product-db.service` | `sudo systemctl daemon-reload && sudo systemctl restart product-db` |
 

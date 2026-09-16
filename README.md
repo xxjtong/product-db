@@ -35,10 +35,10 @@ npx vite --host 0.0.0.0 --port 5173
 
 ```bash
 # Backend
-cd backend && pytest tests/ -v                    # 341 单元测试
+cd backend && pytest tests/ -v                    # 372 单元测试
 
 # Frontend
-cd frontend && npx vitest run                     # 60 组件测试
+cd frontend && npx vitest run                     # 62 组件测试
 cd frontend && npx vue-tsc --noEmit               # 类型检查
 
 # E2E (需要先启动前后端服务)
@@ -62,18 +62,18 @@ product-db/
 │   │   ├── database.py          # SQLAlchemy + JSONBType
 │   │   ├── auth.py              # JWT 认证 (bcrypt) + DEV_MODE
 │   │   ├── config.py            # Pydantic Settings
-│   │   ├── models/              # 数据模型 (18 张表)
-│   │   ├── routers/             # API 路由 (13 个模块)
+│   │   ├── models/              # 数据模型 (32 张表)
+│   │   ├── routers/             # API 路由 (14 个模块)
 │   │   ├── services/            # 业务逻辑
 │   │   └── schemas/             # Pydantic 请求/响应模型
-│   ├── tests/                   # pytest 测试 (341 用例)
+│   ├── tests/                   # pytest 测试 (372 用例)
 │   └── alembic/                 # 数据库迁移
 ├── frontend/
 │   ├── src/
-│   │   ├── components/          # 通用组件 (10 个)
-│   │   └── views/               # 页面视图 (14 个)
-│   ├── src/__tests__/           # vitest 前端测试 (38 tests)
-│   └── e2e/                     # Playwright E2E + API + Perf (75 tests)
+│   │   ├── components/          # 通用组件 (16 个, 含 GenUI 2 个)
+│   │   └── views/               # 页面视图 (16 个)
+│   ├── src/__tests__/           # vitest 前端测试 (62 tests)
+│   └── e2e/                     # Playwright E2E + API + Perf (96 tests)
 ├── docker-compose.yml
 └── .github/workflows/ci.yml     # CI/CD
 ```
