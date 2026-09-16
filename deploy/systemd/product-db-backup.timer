@@ -1,0 +1,13 @@
+[Unit]
+Description=product-db 每日数据库快照（触发器）
+
+[Timer]
+# 每天 03:30（服务器时区 Asia/Shanghai）
+OnCalendar=*-*-* 03:30:00
+# 服务器宕机/重启错过时点时，开机后补跑一次
+Persistent=true
+AccuracySec=1min
+Unit=product-db-backup.service
+
+[Install]
+WantedBy=timers.target

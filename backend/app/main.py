@@ -21,6 +21,12 @@ import mimetypes
 # Do NOT use Base.metadata.create_all here — always run alembic upgrade head.
 
 # Configure structured logging
+# 日志文件用绝对路径：之前写成 "app.log" 是相对路径，落点取决于进程 CWD，
+# 历史上不同 CWD 导致日志散落在 /opt/product-db/、backend/、frontend/ 三处，
+# 且部分残留文件权限是 644（world-readable）。
+_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LOG_FILE = os.path.join(_BACKEND_DIR, "app.log")
+
 logger.remove()
 logger.add(
     sys.stderr,
@@ -28,7 +34,7 @@ logger.add(
     level="DEBUG" if settings.DEV_MODE else "INFO",
 )
 logger.add(
-    "app.log",
+    LOG_FILE,
     rotation="10 MB",
     retention="7 days",
     format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{line} | {message}",

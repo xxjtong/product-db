@@ -1175,6 +1175,8 @@ API key 存在?
 - **权限**: `filter_by_ownership()` 过滤列表, `check_ownership()` 校验单资源 (admin 看全部, 普通用户看 NULL/自己/admin)
 - **created_by**: 8 表 (products, categories, manufacturers, suppliers, 4 dict) 创建时自动设为 `user.id`
 - DEV_MODE=True 时免登录 (自动创建 admin/admin)，生产必须 False
+- **环境拓扑**: 代码单向流动 `本机(唯一改动源) → GitHub → 生产服务器`；**数据库方向相反，以服务器为准** —— 禁止用本地 `backend/product_db.db` 覆盖生产库，两库数据本就不同（详见 DEPLOY.md「环境拓扑」「数据库归属」）
+- 生产服务器是纯部署目标，其本地改动一律丢弃（`git stash && git stash drop` 是有意为之）；但**绝不执行 `git clean -fd`**（会删掉未跟踪的 `static/index.html`，2026-08 首页 404 的成因）
 - SECRET_KEY 必填且 ≥32 字符 (DEV_MODE 除外), 否则 sys.exit(1)
 - 前端 CSS 变量定义在 main.css，组件用 scoped 样式
 - API 统一通过 `api.ts` → `api<T>()` 泛型函数, headers 正确合并

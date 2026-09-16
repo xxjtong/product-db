@@ -14,6 +14,35 @@ ssh -p 28793 tong@124.221.178.161 'sudo apt-get install -y --no-install-recommen
 
 > 2026-09-16 已安装 `3.2.7-1+deb12u5`（bookworm-security，含 CVE-2024-12084 系列修复）。rsync 仅装客户端二进制，默认 `rsync.service` 为 disabled，不监听端口。
 
+## 环境拓扑
+
+| 角色 | 位置 | 职责 |
+|------|------|------|
+| **开发环境** | 本机 | 唯一改动来源，所有提交从这里产生 |
+| **仓库 / 备份** | GitHub `xxjtong/product-db` | 本机 `push`、服务器 `pull`，兼作远程备份 |
+| **部署目标** | 生产服务器 `/opt/product-db` | **纯部署目标**，不产生改动 |
+
+> ⚠️ **不要在生产服务器上编辑代码**。服务器的本地改动一律视为误操作，部署时直接丢弃 —— 下方「部署命令（后端变更）」里的 `git stash && git stash drop` 就是为此。需要改代码请回到本机改、提交、推送。
+>
+> 不受影响的部分：`backend/.env`、`backend/product_db.db`、`backend/app/uploads/`、`frontend/dist/` 均已在 `.gitignore` 中，`git stash` 不碰未跟踪文件、`git clean` 不加 `-x` 也不删已忽略文件 —— 这些能在 `git pull` 中安全存活。
+>
+> ⛔ **但绝不要在生产执行 `git clean -fd`**：`static/index.html` 既未跟踪也未忽略，会被直接删除 —— 这正是 2026-08 首页 404 的成因。
+
+### 数据库归属：以服务器为准（与代码方向相反）
+
+代码是「本机 → GitHub → 服务器」单向流动，**数据库正好相反**：
+
+| | 权威来源 | 说明 |
+|---|---|---|
+| 代码 | **本机** | 改动只从本机产生 |
+| 数据库 | **服务器** | `/opt/product-db/backend/product_db.db` 是唯一权威数据源 |
+
+- 🚫 **任何情况下不要用本机的 `backend/product_db.db` 覆盖生产库**。两库结构相同但数据不同（2026-09-16 实测：生产 396 产品 / 6 方案 / 6 报价单；本机 395 / 4 / 4），覆盖即数据丢失。
+- 本地开发库仅供调试，**不是**生产数据的副本，不要把它当作数据源。
+- 需要用生产数据做本地调试时，走**只读快照**：从 `/opt/product-db-backups/db/` 取一份 `.backup` 产物拷到本机另存使用，绝不反向回写。
+- 备份方向是单向的：生产 → `/opt/product-db-backups/`，**不回写**。
+- `git pull` 不会碰它 —— `product_db.db` 已在 `.gitignore` 中（见上方说明）。
+
 ## 服务架构
 
 ```
@@ -34,7 +63,7 @@ ssh -p 28793 tong@124.221.178.161 'sudo apt-get install -y --no-install-recommen
 | **后端代码** | `backend/` | `/opt/product-db/backend/` | `git push` → 服务器 `git pull`，然后 `sudo systemctl restart product-db` |
 | **Python 依赖** | `backend/requirements.txt` | `/opt/product-db/backend/` | SSH 进入后 `source venv/bin/activate && pip install -r requirements.txt` |
 | **环境变量** | `backend/.env` | `/opt/product-db/backend/.env` | 手动编辑（不入 git） |
-| **数据库** | `backend/product_db.db` | `/opt/product-db/backend/product_db.db` | 不入 git，部署时不覆盖 |
+| **数据库** | `backend/product_db.db` | `/opt/product-db/backend/product_db.db` | 不入 git；**以服务器为准**，禁止用本地库覆盖（见「数据库归属」） |
 | **上传文件** | `backend/app/uploads/` | `/opt/product-db/backend/app/uploads/` | 不入 git |
 | **文档** | `docs/`, `AGENTS.md` | `/opt/product-db/` | `git push` → `git pull` |
 | **Nginx 配置** | — | `/etc/nginx/sites-enabled/product-db` | 手动编辑，`sudo nginx -t && sudo nginx -s reload` |
@@ -136,9 +165,12 @@ WantedBy=multi-user.target
 
 ## 日志
 
-- **应用日志**: `/opt/product-db/app.log`
+- **应用日志**: `/opt/product-db/backend/app.log`（loguru，10MB 轮转 / 保留 7 天，权限 600）
+  - ⚠️ 早先本节写的是 `/opt/product-db/app.log`，**那是错的**：日志路径原本是相对路径 `"app.log"`，落点取决于进程 CWD。历史上 CWD 变过，日志因此散落在项目根、`backend/`、`frontend/` 三处，且残留文件是 644（world-readable）。
+  - 2026-09 已改为基于 `backend/` 的绝对路径（`backend/app/main.py` 的 `LOG_FILE`），此后只有 `backend/app.log` 会更新。旧位置的文件是历史残留，不会被 loguru 的 retention 接管，可手工删除。
 - **systemd 日志**: `journalctl -u product-db -f`
 - **Nginx 日志**: `/var/log/nginx/access.log`, `/var/log/nginx/error.log`
+- **备份日志**: `/opt/product-db-backups/db/backup.log`（每日备份脚本写入，超过 1MB 自动截断）
 
 ## 数据库备份
 
@@ -161,7 +193,38 @@ ssh -p 28793 tong@124.221.178.161 \
 
 属主设为 `tong:tong`（与 `/opt/product-db` 一致）后，**后续备份命令与定时任务全部无需 sudo**。
 
-### 日常备份命令
+### 自动备份（systemd --user timer，每日 03:30）
+
+| 项 | 值 |
+|---|---|
+| 脚本 | `/opt/product-db/deploy/backup-db.sh`（随 git 下发，可版本化审阅） |
+| unit | `~/.config/systemd/user/product-db-backup.{service,timer}`（源在 `deploy/systemd/`） |
+| 调度 | `OnCalendar=03:30`，`Persistent=true`（宕机/重启后补跑） |
+| 保留 | 最新 14 份快照（约 34M） |
+| 每轮校验 | `PRAGMA integrity_check` + 行数哨兵（products / users / ai_conversations），任一不过即非 0 退出且不留残缺文件 |
+
+```bash
+# 查看下次执行时间
+ssh -p 28793 tong@124.221.178.161 'systemctl --user list-timers product-db-backup.timer'
+
+# 查看上次运行结果 / 日志
+ssh -p 28793 tong@124.221.178.161 'systemctl --user status product-db-backup.service; tail -20 /opt/product-db-backups/db/backup.log'
+
+# 手动立刻跑一次
+ssh -p 28793 tong@124.221.178.161 'systemctl --user start product-db-backup.service'
+```
+
+**新机器部署 timer**（无需 sudo）：
+
+```bash
+scp -P 28793 deploy/systemd/* tong@124.221.178.161:~/.config/systemd/user/
+ssh -p 28793 tong@124.221.178.161 \
+  'systemctl --user daemon-reload && systemctl --user enable --now product-db-backup.timer && systemctl --user list-timers'
+```
+
+> 依赖用户级 systemd 可在无登录时运行：`loginctl enable-linger tong`（本机已开启）。
+
+### 手动备份命令
 
 > ⚠️ 生产库是 **SQLite WAL 模式**，直接 `cp` 只能拿到主库文件，会丢掉 WAL 中尚未合并的数据（2026-08 曾因此拿到不一致副本；实测 WAL 达 3.1MB，比主库本身还大）。**必须**用 SQLite 在线快照 `.backup`：
 

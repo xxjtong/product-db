@@ -1,0 +1,13 @@
+[Unit]
+Description=product-db 每日数据库快照
+Documentation=file:/opt/product-db/DEPLOY.md
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/product-db
+ExecStart=/opt/product-db/deploy/backup-db.sh
+UMask=0077
+# 失败要能在 journal 里一眼看到
+StandardOutput=journal
+StandardError=journal
