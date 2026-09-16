@@ -140,6 +140,8 @@ ssh -p 28793 tong@124.221.178.161 \
 
 ## systemd 配置
 
+### 主服务 `product-db.service`
+
 ```
 /etc/systemd/system/product-db.service
 ```
@@ -161,6 +163,39 @@ RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
+```
+
+### ⚠️ 权限加固 drop-in（必做，否则新文件的默认权限是 644）
+
+应用以 `tong` 运行、进程 umask 默认 `0022`，它创建的文件（SQLite 的 `-wal`/`-shm`、轮转日志、uploads 新文件）都是 **644 = world-readable**。该实例存在 `debian` / `lighthouse` / `tong` 三个本地账号，等于生产库与日志对它们可读。
+
+用 drop-in 覆盖（不改主 unit）：
+
+```bash
+sudo mkdir -p /etc/systemd/system/product-db.service.d
+sudo tee /etc/systemd/system/product-db.service.d/umask.conf >/dev/null <<'EOF'
+[Service]
+UMask=0077
+EOF
+sudo systemctl daemon-reload && sudo systemctl restart product-db
+
+# 验证：进程 umask 必须是 0077（默认是 0022）
+grep -i ^umask /proc/$(systemctl show -p MainPID --value product-db)/status
+```
+
+> `UMask` 只影响**今后新建**的文件。已有文件需一次性收紧（见下方「一次性加固」）。
+
+### 一次性加固（新机器部署后执行一次）
+
+```bash
+# 敏感文件：SECRET_KEY / API key、数据库（含 bcrypt 密码哈希）、日志
+chmod 600 /opt/product-db/backend/.env
+chmod 600 /opt/product-db/backend/product_db.db /opt/product-db/backend/product_db.db-wal /opt/product-db/backend/product_db.db-shm
+chmod 600 /opt/product-db/backend/app*.log
+
+# 备份目录不对其他本地账号开放
+chmod 700 /opt/product-db-backups /opt/product-db-backups/db
+chmod 600 /opt/product-db-backups/db/*
 ```
 
 ## 日志
