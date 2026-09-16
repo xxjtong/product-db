@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { API, injectAuth, login } from './auth'
+import { BASE, API, injectAuth, login } from './auth'
 
 let token: string
 
