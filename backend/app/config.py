@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     DISABLE_IP_LOOKUP: bool = False
     LOGIN_RATE_LIMIT: int = 10  # max failed attempts per window
     LOGIN_RATE_WINDOW: int = 300  # window in seconds
+    # 可信反向代理列表：只有直连对端是这些地址时，才采信 X-Forwarded-For /
+    # X-Real-IP。否则客户端自带一个 XFF 就能改变限流 key（绕过全局限流与登录
+    # 爆破限流）并污染 login_logs 的 IP/地区审计。默认是本机 nginx。
+    TRUSTED_PROXIES: str = "127.0.0.1,::1"
     # 全局限流（每 IP）—— 可配置：回归测试期间需要临时放宽，
     # 否则一次全量 E2E 就会撞上日配额。
     RATE_LIMIT_PER_DAY: int = 200

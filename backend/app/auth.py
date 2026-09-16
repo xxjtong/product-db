@@ -13,15 +13,29 @@ security = HTTPBearer(auto_error=False)
 
 
 def client_ip(request) -> str:
-    """Best-effort client IP: first X-Forwarded-For hop, else request.client."""
-    xff = (request.headers.get("x-forwarded-for") or "") if request else ""
-    if xff:
-        first = xff.split(",")[0].strip()
-        if first:
-            return first
-    if request and request.client:
-        return request.client.host
-    return ""
+    """Best-effort client IP.
+
+    X-Forwarded-For 只在**直连对端是可信代理**（默认本机 nginx）时才采信。否则
+    客户端只要自己发一个 XFF 就能改变限流 key —— 实测可绕过全局 200/day 限流与
+    登录爆破限流（10 次/300 秒），并把伪造的 IP/地区写进 login_logs 审计。
+
+    采信时取**最右侧**一跳：nginx 用 `$proxy_add_x_forwarded_for` 追加真实地址，
+    客户端自带的内容留在左侧（不可信）。`X-Real-IP` 由 nginx 从 `$remote_addr`
+    直接赋值，优先级更高。
+    """
+    if not request:
+        return ""
+    peer = request.client.host if request.client else ""
+
+    trusted = {p.strip() for p in settings.TRUSTED_PROXIES.split(",") if p.strip()}
+    if peer and peer in trusted:
+        real = (request.headers.get("x-real-ip") or "").strip()
+        if real:
+            return real
+        hops = [h.strip() for h in (request.headers.get("x-forwarded-for") or "").split(",") if h.strip()]
+        if hops:
+            return hops[-1]
+    return peer
 
 
 def hash_password(password: str) -> str:

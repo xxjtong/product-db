@@ -1,9 +1,11 @@
 """Supplementary tests for auth.py — SHA256 upgrade, query token, DEV_MODE, edge cases."""
 import pytest
 import os
+import logging
 import tempfile
 import time
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch, MagicMock
 
 _test_db_path = tempfile.mktemp(suffix=".db")
 os.environ["DATABASE_URL"] = f"sqlite:///{_test_db_path}"
@@ -202,40 +204,73 @@ class TestRateLimiting:
         })
         assert resp.status_code == 429
 
-    def test_rate_limit_isolated_by_xff(self, db):
-        """Rate limiting must key on X-Forwarded-For when present."""
+    def test_rate_limit_isolated_by_client_ip_behind_trusted_proxy(self, db):
+        """限流按客户端 IP 分桶 —— 但要经可信代理才有意义。
+
+        本用例把测试客户端 (peer = "testclient") 当作可信代理，此时 XFF 表示
+        nginx 转发的真实客户端地址，不同真实 IP 应各自计数。
+        """
         ip_a = "203.0.113.10"
-        for i in range(10):
-            client.post(
+        with patch("app.auth.settings.TRUSTED_PROXIES", "testclient"):
+            for i in range(10):
+                client.post(
+                    "/product-db/api/auth/login",
+                    json={"username": "admin", "password": f"wrong{i}"},
+                    headers={"X-Forwarded-For": ip_a},
+                )
+            # ip_a 已被限流
+            resp = client.post(
                 "/product-db/api/auth/login",
-                json={"username": "admin", "password": f"wrong{i}"},
+                json={"username": "admin", "password": "wrong_x"},
                 headers={"X-Forwarded-For": ip_a},
             )
+            assert resp.status_code == 429
 
-        # ip_a is now rate-limited
-        resp = client.post(
-            "/product-db/api/auth/login",
-            json={"username": "admin", "password": "wrong_x"},
-            headers={"X-Forwarded-For": ip_a},
-        )
-        assert resp.status_code == 429
+            # 另一个真实 IP 不受影响
+            resp = client.post(
+                "/product-db/api/auth/login",
+                json={"username": "admin", "password": "wrong_x"},
+                headers={"X-Forwarded-For": "203.0.113.99"},
+            )
+            assert resp.status_code == 401
 
-        # A different IP is not blocked
-        resp = client.post(
-            "/product-db/api/auth/login",
-            json={"username": "admin", "password": "wrong_x"},
-            headers={"X-Forwarded-For": "203.0.113.99"},
-        )
-        assert resp.status_code == 401
+    def test_spoofed_xff_does_not_isolate_from_untrusted_peer(self, db):
+        """安全回归：直连对端不可信时，伪造 XFF 不能换来新的限流桶。
 
-    def test_client_ip_prefers_xff(self):
+        旧实现无条件信任 XFF 首跳，于是一次配额耗尽后只要换一个 XFF 值就能继续
+        爆破 —— 实测（2026-09）拿到 429 后换个 XFF 立即恢复 200。这里断言：
+        连打 12 次、每次伪造不同的 XFF，仍应在第 11 次被 429 拦住。
+        """
+        statuses = []
+        for i in range(12):
+            r = client.post(
+                "/product-db/api/auth/login",
+                json={"username": "admin", "password": f"wrong{i}"},
+                headers={"X-Forwarded-For": f"203.0.113.{i}"},
+            )
+            statuses.append(r.status_code)
+
+        assert statuses.count(401) == 10, f"前 10 次应是 401，实际 {statuses}"
+        assert statuses[10:] == [429, 429], f"伪造 XFF 不得重置限流桶，实际 {statuses}"
+
+    def test_client_ip_ignores_xff_from_untrusted_peer(self):
+        """旧断言曾是「peer=127.0.0.1 时取 XFF 最左值」—— 那正是可被伪造的一段。
+        见 TestClientIpTrust：可信时取最右跳（或 X-Real-IP），不可信时取对端。"""
         from app.auth import client_ip
 
         class FakeRequest:
             headers = {"x-forwarded-for": "203.0.113.5, 10.0.0.1"}
             client = type("C", (), {"host": "127.0.0.1"})()
 
-        assert client_ip(FakeRequest()) == "203.0.113.5"
+        # 可信代理（127.0.0.1）→ 取最右跳，不取客户端可伪造的最左值
+        assert client_ip(FakeRequest()) == "10.0.0.1"
+
+        class UntrustedRequest:
+            headers = {"x-forwarded-for": "203.0.113.5, 10.0.0.1"}
+            client = type("C", (), {"host": "198.51.100.7"})()
+
+        # 非可信对端 → 完全忽略 XFF
+        assert client_ip(UntrustedRequest()) == "198.51.100.7"
 
 
 # ============================================================
@@ -402,3 +437,164 @@ class TestAdminCache:
         # Same call should return cached result
         ids2 = _get_admin_ids(db)
         assert ids1 == ids2
+
+
+# ============================================================
+# IP 地区查询（_lookup_ip_region）
+# ============================================================
+class TestIpRegionLookup:
+    """回归：ipapi.co 免费额度耗尽时返回的是 HTTP 200 + 纯文本付费提示（不是 JSON）。
+    旧实现直接 `resp.json()` → JSONDecodeError 被裸 `except Exception` 吞掉且只记
+    DEBUG（生产 sink 是 INFO）→ 登录日志「地区」静默变空。2026-09 实测某日 189 条
+    登录记录里 188 条为空，没有任何告警。"""
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        import app.routers.auth_routes as ar
+        ar._ip_region_cache.clear()
+        yield
+        ar._ip_region_cache.clear()
+
+    @staticmethod
+    def _resp(status=200, ctype="application/json", text="", payload=None):
+        r = MagicMock()
+        r.status_code = status
+        r.headers = {"content-type": ctype}
+        r.text = text
+        r.json.return_value = payload if payload is not None else {}
+        return r
+
+    def test_private_and_local_ips_short_circuit_without_http(self):
+        from app.routers.auth_routes import _lookup_ip_region
+        with patch("app.routers.auth_routes.httpx.get") as g:
+            assert _lookup_ip_region("127.0.0.1") == "本地"
+            assert _lookup_ip_region("192.168.1.5") == "本地"
+            assert _lookup_ip_region("10.1.2.3") == "本地"
+            assert _lookup_ip_region("testclient") == "本地"
+            g.assert_not_called()
+
+    def test_parses_city_and_country(self):
+        from app.routers.auth_routes import _lookup_ip_region
+        with patch("app.routers.auth_routes.httpx.get",
+                   return_value=self._resp(payload={"city": "Xi'an", "country_name": "China"})):
+            assert _lookup_ip_region("1.2.3.4") == "Xi'an, China"
+
+    def test_country_only_when_no_city(self):
+        from app.routers.auth_routes import _lookup_ip_region
+        with patch("app.routers.auth_routes.httpx.get",
+                   return_value=self._resp(payload={"city": "", "country_name": "China"})):
+            assert _lookup_ip_region("1.2.3.4") == "China"
+
+    def test_quota_exhausted_plain_text_returns_empty_and_warns(self, caplog):
+        """核心回归：200 + 纯文本（配额耗尽）必须返回空且留下 WARNING，不得静默。"""
+        from app.routers.auth_routes import _lookup_ip_region
+        body = "Please contact us for a trial account or sign up for a paid plan"
+        with patch("app.routers.auth_routes.httpx.get",
+                   return_value=self._resp(ctype="text/plain", text=body)):
+            with caplog.at_level(logging.WARNING):
+                assert _lookup_ip_region("1.2.3.4") == ""
+        assert any(r.levelno == logging.WARNING and "非 JSON" in r.message for r in caplog.records), \
+            "配额耗尽必须记 WARNING（旧实现只记 DEBUG，生产看不见）"
+
+    def test_non_200_returns_empty_and_warns(self, caplog):
+        from app.routers.auth_routes import _lookup_ip_region
+        with patch("app.routers.auth_routes.httpx.get", return_value=self._resp(status=429)):
+            with caplog.at_level(logging.WARNING):
+                assert _lookup_ip_region("1.2.3.4") == ""
+        assert any("HTTP 429" in r.message for r in caplog.records)
+
+    def test_network_error_returns_empty_and_warns(self, caplog):
+        from app.routers.auth_routes import _lookup_ip_region
+        with patch("app.routers.auth_routes.httpx.get", side_effect=RuntimeError("boom")):
+            with caplog.at_level(logging.WARNING):
+                assert _lookup_ip_region("1.2.3.4") == ""
+        assert any("IP 地区查询失败" in r.message for r in caplog.records)
+
+    def test_success_is_cached(self):
+        """同一 IP 第二次不再发外部请求（该调用在登录必经路径上，最长阻塞 3s）。"""
+        from app.routers.auth_routes import _lookup_ip_region
+        with patch("app.routers.auth_routes.httpx.get",
+                   return_value=self._resp(payload={"city": "Xi'an", "country_name": "China"})) as g:
+            assert _lookup_ip_region("1.2.3.4") == "Xi'an, China"
+            assert _lookup_ip_region("1.2.3.4") == "Xi'an, China"
+            assert g.call_count == 1
+
+    def test_failure_is_short_cached(self):
+        """失败也短暂缓存，避免每次登录都去撞已被限流的第三方。"""
+        from app.routers.auth_routes import _lookup_ip_region
+        with patch("app.routers.auth_routes.httpx.get",
+                   return_value=self._resp(ctype="text/plain", text="quota")) as g:
+            assert _lookup_ip_region("1.2.3.4") == ""
+            assert _lookup_ip_region("1.2.3.4") == ""
+            assert g.call_count == 1
+
+    def test_disabled_by_config(self):
+        from app.routers.auth_routes import _lookup_ip_region
+        with patch("app.routers.auth_routes.settings.DISABLE_IP_LOOKUP", True):
+            with patch("app.routers.auth_routes.httpx.get") as g:
+                assert _lookup_ip_region("1.2.3.4") == ""
+                g.assert_not_called()
+
+    def test_cache_is_bounded(self):
+        """登录接口匿名可达 —— 缓存不能被大量不同 IP 撑爆。"""
+        import app.routers.auth_routes as ar
+        with patch("app.routers.auth_routes.httpx.get",
+                   return_value=self._resp(payload={"city": "X", "country_name": "Y"})):
+            for i in range(ar._IP_REGION_CACHE_MAX + 10):
+                ar._lookup_ip_region(f"1.2.{i // 250}.{i % 250}")
+        assert len(ar._ip_region_cache) <= ar._IP_REGION_CACHE_MAX
+
+
+# ============================================================
+# client_ip —— X-Forwarded-For 只应在可信代理之后才采信
+# ============================================================
+class _Req:
+    """最小 Request 替身：client_ip 只需要 headers.get() 与 client.host。"""
+
+    def __init__(self, peer, headers=None):
+        self.headers = headers or {}
+        self.client = type("C", (), {"host": peer})() if peer else None
+
+
+class TestClientIpTrust:
+    """回归：旧实现无条件信任 XFF 首跳，客户端伪造一个 XFF 就能改变限流 key。
+    实测（与生产同构，2026-09）：配额耗尽拿到 429 后换一个伪造 XFF 立即恢复 200，
+    且同一伪造 XFF 连续请求按该值计数 —— 全局限流与登录爆破限流（10 次/300s）
+    同时可绕，login_logs 的 IP/地区审计也随之被污染。"""
+
+    def test_untrusted_peer_ignores_spoofed_headers(self):
+        from app.auth import client_ip
+        r = _Req("203.0.113.9", {"x-forwarded-for": "1.2.3.4, 5.6.7.8", "x-real-ip": "9.9.9.9"})
+        assert client_ip(r) == "203.0.113.9", "非可信对端必须忽略 XFF/X-Real-IP"
+
+    def test_trusted_peer_uses_rightmost_hop(self):
+        """nginx 用 $proxy_add_x_forwarded_for 追加真实地址 → 最右侧才可信。"""
+        from app.auth import client_ip
+        r = _Req("127.0.0.1", {"x-forwarded-for": "1.2.3.4, 203.0.113.9"})
+        assert client_ip(r) == "203.0.113.9"
+
+    def test_trusted_peer_prefers_x_real_ip(self):
+        """X-Real-IP 由 nginx 从 $remote_addr 直赋，不可被客户端影响。"""
+        from app.auth import client_ip
+        r = _Req("127.0.0.1", {"x-forwarded-for": "1.2.3.4, 5.6.7.8", "x-real-ip": "203.0.113.9"})
+        assert client_ip(r) == "203.0.113.9"
+
+    def test_trusted_peer_without_forwarding_headers(self):
+        from app.auth import client_ip
+        assert client_ip(_Req("127.0.0.1", {})) == "127.0.0.1"
+
+    def test_trusted_list_is_configurable(self):
+        from app.auth import client_ip
+        r = _Req("10.0.0.5", {"x-real-ip": "203.0.113.9"})
+        with patch("app.auth.settings.TRUSTED_PROXIES", "10.0.0.5,127.0.0.1"):
+            assert client_ip(r) == "203.0.113.9"
+        with patch("app.auth.settings.TRUSTED_PROXIES", "127.0.0.1"):
+            assert client_ip(r) == "10.0.0.5"
+
+    def test_none_request_returns_empty(self):
+        from app.auth import client_ip
+        assert client_ip(None) == ""
+
+    def test_no_client_info_returns_empty(self):
+        from app.auth import client_ip
+        assert client_ip(_Req(None, {"x-forwarded-for": "1.2.3.4"})) == ""

@@ -1,6 +1,7 @@
 """Authentication routes — login, logout, profile, user management."""
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -19,22 +20,56 @@ import httpx
 router = APIRouter()
 
 
+# IP → (过期时间戳, 地区)。同一 IP 的地区一天内不会变，缓存既省外部调用，
+# 也避免登录路径每次都阻塞在第三方请求上（该调用最长 3s，且在登录必经路径上）。
+_ip_region_cache: dict = {}
+_IP_REGION_TTL = 86400      # 成功结果缓存 1 天
+_IP_REGION_FAIL_TTL = 300   # 失败也短暂缓存，防止每次都去撞配额
+_IP_REGION_CACHE_MAX = 2048  # 登录接口匿名可达，防止缓存被大量不同 IP 撑爆
+
+
 def _lookup_ip_region(ip: str) -> str:
-    """Look up IP region via ipapi.co. Can be disabled via config."""
+    """Look up IP region via ipapi.co (best-effort, cached).
+
+    失败必须留下可见痕迹：ipapi.co 免费额度耗尽时返回的是 HTTP 200 + 纯文本付费
+    提示（不是 JSON）。早期实现直接 `resp.json()`，抛出的 JSONDecodeError 被裸
+    `except Exception` 吞掉且只记 DEBUG（生产日志 sink 是 INFO）—— 结果是「地区」
+    静默变空：2026-09 实测某日 189 条登录记录中 188 条为空，无人察觉。
+    """
     if settings.DISABLE_IP_LOOKUP:
         return ""
     if not ip or ip.startswith("127.") or ip.startswith("192.168.") or ip.startswith("10.") or ip in ("::1", "testclient"):
         return "本地"
+
+    now = time.time()
+    cached = _ip_region_cache.get(ip)
+    if cached and cached[0] > now:
+        return cached[1]
+
+    log = logging.getLogger("uvicorn")
+    region = ""
     try:
         resp = httpx.get(f"https://ipapi.co/{ip}/json/", timeout=3)
-        if resp.status_code == 200:
+        ctype = (resp.headers.get("content-type") or "").lower()
+        if resp.status_code != 200:
+            log.warning("IP 地区查询 %s 返回 HTTP %s，本次地区留空", ip, resp.status_code)
+        elif "json" not in ctype:
+            # 免费额度耗尽时 ipapi.co 走这一支：200 + 纯文本
+            log.warning("IP 地区查询 %s 返回非 JSON 响应（ipapi.co 配额耗尽？）：%.80s", ip, resp.text)
+        else:
             data = resp.json()
-            city = data.get("city", "")
-            country = data.get("country_name", "")
-            return f"{city}, {country}" if city else country
-    except Exception:
-        logging.getLogger("uvicorn").debug("IP lookup failed for %s", ip)
-    return ""
+            city = data.get("city") or ""
+            country = data.get("country_name") or ""
+            region = f"{city}, {country}" if city else country
+            if not region:
+                log.warning("IP 地区查询 %s 未返回城市/国家：%.120s", ip, resp.text)
+    except Exception as e:
+        log.warning("IP 地区查询失败 %s：%s", ip, e)
+
+    if len(_ip_region_cache) >= _IP_REGION_CACHE_MAX:
+        _ip_region_cache.clear()
+    _ip_region_cache[ip] = (now + (_IP_REGION_TTL if region else _IP_REGION_FAIL_TTL), region)
+    return region
 
 
 def _check_rate_limit(ip: str, db: Session) -> bool:
