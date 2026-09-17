@@ -440,6 +440,31 @@ class TestAdminCache:
         assert ids1 == ids2
 
 
+class TestPasswordLengthRoundTrip:
+    """回归：hash_password 截断到 72 字节而 verify_password 不截断 —— bcrypt 对
+    >72 字节输入抛 ValueError，被 except 吞成「密码错误」→ 长密码注册成功却
+    永远登录失败（约 25 个中文字符即触发）。"""
+
+    @pytest.mark.parametrize("pw", ["a" * 72, "a" * 73, "a" * 200, "密码" * 30, "短密码1234"])
+    def test_any_length_roundtrips(self, pw):
+        from app.auth import hash_password, verify_password
+        hashed = hash_password(pw)
+        assert verify_password(pw, hashed) is True
+        assert verify_password("another-password-entirely", hashed) is False
+
+    def test_api_login_with_long_password(self, db):
+        """端到端：用 >72 字节密码建的用户必须能登录（旧实现必然 401）。"""
+        from app.auth import hash_password
+        pw = "超长密码" * 10  # 40 个汉字 = 120 字节
+        assert len(pw.encode()) > 72
+        db.add(User(username="longpw", password_hash=hash_password(pw), role="user"))
+        db.commit()
+
+        resp = client.post("/product-db/api/auth/login",
+                           json={"username": "longpw", "password": pw})
+        assert resp.status_code == 200, resp.text
+
+
 # ============================================================
 # IP 地区查询（_lookup_ip_region）
 # ============================================================

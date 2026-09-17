@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { shallowMount, config } from '@vue/test-utils'
+import { shallowMount, config, flushPromises } from '@vue/test-utils'
 import { ref } from 'vue'
 
 // Stub common child components globally
@@ -33,6 +33,15 @@ vi.mock('vue-router', () => ({
 
 // Mock api module
 vi.mock('../api', () => ({
+  // ImportView 用它把非 2xx 响应体转成可读错误
+  readErrorDetail: async (res: any) => {
+    try {
+      const body = await res.json()
+      return typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail ?? body)
+    } catch {
+      return res.statusText || ''
+    }
+  },
   fetchProducts: vi.fn().mockResolvedValue({ products: [], total: 0 }),
   deleteProduct: vi.fn().mockResolvedValue({}),
   batchDeleteProducts: vi.fn().mockResolvedValue({}),
@@ -278,6 +287,77 @@ describe('NotFoundView', () => {
     expect(link.text()).toContain('返回产品列表')
     // router-link stub renders as <a> but doesn't map 'to' prop to 'href'
     expect(wrapper.html()).toContain('products')
+  })
+})
+
+// Excel 导入页：历史上 onFileSelect 里的局部 `const headers` 遮蔽了同名 ref，
+// `headers.value = res.headers` 写到了局部对象上 → 列映射表永不渲染，导入功能整体不可用
+describe('ImportView Excel 导入', () => {
+  const mountImport = async () => {
+    const ImportView = (await import('../views/ImportView.vue')).default
+    const toast = vi.fn()
+    const wrapper = shallowMount(ImportView, { global: { provide: { toast } } })
+    return { wrapper, toast }
+  }
+
+  const selectFile = async (wrapper: any) => {
+    const input = wrapper.find('input[type="file"]')
+    Object.defineProperty(input.element, 'files', {
+      value: [new File(['x'], 'products.xlsx')],
+      configurable: true,
+    })
+    await input.trigger('change')
+    await flushPromises()
+  }
+
+  it('选择文件后渲染列映射与行数', async () => {
+    const { wrapper } = await mountImport()
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ headers: ['产品名称', '型号'], rows: [['A', 'M1']], row_count: 1 }),
+    }) as any
+
+    await selectFile(wrapper)
+
+    expect(wrapper.text()).toContain('列映射')
+    expect(wrapper.text()).toContain('产品名称')
+  })
+
+  it('预览失败时提示后端错误而不是静默', async () => {
+    const { wrapper, toast } = await mountImport()
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ detail: 'Invalid Excel file' }),
+      text: async () => '',
+    }) as any
+
+    await selectFile(wrapper)
+
+    expect(toast).toHaveBeenCalledWith('Invalid Excel file', 'error')
+    expect(wrapper.text()).not.toContain('列映射')
+  })
+
+  it('导入失败时不谎报成功', async () => {
+    const { wrapper, toast } = await mountImport()
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ headers: ['产品名称'], rows: [['A']], row_count: 1 }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: async () => ({ detail: 'boom' }),
+        text: async () => '',
+      }) as any
+
+    await selectFile(wrapper)
+    await wrapper.find('button.btn-primary').trigger('click')
+    await flushPromises()
+
+    expect(toast).toHaveBeenCalledWith('boom', 'error')
+    expect(wrapper.text()).not.toContain('成功导入')
   })
 })
 

@@ -443,7 +443,9 @@ function scrollDown() {
 function quickReply(reply: string, msg: any) {
   if (reply === '对比产品' && msg.products?.length >= 2) {
     const ids = msg.products.map((p: any) => p.id).join(',')
-    router.push(`/products/compare?product_ids=${ids}`)
+    // 参数名必须是 ids：ProductCompareView 只读 route.query.ids
+    // （后端 API 的 product_ids 是另一回事，别混用）
+    router.push(`/products/compare?ids=${ids}`)
   } else if (reply === '全部加入方案') {
     // Notify parent if on solution page
     input.value = '全部加入方案'

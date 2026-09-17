@@ -292,7 +292,8 @@ async function onAddToBom(items: { id: number; qty: number }[]) {
 }
 
 function onCompare(ids: number[]) {
-  if (ids.length >= 2) router.push(`/products/compare?product_ids=${ids.join(',')}`)
+  // 参数名必须是 ids：ProductCompareView 只读 route.query.ids
+  if (ids.length >= 2) router.push(`/products/compare?ids=${ids.join(',')}`)
 }
 
 // Item CRUD

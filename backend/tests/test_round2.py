@@ -613,6 +613,53 @@ class TestQuotationExportEdgeCases:
 
 
 # ============================================================
+# 产品图片文件清理（_cleanup_image_files）
+# ============================================================
+class TestImageFileCleanup:
+    """回归：upload_root 里带着 ".." 而 filepath 被 normpath 归一化 → 前缀比较恒为
+    False，删除产品/替换图片时本地文件从不被清理，孤儿文件静默累积。"""
+
+    def test_cleanup_removes_local_file(self, db):
+        from app.services.product_helpers import _cleanup_image_files
+        from app.services.storage import UPLOAD_DIR
+
+        cat = _seed_category(db, name="清理品类", slug="cleanup-cat")
+        prod = _seed_product(db, name="清理产品", model="CL-1", category_id=cat.id)
+        name = "_pytest_cleanup_target.png"
+        target = UPLOAD_DIR / name
+        target.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8)
+        db.add(ProductImage(product_id=prod.id, url=f"/product-db/api/uploads/{name}"))
+        db.commit()
+
+        try:
+            _cleanup_image_files(prod.id, db)
+            assert not target.exists(), "本地图片文件应被删除（旧实现前缀比较恒 False → 不删）"
+        finally:
+            if target.exists():
+                target.unlink()
+
+    def test_cleanup_refuses_path_traversal(self, db):
+        """url 里带 ../ 时不得删到 uploads 目录之外的文件。"""
+        from app.services.product_helpers import _cleanup_image_files
+        from app.services.storage import UPLOAD_DIR
+
+        cat = _seed_category(db, name="越界品类", slug="traversal-cat")
+        prod = _seed_product(db, name="越界产品", model="TR-1", category_id=cat.id)
+        outside = UPLOAD_DIR.parent / "_pytest_outside.png"
+        outside.write_bytes(b"must survive")
+        db.add(ProductImage(product_id=prod.id,
+                            url="/product-db/api/uploads/../_pytest_outside.png"))
+        db.commit()
+
+        try:
+            _cleanup_image_files(prod.id, db)
+            assert outside.exists(), "uploads 之外的文件绝不能被删"
+        finally:
+            if outside.exists():
+                outside.unlink()
+
+
+# ============================================================
 # 报价单引用的方案必须做归属校验
 # ============================================================
 class TestQuotationSolutionOwnership:

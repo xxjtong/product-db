@@ -609,13 +609,15 @@ test.describe('Agent Conversation', () => {
 // 17. PRODUCT COMPARE — Selection and matrix
 // ════════════════════════════════════
 test.describe('Product Compare', () => {
-  test('compare page loads with prompt to select', async ({ page }) => {
+  test('compare page consumes product ids from URL', async ({ page }) => {
     await setupPage(page)
-    // Compare needs product IDs in URL: /products/compare?product_ids=1,2
-    await page.goto(`${BASE}/products/compare?product_ids=1,2`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
-    // Should load compare page — may show products or error if IDs don't exist
-    await expect(page.locator('body')).toBeVisible()
+    // 参数名契约是 ids（历史上 AiChat/方案页用 product_ids 跳转，而消费端只读 ids
+    // → 跳过来永远是空页），这里改为断言「真的带着 ids 调了对比接口」
+    const compared = page.waitForResponse(r => r.url().includes('/products/compare?'), { timeout: 10000 })
+      .catch(() => null)
+    await page.goto(`${BASE}/products/compare?ids=1,2`, { waitUntil: 'domcontentloaded' })
+    const resp = await compared
+    expect(resp, '对比页应带着 URL 里的 ids 去调后端对比接口').not.toBeNull()
   })
 
   test('compare link from products page', async ({ page }) => {
@@ -833,7 +835,7 @@ test.describe('Product Compare — Real IDs', () => {
       const id1 = href1?.match(/\/(\d+)/)?.[1]
       const id2 = href2?.match(/\/(\d+)/)?.[1]
       if (id1 && id2) {
-        await page.goto(`${BASE}/products/compare?product_ids=${id1},${id2}`, { waitUntil: 'domcontentloaded' })
+        await page.goto(`${BASE}/products/compare?ids=${id1},${id2}`, { waitUntil: 'domcontentloaded' })
         await page.waitForTimeout(2000)
         // Should show comparison matrix or at minimum not crash
         await expect(page.locator('body')).toBeVisible()

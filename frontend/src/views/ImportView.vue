@@ -43,6 +43,7 @@
 <script setup lang="ts">
 import { ref, inject } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
+import { readErrorDetail } from '../api'
 
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
@@ -68,16 +69,20 @@ async function onFileSelect(e: Event) {
   loading.value = true; result.value = null
   const formData = new FormData(); formData.append('file', file)
   try {
-    const headers: Record<string,string> = {}
+    // 注意：这里的变量名不能叫 headers —— 会遮蔽上面的 headers ref（历史 bug：
+    // `headers.value = res.headers` 写到了局部对象上，导致映射表永不渲染）
+    const authHeaders: Record<string,string> = {}
     const token = localStorage.getItem('token')
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    const res = await (await fetch('/product-db/api/products/import-preview', { method: 'POST', body: formData, headers })).json()
-    headers.value = res.headers
-    rows.value = res.rows
-    previewRows.value = res.rows.slice(0, 10)
+    if (token) authHeaders['Authorization'] = `Bearer ${token}`
+    const res = await fetch('/product-db/api/products/import-preview', { method: 'POST', body: formData, headers: authHeaders })
+    if (!res.ok) throw new Error(await readErrorDetail(res))
+    const data = await res.json()
+    headers.value = data.headers ?? []
+    rows.value = data.rows ?? []
+    previewRows.value = rows.value.slice(0, 10)
     mapping.value = {}
     autoMap()
-  } catch (e: any) { showToast(e.message, 'error') }
+  } catch (e: any) { showToast(e.message || '解析失败', 'error') }
   loading.value = false
 }
 
@@ -103,12 +108,14 @@ async function doImport() {
     const h: Record<string,string> = { 'Content-Type': 'application/json' }
     const t = localStorage.getItem('token')
     if (t) h['Authorization'] = `Bearer ${t}`
-    const res = await (await fetch('/product-db/api/products/import-confirm', {
+    const res = await fetch('/product-db/api/products/import-confirm', {
       method: 'POST', headers: h,
       body: JSON.stringify({ mapping: mapping.value, rows: rows.value }),
-    })).json()
-    result.value = res
-  } catch (e: any) { showToast(e.message, 'error') }
+    })
+    if (!res.ok) throw new Error(await readErrorDetail(res))
+    result.value = await res.json()
+    showToast(`成功导入 ${result.value?.imported ?? 0} 条`, 'success')
+  } catch (e: any) { showToast(e.message || '导入失败', 'error') }
   importing.value = false
 }
 </script>

@@ -50,7 +50,10 @@ def verify_password(plain: str, hashed: str) -> bool:
     # Try bcrypt first
     if hashed.startswith("$2"):
         try:
-            return _bcrypt.checkpw(plain.encode(), hashed.encode())
+            # 必须和 hash_password 一样截断到 72 字节：bcrypt 对 >72 字节的输入会抛
+            # ValueError，旧实现只在哈希时截断、校验时不截断 → 超过 72 字节的密码
+            # 注册成功但永远登录失败，且异常被下面的 except 吞成「密码错误」
+            return _bcrypt.checkpw(plain.encode()[:72], hashed.encode())
         except (ValueError, TypeError):
             return False
     # Legacy SHA256 hash format: salt$hexdigest

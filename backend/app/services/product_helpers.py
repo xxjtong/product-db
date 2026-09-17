@@ -157,15 +157,18 @@ def rewrite_mappings(product_id: int, data: dict, db: Session):
 def _cleanup_image_files(product_id: int, db: Session):
     """Delete local image files for a product before removing DB rows."""
     import os
+    from pathlib import Path
     old_images = db.query(ProductImage).filter_by(product_id=product_id).all()
-    upload_root = os.path.join(os.path.dirname(__file__), "..", "uploads")
+    # 必须取绝对路径再比较：旧实现 upload_root 里带着 ".."，而 filepath 被 normpath
+    # 归一化 → 前缀比较恒为 False，于是删除产品/替换图片时本地文件从不被清理
+    upload_root = Path(os.path.join(os.path.dirname(__file__), "..", "uploads")).resolve()
     for img in old_images:
         url = (img.url or "")
         if url.startswith("/product-db/api/uploads/"):
             rel = url[len("/product-db/api/uploads/"):]
-            filepath = os.path.normpath(os.path.join(upload_root, rel))
+            filepath = (upload_root / rel).resolve()
             # Safety: only delete within uploads directory
-            if filepath.startswith(upload_root) and os.path.isfile(filepath):
+            if filepath.is_relative_to(upload_root) and filepath.is_file():
                 try:
                     os.remove(filepath)
                 except OSError:
