@@ -2,7 +2,38 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-17, R31)
+## 最新变更 (2026-09-17, R32)
+
+### R32: 安全批量修复 ② — 功能缺陷（导入页不可用、对比入口参数、长密码、图片清理）(2026-09-17)
+
+续 R31 的代码审查，本批 4 项都是**已在生产成立的功能缺陷**。
+
+**1) Excel 导入页整体不可用**
+- 根因：`ImportView.vue` 的 `onFileSelect` 里 `const headers: Record<string,string> = {}` **遮蔽了同名的 `headers` ref**，`headers.value = res.headers` 写到了局部对象上 → 模板 `v-if="headers.length"` 恒为假，选完文件后列映射表/导入按钮永不出现
+- 修复：局部变量改名 `authHeaders`；两处 `fetch` 补 `res.ok` 校验（预览失败提示后端错误、导入失败不再谎报「成功导入 N 条」）
+
+**2) 对比页入口参数不一致 → 2/3 条入口是空页**
+- 根因：`AiChat.vue` 与 `SolutionDetailView.vue` 跳转用 `?product_ids=`，而 `ProductCompareView` 只读 `route.query.ids`（同一文件另一处 `AiChat.vue:321` 用的是 `ids`，属自相矛盾）
+- 修复：跳转统一为 `ids=`；后端 API 的 `product_ids` 是另一回事，未动。E2E 断言从「body 可见」改为「是否真的带着 ids 调了对比接口」（旧断言对参数写错也无感）
+
+**3) 密码 >72 字节可注册但永远登录失败**
+- 根因：`hash_password` 截断到 72 字节，`verify_password` 不截断 → bcrypt 对 >72 字节抛 `ValueError`，被 `except (ValueError, TypeError)` 吞成「密码错误」。约 25 个中文字符即触发
+- 修复：verify 同样截断（与 bcrypt 的固有语义一致）；**存量用户不受影响**——他们的哈希本来就是按截断值生成的，修复后原长密码可直接登录
+
+**4) 产品图片文件从不被清理（静默）**
+- 根因：`_cleanup_image_files` 里 `upload_root` 带 `..` 而 `filepath` 被 `normpath` 归一化 → `filepath.startswith(upload_root)` **恒为 False**，删除产品/替换图片时本地文件永不删除，孤儿文件累积且无任何报错
+- 修复：改用 `Path.resolve()` + `is_relative_to`（与 `storage.delete_file` 一致），并保留 `../` 越界防护
+
+**测试:** backend **437 passed** (1 skipped, +8) / vitest **69 passed** (+3) / vue-tsc 0
+- 导入页 3 条：列映射渲染（正是遮蔽 bug 的回归）、预览失败提示、导入失败不谎报
+- 长密码 6 条：5 种长度的 hash/verify 往返 + API 登录端到端
+- 图片清理 2 条：本地文件被删 + `../` 越界不删
+
+**生产验证（部署后实测）:** 部署产物里 2 处跳转为 `compare?ids=`（剩余 1 处 `product_ids` 是后端 API 参数，正确）；用 **96 字节**密码的临时用户登录 → **HTTP 200**（旧实现必然 401），临时用户已清理；数据零污染（396/731/6/6/10 与变更前一致）
+
+**变更统计:** 9 文件, +195/-25
+
+## 历史变更 (2026-09-17, R31)
 
 ### R31: 安全批量修复 ① — 上传加固 + 越权 + 主数据写权限 (2026-09-17)
 
