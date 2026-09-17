@@ -463,6 +463,33 @@ sudo cp -a ~/product-db.nginx.bak.<时间戳> /etc/nginx/sites-available/product
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
+## 每日运行报告（Hermes 定时任务）
+
+每天 21:00 由服务器上的 Hermes 定时任务生成一份日报，投递到飞书群。**无告警时只有三行摘要，命中阈值才输出完整报告。**
+
+| 项 | 值 |
+|---|---|
+| 任务 | Hermes `cron/jobs.json` 中的 `7f01bb46e256`「product-db每日运行报告」 |
+| 计划 | `0 21 * * *`，`no_agent=true`（脚本 stdout 原样投递），`deliver=origin`（飞书群） |
+| 脚本 | **仓库** `deploy/hermes/pdb_daily_report.py` ← 唯一修改处；服务器 `~/.hermes/scripts/pdb_daily_report.py` 是指向它的软链接 |
+| 输出留档 | `~/.hermes/cron/output/7f01bb46e256/YYYY-MM-DD_HH-MM-SS.md` |
+| 数据源 | `product_db.db`（只读）、`journalctl -u product-db`、`/opt/product-db-backups/`、`/proc/meminfo` —— **全部无需 sudo** |
+
+改脚本：本机改 → push → 服务器 `git pull` 即生效（软链接直接指向仓库文件，不需要复制）；**不要直接编辑 `~/.hermes/scripts/` 下的文件**（那是软链接）。
+
+手动跑一次（排查用）：
+
+```bash
+python3 ~/.hermes/scripts/pdb_daily_report.py                    # 今天，正常走极简
+python3 ~/.hermes/scripts/pdb_daily_report.py --full             # 强制完整报告
+python3 ~/.hermes/scripts/pdb_daily_report.py --date 2026-09-16  # 指定某天
+```
+
+告警阈值（脚本里的 `TH`）：根分区 85%、可用内存 200MB、当日 5xx 5 次、当日 ERROR 日志 20 行、最新快照年龄 26h、可用性探针非 ok。服务非 active、systemd 自动重启（`NRestarts>0`）、无任何快照也直接告警。
+
+> ⚠️ **DB 里 `created_at` 存的是 naive UTC**（实测 UTC 03:25 = 本地 11:25）。按 `date(created_at)` 切分会把「本地日」错位成 08:00 → 次日 08:00，脚本用 `utc_bounds()` 做本地日→UTC 换算，写新查询时注意沿用。
+> ⚠️ 活跃时长来自 journald（uvicorn 访问日志），**只保留约 1-2 周**，且已排除探针流量（`/product-db/api/health` 与本机/自身公网 IP）；跨天会话会被截断，属估算值。
+
 ## 数据库备份
 
 **备份目录：`/opt/product-db-backups/`**（与代码目录同级、分离，避免 `git clean -fd` / 重新克隆时被连带删除 —— 2026-08 曾因 `git clean -fd` 清掉未跟踪的 `static/` 导致首页 404）
