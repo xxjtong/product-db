@@ -901,17 +901,25 @@ def delete_conversation(conv_id: int, db: Session = Depends(get_db), user=Depend
 
 @router.get("/ai/stats")
 def get_ai_stats(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    """Return total and current-user AI usage counts with token stats."""
+    """Return current-user AI usage; global totals only for admin.
+
+    全局口径（total / total_tokens_*）此前对所有登录用户返回，属口径溢出 —— 侧边栏
+    只展示 user_* 字段，所以对非 admin 去掉全局项不影响界面。
+    """
     from app.models.ai_usage_log import AIUsageLog
-    from sqlalchemy import func, text
-    total = db.query(AIUsageLog).count()
+    from sqlalchemy import func
     user_count = db.query(AIUsageLog).filter_by(user_id=user.id).count()
-    total_tokens_in = db.query(func.sum(AIUsageLog.tokens_in)).scalar() or 0
-    total_tokens_out = db.query(func.sum(AIUsageLog.tokens_out)).scalar() or 0
     user_tokens_in = db.query(func.sum(AIUsageLog.tokens_in)).filter_by(user_id=user.id).scalar() or 0
     user_tokens_out = db.query(func.sum(AIUsageLog.tokens_out)).filter_by(user_id=user.id).scalar() or 0
-    return {
-        "total": total, "user_count": user_count,
-        "total_tokens_in": total_tokens_in, "total_tokens_out": total_tokens_out,
-        "user_tokens_in": user_tokens_in, "user_tokens_out": user_tokens_out,
+    payload = {
+        "user_count": user_count,
+        "user_tokens_in": user_tokens_in,
+        "user_tokens_out": user_tokens_out,
     }
+    if getattr(user, "role", "") == "admin":
+        payload.update({
+            "total": db.query(AIUsageLog).count(),
+            "total_tokens_in": db.query(func.sum(AIUsageLog.tokens_in)).scalar() or 0,
+            "total_tokens_out": db.query(func.sum(AIUsageLog.tokens_out)).scalar() or 0,
+        })
+    return payload

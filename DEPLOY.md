@@ -160,8 +160,12 @@ ssh -p 28793 tong@124.221.178.161 \
 
 ### 主服务 `product-db.service`
 
-```
-/etc/systemd/system/product-db.service
+**仓库内已版本化**：[`deploy/systemd/product-db.service`](deploy/systemd/product-db.service)（内容与生产实际运行一致）。安装/更新：
+
+```bash
+# 需要 sudo（/etc/systemd/system 属 root）
+sudo cp /opt/product-db/deploy/systemd/product-db.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl restart product-db
 ```
 
 ```ini
@@ -187,14 +191,12 @@ WantedBy=multi-user.target
 
 应用以 `tong` 运行、进程 umask 默认 `0022`，它创建的文件（SQLite 的 `-wal`/`-shm`、轮转日志、uploads 新文件）都是 **644 = world-readable**。该实例存在 `debian` / `lighthouse` / `tong` 三个本地账号，等于生产库与日志对它们可读。
 
-用 drop-in 覆盖（不改主 unit）：
+**仓库内已版本化**：[`deploy/systemd/product-db.service.d/umask.conf`](deploy/systemd/product-db.service.d/umask.conf)。安装：
 
 ```bash
 sudo mkdir -p /etc/systemd/system/product-db.service.d
-sudo tee /etc/systemd/system/product-db.service.d/umask.conf >/dev/null <<'EOF'
-[Service]
-UMask=0077
-EOF
+sudo cp /opt/product-db/deploy/systemd/product-db.service.d/umask.conf \
+        /etc/systemd/system/product-db.service.d/
 sudo systemctl daemon-reload && sudo systemctl restart product-db
 
 # 验证：进程 umask 必须是 0077（默认是 0022）

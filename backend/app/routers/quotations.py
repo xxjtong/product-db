@@ -1,11 +1,12 @@
 """Quotation CRUD + export."""
 from __future__ import annotations
 import json
+import logging
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import select
+from sqlalchemy import select, func, update
 from app.database import get_db
 from app.utils.helpers import get_or_404, apply_partial_update, format_description_with_specs
 from app.models.quotation import Quotation, QuotationItem
@@ -416,7 +417,11 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
     from app.models.download_log import DownloadLog
     log = DownloadLog(user_id=user.id, file_type="quotation", entity_id=quotation_id, ip_address="")
     db.add(log)
-    qt.download_count = (qt.download_count or 0) + 1
+    # 原子自增：读-改-写并发下会丢计数
+    db.execute(
+        update(Quotation).where(Quotation.id == quotation_id)
+        .values(download_count=func.coalesce(Quotation.download_count, 0) + 1)
+    )
     db.commit()
 
     buf = BytesIO()
@@ -491,7 +496,9 @@ def save_quotation_bom(quotation_id: int, data: dict, db: Session = Depends(get_
         db.flush()
         _recalc_total(qt, db)
         db.commit()
-    except Exception:
+    except Exception as e:
         db.rollback()
+        # 原始异常必须留痕：此前直接丢弃，只剩一句通用 500 文案，排障时无从下手
+        logging.getLogger("uvicorn").warning("BOM 回写方案明细失败: %s", e, exc_info=True)
         raise HTTPException(500, "BOM 保存失败，请重试")
     return {"ok": True, "total": float(qt.total_amount or 0)}

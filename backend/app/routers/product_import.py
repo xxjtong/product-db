@@ -15,10 +15,20 @@ router = APIRouter()
 
 
 @router.post("/products/import-preview")
-def import_preview(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+async def import_preview(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
     """Parse Excel file and return preview rows with column mapping."""
+    from app.config import settings
+    from app.services.storage import read_limited
+
+    # 流式读 + 大小上限：原来直接 file.file.read() 把整个文件读进内存，普通用户
+    # 上传一个几百 MB 的 xlsx 就能把工作进程内存打满（xlsx 是 zip，解压后更大）
     try:
-        wb = openpyxl.load_workbook(BytesIO(file.file.read()), data_only=True)
+        raw = await read_limited(file, settings.FILE_MAX_SIZE)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    try:
+        wb = openpyxl.load_workbook(BytesIO(raw), data_only=True)
     except Exception:
         raise HTTPException(400, "Invalid Excel file")
     sheet = wb.active

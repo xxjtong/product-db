@@ -1,0 +1,21 @@
+# 生产主服务单元（版本化于 R35）
+#
+# 安装位置：/etc/systemd/system/product-db.service（root 属主，改后需
+#   sudo systemctl daemon-reload && sudo systemctl restart product-db）
+# 内容与生产实际运行的一致；此前只以文档内联代码块存在，改错了没人能发现。
+[Unit]
+Description=Product DB Backend
+After=network.target
+
+[Service]
+Type=simple
+User=tong
+Group=tong
+WorkingDirectory=/opt/product-db/backend
+Environment=PATH=/opt/product-db/backend/venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/product-db/backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

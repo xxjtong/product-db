@@ -55,7 +55,8 @@ def _get_agent_prompt(db):
     try:
         from app.routers.admin_routes import _PROMPT_DEFAULTS
         return _PROMPT_DEFAULTS.get("agent_prompt", _AGENT_PROMPT_DEFAULT)
-    except Exception:
+    except Exception as e:
+        logger.warning("读取默认 agent 提示词失败，使用内置兜底: %s", e)
         return _AGENT_PROMPT_DEFAULT
 
 
@@ -427,8 +428,9 @@ def _log_agent_usage(user_id: int, model: str, tokens_in: int, tokens_out: int,
             sdb.commit()
         finally:
             sdb.close()
-    except Exception:
-        pass
+    except Exception as e:
+        # 用量统计静默丢失会让 AI 计费口径对不上，至少留痕
+        logger.warning("Failed to log agent usage: %s", e)
 
 
 async def _stream_with_usage(gen, user_id: int, model: str):

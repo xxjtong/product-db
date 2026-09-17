@@ -166,8 +166,9 @@ def delete_product_file(file_id: int, db: Session = Depends(get_db), user=Depend
     if not pf.is_link:
         try:
             delete_file(pf.file_url)
-        except Exception:
-            logging.getLogger("uvicorn").debug("File cleanup failed for %s (may already be gone)", pf.file_url)
+        except Exception as e:
+            # 生产日志 sink 是 INFO，原来的 debug 线上不可见 → 升到 warning
+            logging.getLogger("uvicorn").warning("File cleanup failed for %s: %s", pf.file_url, e)
     db.delete(pf)
     db.commit()
     return {"ok": True}

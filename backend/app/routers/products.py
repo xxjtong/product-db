@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse, HTMLResponse, Response
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import select, case, table, column
-from sqlalchemy import or_
+from sqlalchemy import func, or_, update
 from app.database import get_db
 from app.utils.helpers import get_or_404, apply_partial_update, format_description_with_specs
 from app.models.product import Product
@@ -368,8 +368,13 @@ def get_product(product_id: int, db: Session = Depends(get_db), user=Depends(get
     p = db.scalar(select(Product).options(*product_eager_loads()).where(Product.id == product_id))
     if not p:
         raise HTTPException(404, "Product not found")
-    p.view_count = (p.view_count or 0) + 1
+    # 原子自增：读-改-写在并发下会丢计数，而且 GET 里的读改写会持有写锁更久
+    db.execute(
+        update(Product).where(Product.id == product_id)
+        .values(view_count=func.coalesce(Product.view_count, 0) + 1)
+    )
     db.commit()
+    db.refresh(p)
     result = build_product_detail(p, db)
     from app.services.field_visibility import filter_fields_for_user
     is_admin = getattr(user, 'role', '') == 'admin'
@@ -677,7 +682,10 @@ async def _ocr_image(image_bytes: bytes, db: Session, _usage: list = None) -> st
             _usage.append(u.get("completion_tokens", 0))
             _usage.append(int((_time.time() - t0) * 1000))
         return data["choices"][0]["message"]["content"] or ""
-    except Exception:
+    except Exception as e:
+        # 原始异常必须留痕：此前这里把超时/401/余额不足/结构不符全吞成 500 文案，
+        # 用户看到「OCR failed」而日志里什么都没有
+        logging.getLogger("uvicorn").warning(f"Vision LLM OCR failed: {e}")
         raise HTTPException(500, "Vision LLM OCR failed")
 
 
@@ -707,8 +715,9 @@ async def _extract_product_info(text: str, source: str, db: Session, _usage: lis
             json_match = _re.search(r'\{.*\}', content_text, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group())
-        except Exception:
-            pass
+        except Exception as e:
+            # 静默回落会让「AI 挂了」和「AI 正常但没抽出东西」表现一致，必须留痕
+            logging.getLogger("uvicorn").warning(f"AI 产品信息提取失败，回落正则提取: {e}")
     return regex_extract_from_text("", text, db)
 
 

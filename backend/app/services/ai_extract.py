@@ -48,7 +48,10 @@ def build_extraction_prompt(db: Session) -> str:
     try:
         s = db.query(SystemSetting).filter_by(key="ai_extract_prompt").first()
         if s and s.value: instruction = s.value
-    except Exception: pass
+    except Exception as e:
+        # 读不到自定义提示词会静默用默认值，至少要留痕（此前是裸 pass）
+        import logging
+        logging.getLogger("uvicorn").warning(f"读取 ai_extract_prompt 失败，使用默认提示词: {e}")
 
     result = f"""{instruction}
 

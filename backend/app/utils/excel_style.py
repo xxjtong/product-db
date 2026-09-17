@@ -236,7 +236,20 @@ def _resolve_image(source: str, upload_dir: str = None):
             import logging; logging.getLogger("uvicorn").warning(f"SSRF blocked: {source}")
             return None
         try:
-            r = requests.get(source, timeout=5)
+            # 必须禁掉自动重定向并逐跳校验：requests 默认跟随 302/307，重定向后的
+            # 目标地址不会再过 validate_url —— 盲 SSRF（可探测内网/元数据地址）。
+            # 与 products.py 的 AI 抓取、storage.upload_from_url 保持一致的做法。
+            r = requests.get(source, timeout=5, allow_redirects=False)
+            for _ in range(3):
+                if r.status_code in (301, 302, 303, 307, 308):
+                    loc = r.headers.get("Location", "")
+                    if not loc or not validate_url(loc):
+                        import logging
+                        logging.getLogger("uvicorn").warning(f"SSRF blocked (redirect): {(loc or '')[:80]}")
+                        return None
+                    r = requests.get(loc, timeout=5, allow_redirects=False)
+                else:
+                    break
             if r.status_code == 200:
                 return BytesIO(r.content)
         except Exception as e:

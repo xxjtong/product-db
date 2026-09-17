@@ -1,5 +1,6 @@
 """Admin routes — user management, field visibility, AI prompt, usage stats, logs."""
 import json
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -290,8 +291,8 @@ def test_llm_config(data: dict, db: Session = Depends(get_db), user=Depends(get_
         if mr.status_code == 200:
             raw = mr.json().get("data", [])
             models = sorted([m["id"] for m in raw if m.get("id")], key=lambda x: x.lower())
-    except Exception:
-        pass  # models list is best-effort
+    except Exception as e:
+        logging.getLogger("uvicorn").warning(f"拉取 {base}/models 失败（模型列表为尽力而为，继续）: {e}")
 
     # 3) Store to DB
     from app.models.system_setting import SystemSetting
@@ -302,7 +303,9 @@ def test_llm_config(data: dict, db: Session = Depends(get_db), user=Depends(get_
     stored = {}
     if s.value:
         try: stored = json.loads(s.value)
-        except: pass
+        except Exception as e:
+            # 裸 except 同时会吞 KeyboardInterrupt；这里只兜 JSON 解析失败并留痕
+            logging.getLogger("uvicorn").warning(f"llm_models 存储值不是合法 JSON，已忽略: {e}")
     if models:
         stored[provider] = models
     else:
@@ -322,7 +325,8 @@ def get_llm_models(db: Session = Depends(get_db), user=Depends(get_current_user)
     s = db.query(SystemSetting).filter_by(key="llm_models").first()
     if s and s.value:
         try: return {"models": json.loads(s.value)}
-        except: pass
+        except Exception as e:
+            logging.getLogger("uvicorn").warning(f"llm_models 存储值不是合法 JSON: {e}")
     return {"models": {}}
 
 

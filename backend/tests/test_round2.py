@@ -524,6 +524,35 @@ class TestExcelStyle:
         result = _resolve_image("http://127.0.0.1/admin")
         assert result is None
 
+    def test_resolve_image_blocks_redirect_to_private_address(self):
+        """回归：requests 默认跟随重定向 → 302 到 169.254.169.254 会绕过 validate_url。
+
+        该路径的图片来源是产品 image_url（任意登录用户可写），导出报价单/BOM 时
+        服务端会去抓图 → 可被用来探测内网/云元数据（盲 SSRF）。
+        这里 patch 掉 validate_url（它本身会做 DNS 解析，不适合放进单测），
+        只验证「重定向目标是否被重新校验」这一行为。
+        """
+        from unittest.mock import MagicMock, patch
+        from app.utils.excel_style import _resolve_image
+
+        redirect = MagicMock()
+        redirect.status_code = 302
+        redirect.headers = {"Location": "http://169.254.169.254/latest/meta-data/"}
+
+        seen = []
+
+        def fake_validate(u):
+            seen.append(u)
+            return "169.254" not in u          # 私有/元数据地址一律拒绝
+
+        with patch("app.utils.security.validate_url", side_effect=fake_validate):
+            with patch("requests.get", return_value=redirect) as g:
+                assert _resolve_image("https://example.com/a.png") is None
+                assert g.call_count == 1, "不得自动跟随重定向（只允许请求原始地址一次）"
+        assert seen == ["https://example.com/a.png",
+                        "http://169.254.169.254/latest/meta-data/"], \
+            "重定向目标必须再走一次 validate_url"
+
 
 # ============================================================
 # Product Import (23% → ~50%)

@@ -1087,6 +1087,65 @@ class TestFieldVisibility:
         assert res.json()["product"]["cost_price"] == 333.33
 
 
+class TestPerimeterHardening:
+    """收敛几处「对外暴露面过大 / 静默失败」的审查项。"""
+
+    def _make_user(self, db, username, role="user"):
+        u = User(username=username, password_hash=hash_password("test123"), role=role)
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        return u
+
+    def _auth_for(self, user):
+        return {"Authorization": f"Bearer {create_token(user.id, user.username)}"}
+
+    def test_ai_stats_hides_global_totals_for_non_admin(self, db):
+        """回归：/ai/stats 曾把全站 AI 用量（total / total_tokens_*）返回给任意登录用户。"""
+        admin = db.query(User).filter_by(username="admin").first()
+        res = client.get("/product-db/api/ai/stats", headers=self._auth_for(admin))
+        assert res.status_code == 200
+        assert "total" in res.json(), "admin 应拿到全局口径"
+
+        user = self._make_user(db, "stats_user")
+        res = client.get("/product-db/api/ai/stats", headers=self._auth_for(user))
+        assert res.status_code == 200
+        body = res.json()
+        assert "total" not in body and "total_tokens_in" not in body, "非 admin 不得看到全局口径"
+        # 侧边栏用的用户级字段必须保留，否则界面会空
+        assert "user_count" in body and "user_tokens_in" in body
+
+    def test_import_preview_rejects_oversize_upload(self, db, monkeypatch):
+        """回归：import-preview 曾把整个文件读进内存且无上限（普通用户可打满内存）。"""
+        import io
+        from app.config import settings
+
+        user = self._make_user(db, "import_user")
+        monkeypatch.setattr(settings, "FILE_MAX_SIZE", 1024, raising=False)
+
+        res = client.post(
+            "/product-db/api/products/import-preview",
+            files={"file": ("big.xlsx", io.BytesIO(b"x" * 4096),
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            headers=self._auth_for(user),
+        )
+        assert res.status_code == 400
+        assert "too large" in res.json()["detail"].lower()
+
+    def test_product_view_count_is_incremented_atomically(self, db):
+        """浏览量改为 SQL 层自增后仍要正确累加（view_count 为 NULL 时不能变 NULL）。"""
+        admin = db.query(User).filter_by(username="admin").first()
+        cat = _seed_category(db)
+        p = _seed_product(db, name="浏览量产品", model="VC-1", category_id=cat.id)
+        p.view_count = None
+        db.commit()
+
+        for expected in (1, 2):
+            res = client.get(f"/product-db/api/products/{p.id}", headers=self._auth_for(admin))
+            assert res.status_code == 200
+            assert res.json()["product"]["view_count"] == expected
+
+
 class TestOwnershipGaps:
     """Ownership checks that were missing: dependencies, export, compare."""
 
