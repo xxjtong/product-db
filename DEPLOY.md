@@ -380,16 +380,27 @@ cd /opt/product-db && deploy/restart-ready.sh
 
 既然窗口只有 1.3s，维护页收益有限，属于**可选**项。维护页已在仓库里（`static/maintenance.html`，随 `git pull` 落到 `/opt/product-db/static/`，nginx 的 `root` 直接能读到）。
 
-改法：在 `/etc/nginx/sites-available/product-db` 的 **server 级**（例如 `index coming-soon.html;` 之后）加两行：
+改法：在 `/etc/nginx/sites-available/product-db` 的 **server 级**（例如 `index coming-soon.html;` 之后）加两行，并在 `location /product-db/` 里加一行：
 
 ```nginx
+    # server 级
     # 后端未就绪时不返回裸 502/503/504，改为给用户一个会自动重试的维护页
     error_page 502 503 504 /maintenance.html;
     location = /maintenance.html { internal; }
+
+    location /product-db/ {
+        proxy_pass http://127.0.0.1:8000;
+        # ... 原有 proxy_set_header / client_max_body_size 保持不变 ...
+        # 让**上游自己返回的** 503（dist 丢失时 main.py 返回「Frontend not built」）也走维护页，
+        # 否则 error_page 只接得住 nginx 自己生成的错误
+        proxy_intercept_errors on;
+    }
 ```
 
-> ⚠️ **必须放在 server 级，不要嵌进 `location /product-db/` 里面**：嵌套 location 匹配的是父级前缀之后的剩余 URI，`location = /maintenance.html` 写在里面永远匹配不到，维护页不会生效。
+> ⚠️ **`error_page` 必须放在 server 级，不要嵌进 `location /product-db/` 里面**：嵌套 location 匹配的是父级前缀之后的剩余 URI，`location = /maintenance.html` 写在里面永远匹配不到，维护页不会生效。
 > `internal` 表示该页只能由 nginx 内部跳转（`error_page`）访问，直接请求会 404；`root` 从 server 级继承（`root /opt/product-db/static;`），不用重复写。
+> **状态码仍保持 502/503/504（没有加 `=200`）**：浏览器照样渲染维护页，但可用性探针/外部监控能继续按状态码判定「服务不可用」—— 如果改成 `=200`，服务挂了监控反而会认为一切正常。
+> `proxy_intercept_errors on;` 是安全的：后端只有 `main.py` 的「Frontend not built」返回 503，没有其它 502/503/504 业务语义。
 
 ```bash
 # 1) 备份（改坏了能一键回滚）
@@ -413,7 +424,11 @@ curl -s -o /dev/null -w '  直接访问维护页 → %{http_code}（期望 404�
 sudo sed -i 's|^    location = /maintenance.html { internal; }|    location = /maintenance.html { internal; }\n    location = /__maint_probe__ { proxy_pass http://127.0.0.1:9; error_page 502 503 504 /maintenance.html; }|' \
   /etc/nginx/sites-available/product-db
 sudo nginx -t && sudo systemctl reload nginx
-curl -s https://product-db.cn/__maint_probe__ | grep -o '服务正在重启' | head -1   # 期望打印「服务正在重启」
+
+# 期望：状态码 502 + 响应体是维护页（注意状态码**故意**不是 200）
+curl -s -o /tmp/mp.html -w '  状态码 → %{http_code}（期望 502）\n' https://product-db.cn/__maint_probe__
+grep -o '服务正在重启' /tmp/mp.html | head -1     # 期望打印「服务正在重启」
+
 sudo sed -i '/__maint_probe__/d' /etc/nginx/sites-available/product-db            # 删掉测试位置
 sudo nginx -t && sudo systemctl reload nginx
 ```
