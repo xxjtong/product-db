@@ -16,6 +16,10 @@ Revision ID: c3d4e5f6a7b8
 Revises: b2c3d4e5f6a7
 Create Date: 2026-08-02
 """
+# 必须放在最前：下面的 `down_revision: str | None` 是模块级注解，Python 3.9 会在导入
+# 时求值 `str | None` 并抛 TypeError → 本地 3.9 环境 `alembic upgrade head` 直接崩
+from __future__ import annotations
+
 from alembic import op
 import sqlalchemy as sa
 

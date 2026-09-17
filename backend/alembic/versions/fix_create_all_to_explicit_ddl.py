@@ -22,37 +22,23 @@ def upgrade() -> None:
     """Drop all tables (respecting FK deps), then recreate with explicit DDL."""
 
     # ── DROP in reverse-dependency order ──────────────────────────────────
-    op.drop_table("download_logs")
-    op.drop_table("download_tickets")
-    op.drop_table("login_logs")
-    op.drop_table("ai_usage_logs")
-    op.drop_table("ai_messages")
-    op.drop_table("ai_conversations")
-    op.drop_table("quotation_items")
-    op.drop_table("quotations")
-    op.drop_table("solution_bom_snapshots")
-    op.drop_table("solution_items")
-    op.drop_table("solutions")
-    op.drop_table("product_dependencies")
-    op.drop_table("category_spec_definitions")
-    op.drop_table("product_sensor_capabilities")
-    op.drop_table("product_hardware_interfaces")
-    op.drop_table("product_power_supplies")
-    op.drop_table("product_comm_protocols")
-    op.drop_table("product_comm_methods")
-    op.drop_table("product_images")
-    op.drop_table("bom_templates")
-    op.drop_table("products")
-    op.drop_table("dict_sensor_metrics")
-    op.drop_table("dict_power_supplies")
-    op.drop_table("dict_comm_protocols")
-    op.drop_table("dict_comm_methods")
-    op.drop_table("suppliers")
-    op.drop_table("manufacturers")
-    op.drop_table("device_categories")
-    op.drop_table("field_settings")
-    op.drop_table("system_settings")
-    op.drop_table("users")
+    # 用 DROP TABLE IF EXISTS：DownloadTicket 模型在 R27 已删除，全新库不会存在
+    # download_tickets（ORM 只建模型对应的表），无条件 drop 会让「从零建库」在
+    # 第一步就崩（OperationalError: no such table: download_tickets）
+    for _t in (
+        "download_logs", "download_tickets", "login_logs", "ai_usage_logs",
+        "ai_messages", "ai_conversations", "quotation_items", "quotations",
+        "solution_bom_snapshots", "solution_items", "solutions",
+        "product_dependencies", "category_spec_definitions",
+        "product_sensor_capabilities", "product_hardware_interfaces",
+        "product_power_supplies", "product_comm_protocols",
+        "product_comm_methods", "product_images", "bom_templates",
+        "products", "dict_sensor_metrics", "dict_power_supplies",
+        "dict_comm_protocols", "dict_comm_methods", "suppliers",
+        "manufacturers", "device_categories", "field_settings",
+        "system_settings", "users",
+    ):
+        op.execute(sa.text(f"DROP TABLE IF EXISTS {_t}"))
 
     # ── CREATE in dependency order ────────────────────────────────────────
 
@@ -498,34 +484,20 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Drop all tables in reverse-dependency order."""
-    op.drop_table("download_logs")
-    op.drop_table("download_tickets")
-    op.drop_table("login_logs")
-    op.drop_table("ai_usage_logs")
-    op.drop_table("ai_messages")
-    op.drop_table("ai_conversations")
-    op.drop_table("quotation_items")
-    op.drop_table("quotations")
-    op.drop_table("solution_bom_snapshots")
-    op.drop_table("solution_items")
-    op.drop_table("solutions")
-    op.drop_table("product_dependencies")
-    op.drop_table("category_spec_definitions")
-    op.drop_table("product_sensor_capabilities")
-    op.drop_table("product_hardware_interfaces")
-    op.drop_table("product_power_supplies")
-    op.drop_table("product_comm_protocols")
-    op.drop_table("product_comm_methods")
-    op.drop_table("product_images")
-    op.drop_table("bom_templates")
-    op.drop_table("products")
-    op.drop_table("dict_sensor_metrics")
-    op.drop_table("dict_power_supplies")
-    op.drop_table("dict_comm_protocols")
-    op.drop_table("dict_comm_methods")
-    op.drop_table("suppliers")
-    op.drop_table("manufacturers")
-    op.drop_table("device_categories")
-    op.drop_table("field_settings")
-    op.drop_table("system_settings")
-    op.drop_table("users")
+    # 用 DROP TABLE IF EXISTS：DownloadTicket 模型在 R27 已删除，全新库不会存在
+    # download_tickets（ORM 只建模型对应的表），无条件 drop 会让「从零建库」在
+    # 第一步就崩（OperationalError: no such table: download_tickets）
+    for _t in (
+        "download_logs", "download_tickets", "login_logs", "ai_usage_logs",
+        "ai_messages", "ai_conversations", "quotation_items", "quotations",
+        "solution_bom_snapshots", "solution_items", "solutions",
+        "product_dependencies", "category_spec_definitions",
+        "product_sensor_capabilities", "product_hardware_interfaces",
+        "product_power_supplies", "product_comm_protocols",
+        "product_comm_methods", "product_images", "bom_templates",
+        "products", "dict_sensor_metrics", "dict_power_supplies",
+        "dict_comm_protocols", "dict_comm_methods", "suppliers",
+        "manufacturers", "device_categories", "field_settings",
+        "system_settings", "users",
+    ):
+        op.execute(sa.text(f"DROP TABLE IF EXISTS {_t}"))
