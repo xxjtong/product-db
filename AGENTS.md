@@ -37,7 +37,9 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 
 **文档:** `DEPLOY.md` 新增「IP 地区离线库」一节（SHA256 pin、验证命令、更新方式）；后端部署命令补 `pip install`，并去掉会静默丢弃服务器改动的 `git stash + stash drop`
 
-**变更统计:** 7 文件, +298/-25（不含新增的 11MB 数据文件）
+**日志落点（本次实测发现，已写进代码注释）:** 地区相关的 WARNING 走 stdlib `logging.getLogger("uvicorn")`，落点是 **journald**（`journalctl -u product-db`），**不进** `backend/app.log` —— loguru 只接管自己的 logger，仓库里 21 处 `logging.getLogger` 同理（实测 `grep -c uvicorn app.log` = 0，而 `journalctl` 里能看到 `ip2region 离线库已加载`）。所以「地区静默失效」的告警在两处都要看，只看 `app.log` 会误判为「又没有告警」。
+
+**变更统计:** 7 文件, +305/-25（不含新增的 11MB 数据文件）
 
 ## 历史变更 (2026-09-16, R29)
 

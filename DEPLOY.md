@@ -258,6 +258,7 @@ print(s.new_with_vector_index(u.IPv4, 'data/ip2region_v4.xdb',
   - ⚠️ 早先本节写的是 `/opt/product-db/app.log`，**那是错的**：日志路径原本是相对路径 `"app.log"`，落点取决于进程 CWD。历史上 CWD 变过，日志因此散落在项目根、`backend/`、`frontend/` 三处，且残留文件是 644（world-readable）。
   - 2026-09 已改为基于 `backend/` 的绝对路径（`backend/app/main.py` 的 `LOG_FILE`），此后只有 `backend/app.log` 会更新。旧位置的文件是历史残留，不会被 loguru 的 retention 接管，可手工删除。
 - **systemd 日志**: `journalctl -u product-db -f`
+  - ⚠️ 后端代码里用 stdlib `logging.getLogger(...)` 的地方（21 处，含登录地区查询、AI、报价单等）记录**只在这里**，不进 `app.log`：loguru 只接管自己的 logger。排查这类代码的告警时只看 `app.log` 会误判为「没有日志」。
 - **Nginx 日志**: `/var/log/nginx/access.log`, `/var/log/nginx/error.log`
 - **备份日志**: `/opt/product-db-backups/db/backup.log`（每日备份脚本写入，超过 1MB 自动截断）
 

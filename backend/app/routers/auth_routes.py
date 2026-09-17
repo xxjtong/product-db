@@ -23,6 +23,10 @@ router = APIRouter()
 
 # IP → 地区。两级来源：ip2region 离线库优先，未命中/不适用时才回落 ipapi.co。
 # 结果按 IP 缓存：同一 IP 的地区一天内不会变，缓存既省解析，也避免登录路径阻塞在网络调用上。
+#
+# 日志注：本文件的告警走 stdlib `logging.getLogger("uvicorn")`，记录进 **journald**
+# （`journalctl -u product-db`），**不会**进 `backend/app.log` —— loguru 只接管它自己的
+# logger，仓库里其他 21 处 logging.getLogger 同理。排查地区问题时两个地方都要看。
 _ip_region_cache: dict = {}
 _IP_REGION_TTL = 86400      # 成功结果缓存 1 天
 _IP_REGION_FAIL_TTL = 300   # 失败也短暂缓存，防止每次都去撞配额
