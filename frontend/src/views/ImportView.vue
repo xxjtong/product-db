@@ -82,7 +82,15 @@ async function onFileSelect(e: Event) {
     previewRows.value = rows.value.slice(0, 10)
     mapping.value = {}
     autoMap()
-  } catch (e: any) { showToast(e.message || '解析失败', 'error') }
+  } catch (e: any) {
+    // 失败必须清空上一次的预览状态：否则旧的列映射表会留在页面上、「确认导入 N 条」
+    // 仍可点，用户会误把上一个文件的数据再导一遍（浏览器走查发现的遗留问题）
+    headers.value = []
+    rows.value = []
+    previewRows.value = []
+    mapping.value = {}
+    showToast(e.message || '解析失败', 'error')
+  }
   loading.value = false
 }
 

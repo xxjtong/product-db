@@ -312,30 +312,43 @@ describe('ImportView Excel 导入', () => {
 
   it('选择文件后渲染列映射与行数', async () => {
     const { wrapper } = await mountImport()
-    global.fetch = vi.fn().mockResolvedValue({
+    const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ headers: ['产品名称', '型号'], rows: [['A', 'M1']], row_count: 1 }),
-    }) as any
+    })
+    global.fetch = fetchMock as any
 
     await selectFile(wrapper)
 
     expect(wrapper.text()).toContain('列映射')
     expect(wrapper.text()).toContain('产品名称')
+    // 一次选择只应发一次预览请求（浏览器走查曾观察到两次，需确认不是应用 bug）
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('预览失败时提示后端错误而不是静默', async () => {
+  it('预览失败时提示后端错误并清掉上一次的预览', async () => {
     const { wrapper, toast } = await mountImport()
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 400,
-      json: async () => ({ detail: 'Invalid Excel file' }),
-      text: async () => '',
-    }) as any
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ headers: ['产品名称'], rows: [['A']], row_count: 1 }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({ detail: 'Invalid Excel file' }),
+        text: async () => '',
+      }) as any
 
+    await selectFile(wrapper)
+    expect(wrapper.text()).toContain('列映射')
+
+    // 再选一个坏文件：提示错误，且不得残留上一个文件的映射（否则可能被重复导入）
     await selectFile(wrapper)
 
     expect(toast).toHaveBeenCalledWith('Invalid Excel file', 'error')
     expect(wrapper.text()).not.toContain('列映射')
+    expect(wrapper.find('button.btn-primary').exists()).toBe(false)
   })
 
   it('导入失败时不谎报成功', async () => {
