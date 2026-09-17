@@ -18,10 +18,12 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 - **实测（0.15s 间隔打公开入口）**：应用就绪 **1s**、对外 502 窗口 **≈1.3s** —— 早先文档写的「5-8s」是错的（那是部署时操作者 `sleep 4` 的等待，不是用户可见窗口）。因此该脚本的主要价值是「部署失败立刻可见 + 有回滚提示」，而非消灭这 1.3s
 - 配套维护页 `static/maintenance.html`（每 5s 自动探测健康接口，恢复后回首页）为**可选项**（窗口仅 1.3s，收益有限）；nginx `error_page 502 503 504` 的改法已在 DEPLOY.md 给出，配置属 root **需人工 sudo 执行**
 
-**3) 最小可用性探针**（新增 `deploy/health-check.sh` + `product-db-healthcheck.{service,timer}`）
+**3) 最小可用性探针**（新增 `deploy/health-check.sh` + `product-db-healthcheck.{service,timer}`，已在生产装好并实测）
 - 此前**没有任何可用性告警**：进程崩了只有 `Restart=always` 静默拉起，dist 丢失会让首页 503，两者只能靠用户反馈
-- 每 2 分钟检查三项：本机健康接口（绕 nginx）、经 nginx 的健康接口、前端首页；**只在状态变化时**写一条显著日志（持续故障不刷屏）
-- 可选 webhook 通知（`ALERT_WEBHOOK` + `ALERT_WEBHOOK_STYLE=feishu|text`），不配置则只写 `/opt/product-db-backups/health.log`
+- **双频探测**：本地接口 + 前端首页**每 2 分钟**（直连 `127.0.0.1:8000`，不过 nginx、不耗配额）；经 nginx 的公开入口**每 30 分钟**（或本地已异常时立即补测）
+- 为什么公开入口要降频（实测踩到）：全局限流 200/天，2 分钟一次 = **720 次/天** → 探针先打满配额、再把 429 持续误报成「服务不可用」。给它加 `@limiter.exempt` **实测无效** —— slowapi 的 `SlowAPIMiddleware` 用 `_find_route_handler()` 取「最后一个 FULL 匹配的路由」，而 SPA catch-all `/product-db/{full_path:path}` 注册在后、也匹配 `/health` → 解析到 `serve_spa`，函数级豁免永不生效（连续打 65 次仍 429）。根因注释留在 `main.py` 的 `health()` 里
+- **只在状态变化时**写一条显著日志（持续故障写「FAIL（持续）」，不刷屏）；可选 webhook（`ALERT_WEBHOOK` + `ALERT_WEBHOOK_STYLE=feishu|text`）
+- 实测：健康路径 exit 0；死端口模拟故障 exit 1 并按 `FAIL`→`OK 服务已恢复（上一状态: fail）` 正确记录迁移
 
 **4) 文档漂移校正（逐条实测过口径）**
 

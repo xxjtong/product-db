@@ -311,13 +311,16 @@ for ip, c in sqlite3.connect('product_db.db').execute('SELECT ip_address, COUNT(
 
 此前**没有任何服务可用性告警**：进程崩了只有 `Restart=always` 静默拉起，前端 dist 丢失会让 SPA 返回 503 —— 两者都只能靠用户反馈才知道。
 
-`deploy/health-check.sh` + 用户级 timer（与备份同样的模式）：
+`deploy/health-check.sh` + 用户级 timer（与备份同样的模式）。**双频探测**：
 
-| 检查项 | 说明 |
-|--------|------|
-| `http://127.0.0.1:8000/product-db/api/health` | 绕开 nginx，判断应用本身是否活着 |
-| `https://product-db.cn/product-db/api/health` | 经 nginx 的端到端 |
-| `https://product-db.cn/product-db/` | 前端首页（dist 丢失时应用自身返回 503） |
+| 频率 | 检查项 | 说明 |
+|------|--------|------|
+| 每 2 分钟 | `http://127.0.0.1:8000/product-db/api/health` | 绕开 nginx，判断应用本身是否活着 |
+| 每 2 分钟 | `http://127.0.0.1:8000/product-db/` | 前端首页（dist 丢失时应用自身返回 503） |
+| 每 30 分钟（或本地已异常时立即补测） | `https://product-db.cn/product-db/api/health`、`https://product-db.cn/product-db/` | 经 nginx 的端到端；**必须降频**，原因见下 |
+
+> ⚠️ 公开入口为什么要降频：全局限流是 200/天 + 60/min，2 分钟一次 = **720 次/天**，探针会先把配额打满，然后持续把 429 误报成「服务不可用」。
+> 试图用 `@limiter.exempt` 豁免健康接口**实测无效**：slowapi 的 `SlowAPIMiddleware` 用 `_find_route_handler()` 取「最后一个 FULL 匹配的路由」作为 handler，而 SPA catch-all `/product-db/{full_path:path}` 注册在该路由之后、同样匹配 `/product-db/api/health` → 解析到的 handler 是 `serve_spa`，函数级豁免永远匹配不上（实测连续打 65 次仍出现 429）。根因注释留在 `backend/app/main.py` 的 `health()`。
 
 只在**状态变化**时写一条显著日志（`OK 服务已恢复` / `FAIL ...`），持续故障只记一行「FAIL（持续）」，避免每 2 分钟刷屏。
 
@@ -332,6 +335,12 @@ systemctl --user list-timers product-db-healthcheck.timer
 # 手动跑一次（排查用）
 /opt/product-db/deploy/health-check.sh; echo "exit=$?"
 tail -5 /opt/product-db-backups/health.log
+cat /opt/product-db-backups/health.state        # ok / fail
+
+# 自检脚本本身（不改生产状态：用独立 STATE_DIR + 死端口模拟故障）
+STATE_DIR=/tmp/hc_test HEALTH_URL=http://127.0.0.1:9/x LOCAL_HOME_URL=http://127.0.0.1:9/x \
+  PUBLIC_URL=http://127.0.0.1:9/x HOME_URL=http://127.0.0.1:9/x \
+  /opt/product-db/deploy/health-check.sh; echo "exit=$?"   # 期望 1
 ```
 
 **可选：失败时推送到飞书/钉钉等 webhook**（不配置则只写本地日志）。把地址写进 timer 的环境变量即可：
