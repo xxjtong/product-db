@@ -158,9 +158,13 @@ def minute_of(t):
 
 
 def span_range(times):
-    """首末请求时间 → (起始分钟, 结束分钟)，从 0 点起的分钟数"""
+    """首末请求时间 → 半开区间 (起始分钟, 结束分钟+1)
+
+    右端 +1 是为了让「一分钟内打了 8 个请求」的跨度算 1 分钟而不是 0，
+    否则会出现「跨度 0 分钟（有请求 2 分钟）」这种自相矛盾的输出。
+    """
     times = sorted(times)
-    return minute_of(times[0]), minute_of(times[-1])
+    return minute_of(times[0]), minute_of(times[-1]) + 1
 
 
 def merge_minutes(intervals):
