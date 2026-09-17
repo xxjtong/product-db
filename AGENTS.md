@@ -2,7 +2,39 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-17, R30)
+## 最新变更 (2026-09-17, R31)
+
+### R31: 安全批量修复 ① — 上传加固 + 越权 + 主数据写权限 (2026-09-17)
+
+来源：对全仓做的一次分方向代码审查（后端质量/安全/前端/测试运维），以下 4 项为**已逐条复核**的真实缺陷，每项带回归测试。
+
+**1) 上传可写任意扩展名 + uploads 无鉴权静态托管 → 同源存储型 XSS（最严重）**
+- 根因：`agent.py` 上传时 `mime_type` 直接采信客户端 `Content-Type`，扩展名取自用户文件名（`x.html` 谎报 `image/png` 即通过）；`main.py` 又把整个 uploads 目录无鉴权静态挂载，而 JWT 存在 `localStorage`、nginx 未加任何安全响应头 → 诱导管理员打开该 URL 即可读走 token 接管账号
+- 修复：新增 `storage.detect_upload_extension()`，按**文件内容**判定（图片魔数 / OOXML 的 zip 内部结构 / OLE2 / 纯文本白名单），扩展名由服务端决定；`UploadsStaticFiles` 只放行允许上传的扩展名，200 响应统一加 `X-Content-Type-Options: nosniff`
+- 安全性核对：生产 uploads 现存 **937** 个文件的扩展名（png/pdf/txt/jpg/xlsx/docx/json/jpeg/doc）**全部在白名单内**，不影响既有图片/文档访问
+
+**2) `POST /quotations` 传他人 `solution_id` 可整体复制其方案（缺归属校验）**
+- 修复：补 `check_ownership(sol, user, strict=True)`（同仓 `ai_tools.py` 同一动作本就有校验，属遗漏）
+
+**3) BOM 快照/导出绕过成本价可见性**
+- 根因：快照 J 列写死 `cost_price` 且原样返回；导出在有快照的分支完全不看 `show_cost`（该变量成了死变量）→ 管理员关掉成本可见性后普通用户照样导出逐条成本
+- 修复：`get_bom_snapshot` 与 `_write_snapshot_to_xlsx` 都按 `show_cost` 剥离/跳过 J 列
+
+**4) 主数据改归管理员（原为「任何登录用户可改删」）**
+- 根因：`check_ownership(strict=False)` 对 `created_by IS NULL` 直接放行，而生产主数据几乎全为 NULL（实测 manufacturers 48/48、suppliers 55/55、dict_sensor_metrics 36/36、dict_comm_methods 18/18、dict_power_supplies 11/11、device_categories 42/50、dict_comm_protocols 15/17）
+- 修复：新增 `auth.require_admin`，**29 个**主数据写接口（品类/规格定义/厂商/供应商/字典/BOM 模板）改用它；前端 `DictionariesView`/`CategoriesView`/`SuppliersView` 同步按角色隐藏编辑入口
+- 业务数据（产品/方案/报价单）**不受影响**，仍按归属校验
+
+**测试:** backend **429 passed** (1 skipped, +26) / vitest **66 passed** (+4) / vue-tsc 0
+- 上传：13 条内容判定参数化 + 7 条端到端（含「.html 谎报 png 被拒且不落盘」「扩展名跟内容走」）
+- 越权：他人方案 403 + 本人方案仍 201；BOM 快照/导出非 admin 无 J 列、admin 有
+- 主数据：普通用户 5 类写操作 403 + admin 正常 + 普通用户业务写操作不受影响
+
+**生产验证（部署后实测）:** 现存 png → 200 且带 `nosniff`；磁盘上真实存在的 `.html` → 两个挂载点均 **404**；普通用户 5 类主数据写操作全 **403**、admin 同请求 404/201；普通用户创建/删除自己的报价单正常（201/200）；数据零污染（396/731/48/55/6/6/10/17 与变更前一致，临时用户与探针数据已清理）
+
+**变更统计:** 16 文件, +582/-85（含 4 个前端视图/测试）
+
+## 历史变更 (2026-09-17, R30)
 
 ### R30: 登录审计加固 — 地区静默失效、XFF 免信代理、ip2region 离线化 (2026-09-17)
 
