@@ -25,6 +25,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+from bisect import bisect_right
 from collections import defaultdict
 from datetime import date, datetime, time as dtime, timedelta, timezone
 from shutil import disk_usage
@@ -141,12 +142,25 @@ def parse_requests(text):
     return total, s5xx, s4xx, probe, by_ip
 
 
+def local_minute(ts):
+    """naive UTC 字符串 → 本地时间当天的第几分钟（0-1439）"""
+    try:
+        dt = (datetime.strptime(ts[:19], "%Y-%m-%d %H:%M:%S")
+              .replace(tzinfo=timezone.utc).astimezone())
+        return dt.hour * 60 + dt.minute
+    except (TypeError, ValueError):
+        return None
+
+
+def minute_of(t):
+    """'HH:MM:SS' → 当天第几分钟"""
+    return int(t[0:2]) * 60 + int(t[3:5])
+
+
 def span_range(times):
     """首末请求时间 → (起始分钟, 结束分钟)，从 0 点起的分钟数"""
-    def mins(t):
-        return int(t[0:2]) * 60 + int(t[3:5])
     times = sorted(times)
-    return mins(times[0]), mins(times[-1])
+    return minute_of(times[0]), minute_of(times[-1])
 
 
 def merge_minutes(intervals):
@@ -349,16 +363,24 @@ def main():
         "SELECT COUNT(*) FROM login_logs WHERE created_at >= ? AND created_at < ? AND success=0",
         (day_from, day_to)).fetchone()[0]
 
-    # ── 2. 活跃时长（按 IP 聚合非探针请求 → 归到账号）──
-    ip_user = {}
+    # ── 2. 活跃时长：请求按「该 IP 上此前最近一次登录的账号」归属 ──
+    # 同一个出口 IP 常被多个账号用过（tong/admin 就是同一台机器），
+    # 简单的 IP→账号 一对一映射会把一个人的活跃全算给另一个人。
+    # 这里对每个请求找「该 IP 上时间不晚于它的最近一次成功登录」，之前没有
+    # 任何登录的请求归入「未识别」。
+    ip_logins = defaultdict(list)   # ip -> [(本地分钟, username)]，按时间升序
     c.execute("""
-        SELECT l.ip_address, u.username FROM login_logs l JOIN users u ON u.id=l.user_id
-        WHERE l.created_at >= ? AND l.created_at < ? AND l.success=1
+        SELECT l.ip_address AS ip, u.username AS username, l.created_at AS ts
+        FROM login_logs l JOIN users u ON u.id = l.user_id
+        WHERE l.created_at >= ? AND l.created_at < ? AND l.success = 1
+        ORDER BY l.created_at
     """, (day_from, day_to))
     for row in c.fetchall():
-        ip_user[row["ip_address"]] = row["username"]
+        m = local_minute(row["ts"])
+        if m is not None:
+            ip_logins[row["ip"]].append((m, row["username"]))
 
-    # 登录事件按账号的分钟峰值：自动化测试会在一分钟内打几十次，
+    # 登录事件的分钟峰值：自动化测试会在一分钟内打几十次，
     # 标出来免得把「181 次登录」误读成异常
     peaks = {}
     c.execute("""
@@ -370,20 +392,32 @@ def main():
     for row in c.fetchall():
         peaks[row["username"]] = max(peaks.get(row["username"], 0), row["n"])
 
+    buckets = defaultdict(lambda: defaultdict(list))   # 账号 -> IP -> [HH:MM:SS]
+    for ip, times in act_by_ip.items():
+        logs = ip_logins.get(ip)
+        if not logs:
+            buckets["未识别"][ip].extend(times)        # 无登录记录的访问
+            continue
+        log_minutes = [m for m, _name in logs]
+        for t in times:
+            i = bisect_right(log_minutes, minute_of(t)) - 1
+            owner = logs[i][1] if i >= 0 else "未识别"
+            buckets[owner][ip].append(t)
+
     acct = {}
     for r in logins:
         acct[r["username"]] = {"name": r["username"], "role": r["role"],
                                "cnt": r["cnt"], "peak": peaks.get(r["username"], 0),
                                "first": r["first_login"], "last": r["last_login"],
                                "reqs": 0, "minutes": 0, "ips": []}
-    for ip, times in act_by_ip.items():
-        name = ip_user.get(ip, "未识别")
+    for name, per_ip in buckets.items():
         a = acct.setdefault(name, {"name": name, "role": "", "cnt": 0, "peak": 0,
                                    "first": None, "last": None,
                                    "reqs": 0, "minutes": 0, "ips": []})
-        rng = span_range(times)
-        a["reqs"] += len(times)
-        a["ips"].append((ip, len(times), rng))
+        for ip, times in per_ip.items():
+            rng = span_range(times)
+            a["reqs"] += len(times)
+            a["ips"].append((ip, len(times), rng))
     for a in acct.values():
         # 同一账号的多个 IP 区间先合并再计时长（并行时段不能算两遍）
         a["minutes"] = merge_minutes([rng for _ip, _n, rng in a["ips"]])
