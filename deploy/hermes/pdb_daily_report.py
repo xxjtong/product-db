@@ -43,10 +43,10 @@ TH = {
     "disk_used_pct": 85,     # 根分区使用率（%）
     "mem_avail_mb": 200,     # 可用内存（MB）
     "backup_max_age_h": 26,  # 最新快照年龄（小时）—— 备份每日 03:30 跑
-    "backup_min_count": 7,   # 快照份数下限 —— 保留策略是 14 份
     "http_5xx": 5,           # 当日 5xx 请求数
     "error_lines": 20,       # 当日 ERROR 级日志行数
 }
+# 快照份数不设阈值：保留策略是攒到 14 份，刚上线那几天必然不够，只报数不告警
 
 ACCESS_RE = re.compile(
     r'^(\w{3}\s+\d{1,2} \d{2}:\d{2}:\d{2}).*?INFO:\s+(\d+\.\d+\.\d+\.\d+):\d+ - '
@@ -174,8 +174,10 @@ def system_status(day, journal, req_total, s5xx, s4xx, probe):
     compact.append(f"服务{app_state}" + (f"（当日启动 {starts} 次）" if starts else ""))
 
     # ── 请求与错误 ──
+    # 应用自身的日志是 `| ERROR | logger | msg`；uvicorn 的是 `ERROR:    ...`，
+    # 后者前面带 journal 前缀，不能用 ^ 锚定
     err_lines = (len(re.findall(r'\|\s*(?:ERROR|CRITICAL)\s*\|', journal))
-                 + len(re.findall(r'^ERROR:', journal, re.M)))
+                 + len(re.findall(r'ERROR:', journal)))
     tracebacks = journal.count("Traceback (most recent call last)")
     if s5xx >= TH["http_5xx"]:
         alerts.append(f"当日 5xx 请求 {s5xx} 次（阈值 {TH['http_5xx']}）")
@@ -251,8 +253,6 @@ def system_status(day, journal, req_total, s5xx, s4xx, probe):
         age_h = (time.time() - newest) / 3600.0
         if age_h > TH["backup_max_age_h"]:
             alerts.append(f"最新快照已 {age_h:.1f} 小时未更新（阈值 {TH['backup_max_age_h']}h）")
-        if len(snaps) < TH["backup_min_count"]:
-            alerts.append(f"快照仅 {len(snaps)} 份（下限 {TH['backup_min_count']}）")
         out.append(f"  备份: 最新 {datetime.fromtimestamp(newest).strftime('%m-%d %H:%M')}"
                    f"（{age_h:.0f}h 前）｜{len(snaps)} 份 / {human(size)}")
         compact.append(f"备份 {age_h:.0f}h 前（{len(snaps)} 份）")
