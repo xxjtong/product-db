@@ -26,7 +26,7 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time as dtime, timedelta, timezone
 from shutil import disk_usage
 
 DB = "/opt/product-db/backend/product_db.db"
@@ -45,7 +45,6 @@ TH = {
     "backup_max_age_h": 26,  # 最新快照年龄（小时）—— 备份每日 03:30 跑
     "backup_min_count": 7,   # 快照份数下限 —— 保留策略是 14 份
     "http_5xx": 5,           # 当日 5xx 请求数
-    "restarts": 3,           # 当日服务启动次数
     "error_lines": 20,       # 当日 ERROR 级日志行数
 }
 
@@ -54,7 +53,27 @@ ACCESS_RE = re.compile(
     r'"([A-Z]+) (\S+) HTTP/[\d.]+" (\d{3})',
     re.M,
 )
-SNAP_RE = re.compile(r'^product_db\.db\.bak\.\d+$')
+SNAP_RE = re.compile(r'^product_db\.db\.bak\.\d+_\d+$')
+
+
+def utc_bounds(day):
+    """本地日 → 数据库里的 UTC 时间边界 [start, end)
+
+    DB 里 created_at 存的是 naive UTC（实测：UTC 03:25 = 本地 11:25），
+    直接按 date(created_at) 切分会把本地日错位成 08:00→次日 08:00。
+    """
+    start = datetime.combine(day, dtime.min).astimezone(timezone.utc)
+    end = start + timedelta(days=1)
+    return start.strftime("%Y-%m-%d %H:%M:%S"), end.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def to_local(ts):
+    """naive UTC 字符串 → 本地 HH:MM"""
+    try:
+        return (datetime.strptime(ts[:19], "%Y-%m-%d %H:%M:%S")
+                .replace(tzinfo=timezone.utc).astimezone().strftime("%H:%M"))
+    except (TypeError, ValueError):
+        return str(ts)[11:16]
 
 
 def run(cmd, timeout=120):
@@ -141,12 +160,18 @@ def system_status(day, journal, req_total, s5xx, s4xx, probe):
         alerts.append(f"服务 product-db 当前是 {app_state}")
     if nginx_state != "active":
         alerts.append(f"服务 nginx 当前是 {nginx_state}")
-    starts = len(re.findall(r'Starting product-db\.service', journal))
-    if starts >= TH["restarts"]:
-        alerts.append(f"服务当日启动 {starts} 次（阈值 {TH['restarts']}），怀疑反复重启")
+    # 当日启动次数：journal 里并没有 systemd 的 Starting/Started 行，
+    # 只能数 uvicorn 每个进程启动时打的那一次「Started server process」
+    starts = len(re.findall(r'Started server process', journal))
+    # 被 systemd 自动重启（Restart=always）才是崩溃信号；人工 systemctl restart 不计入
+    raw_nr = (run(["systemctl", "show", "product-db", "-p", "NRestarts", "--value"],
+                  timeout=10) or "").strip()
+    auto_restarts = int(raw_nr) if raw_nr.isdigit() else 0
+    if auto_restarts:
+        alerts.append(f"服务被 systemd 自动重启 {auto_restarts} 次（非人工操作，怀疑崩溃）")
     out.append(f"  服务: product-db {app_state} / nginx {nginx_state}"
-               f"｜当日启动 {starts} 次")
-    compact.append(f"服务{app_state}" + (f"（启动 {starts} 次）" if starts else ""))
+               f"｜当日启动 {starts} 次（含部署重启）｜自动重启 {auto_restarts} 次")
+    compact.append(f"服务{app_state}" + (f"（当日启动 {starts} 次）" if starts else ""))
 
     # ── 请求与错误 ──
     err_lines = (len(re.findall(r'\|\s*(?:ERROR|CRITICAL)\s*\|', journal))
@@ -252,6 +277,8 @@ def main():
         target = datetime.strptime(sys.argv[2], "%Y-%m-%d").date()
     day = target.isoformat()
     prev_day = (target - timedelta(days=1)).isoformat()
+    day_from, day_to = utc_bounds(target)          # 本地日 → UTC 边界
+    prev_from, prev_to = utc_bounds(target - timedelta(days=1))
 
     if not os.path.exists(DB):
         print(f"❌ product-db 日报生成失败：数据库不存在 {DB}")
@@ -269,19 +296,20 @@ def main():
                MIN(l.created_at) AS first_login, MAX(l.created_at) AS last_login,
                GROUP_CONCAT(DISTINCT l.ip_address) AS ips
         FROM login_logs l JOIN users u ON u.id = l.user_id
-        WHERE date(l.created_at) = ? AND l.success = 1
+        WHERE l.created_at >= ? AND l.created_at < ? AND l.success = 1
         GROUP BY u.username ORDER BY cnt DESC
-    """, (day,))
+    """, (day_from, day_to))
     logins = c.fetchall()
-    failed = c.execute("SELECT COUNT(*) FROM login_logs WHERE date(created_at)=? AND success=0",
-                       (day,)).fetchone()[0]
+    failed = c.execute(
+        "SELECT COUNT(*) FROM login_logs WHERE created_at >= ? AND created_at < ? AND success=0",
+        (day_from, day_to)).fetchone()[0]
 
     # ── 2. 活跃时长（按 IP 聚合非探针请求；IP → 当日登录用户）──
     ip_user = {}
     c.execute("""
         SELECT l.ip_address, u.username FROM login_logs l JOIN users u ON u.id=l.user_id
-        WHERE date(l.created_at)=? AND l.success=1
-    """, (day,))
+        WHERE l.created_at >= ? AND l.created_at < ? AND l.success=1
+    """, (day_from, day_to))
     for row in c.fetchall():
         ip_user[row["ip_address"]] = row["username"]
 
@@ -297,9 +325,9 @@ def main():
                COALESCE(SUM(a.duration_ms),0) AS dur_ms,
                GROUP_CONCAT(DISTINCT a.operation) AS ops
         FROM ai_usage_logs a JOIN users u ON u.id = a.user_id
-        WHERE date(a.created_at) = ?
+        WHERE a.created_at >= ? AND a.created_at < ?
         GROUP BY u.username ORDER BY calls DESC
-    """, (day,))
+    """, (day_from, day_to))
     ai = c.fetchall()
     ai_calls = sum(r["calls"] for r in ai)
     ai_tokens = sum(r["tokens"] for r in ai)
@@ -308,9 +336,9 @@ def main():
     c.execute("""
         SELECT u.username, d.file_type, COUNT(*) AS cnt
         FROM download_logs d JOIN users u ON u.id = d.user_id
-        WHERE date(d.created_at) = ?
+        WHERE d.created_at >= ? AND d.created_at < ?
         GROUP BY u.username, d.file_type ORDER BY cnt DESC
-    """, (day,))
+    """, (day_from, day_to))
     dl = c.fetchall()
     dl_total = sum(r["cnt"] for r in dl)
 
@@ -318,18 +346,21 @@ def main():
     created = []
     for tbl, label in [("solutions", "方案"), ("quotations", "报价单"), ("products", "产品")]:
         try:
-            n = c.execute(f"SELECT COUNT(*) FROM {tbl} WHERE date(created_at) = ?",
-                          (day,)).fetchone()[0]
+            n = c.execute(
+                f"SELECT COUNT(*) FROM {tbl} WHERE created_at >= ? AND created_at < ?",
+                (day_from, day_to)).fetchone()[0]
         except sqlite3.Error:
             n = 0
         created.append((label, n))
 
     # ── 6. 对比昨日 ──
     prev_users = c.execute(
-        "SELECT COUNT(DISTINCT user_id) FROM login_logs WHERE date(created_at)=? AND success=1",
-        (prev_day,)).fetchone()[0]
-    prev_cnt = c.execute("SELECT COUNT(*) FROM login_logs WHERE date(created_at)=? AND success=1",
-                         (prev_day,)).fetchone()[0]
+        "SELECT COUNT(DISTINCT user_id) FROM login_logs "
+        "WHERE created_at >= ? AND created_at < ? AND success=1",
+        (prev_from, prev_to)).fetchone()[0]
+    prev_cnt = c.execute(
+        "SELECT COUNT(*) FROM login_logs WHERE created_at >= ? AND created_at < ? AND success=1",
+        (prev_from, prev_to)).fetchone()[0]
     prev_total = prev_5xx = 0
     prev_journal = journal_of(prev_day)
     if prev_journal:
@@ -364,7 +395,7 @@ def main():
     if logins:
         for r in logins:
             lines.append(f"  • {r['username']} ({r['role']}) — {r['cnt']} 次登录")
-            lines.append(f"      时间: {r['first_login'][11:16]} ~ {r['last_login'][11:16]}")
+            lines.append(f"      时间: {to_local(r['first_login'])} ~ {to_local(r['last_login'])}（本地时间）")
             lines.append(f"      IP: {r['ips']}")
     else:
         lines.append("  （无用户登录）")
