@@ -414,24 +414,47 @@ sudo sed -i 's|^    index coming-soon.html;|    index coming-soon.html;\n\n    #
 sudo nginx -t && sudo systemctl reload nginx
 
 # 4) 验证：正常路径不受影响；维护页不可被直接访问（internal → 404）
-curl -s -o /dev/null -w '  health → %{http_code}\n' https://product-db.cn/product-db/api/health
-curl -s -o /dev/null -w '  直接访问维护页 → %{http_code}（期望 404）\n' https://product-db.cn/maintenance.html
+# ⚠️ 必须连字节数一起看：路径写错时会落到 SPA catch-all，状态码同样是 200，但 body 是 784 字节的首页而不是 15 字节的 health JSON
+curl -s -o /dev/null -w '  health → %{http_code}，%{size_download} 字节（期望 200 / 15）\n' 'https://product-db.cn/product-db/api/health'
+curl -s -o /dev/null -w '  直接访问维护页 → %{http_code}，%{size_download} 字节（期望 404 / 153）\n' 'https://product-db.cn/maintenance.html'
 ```
 
-**真实验证维护页生效**（不停后端：临时加一个指向死端口的 location，验证完删掉）：
+首先补上 `proxy_intercept_errors on;`（幂等：以 `client_max_body_size` 做锚点，已加过则不会重复）：
 
 ```bash
-sudo sed -i 's|^    location = /maintenance.html { internal; }|    location = /maintenance.html { internal; }\n    location = /__maint_probe__ { proxy_pass http://127.0.0.1:9; error_page 502 503 504 /maintenance.html; }|' \
+sudo sed -i 's|^        client_max_body_size 50M;|        client_max_body_size 50M;\n        # 让上游自己返回的 503（dist 丢失时 main.py 返回「Frontend not built」）也走维护页\n        proxy_intercept_errors on;|' \
   /etc/nginx/sites-available/product-db
 sudo nginx -t && sudo systemctl reload nginx
-
-# 期望：状态码 502 + 响应体是维护页（注意状态码**故意**不是 200）
-curl -s -o /tmp/mp.html -w '  状态码 → %{http_code}（期望 502）\n' https://product-db.cn/__maint_probe__
-grep -o '服务正在重启' /tmp/mp.html | head -1     # 期望打印「服务正在重启」
-
-sudo sed -i '/__maint_probe__/d' /etc/nginx/sites-available/product-db            # 删掉测试位置
-sudo nginx -t && sudo systemctl reload nginx
+grep -n 'proxy_intercept_errors' /etc/nginx/sites-available/product-db    # 应有一行，且在 location /product-db/ 内
 ```
+
+**真实验证维护页生效**（不停后端：临时加一个指向死端口的 location，验证完删掉）。
+注意探针 location **故意不写 `error_page`**，这样测的才是 server 级那条真实指令：
+
+```bash
+# 1) 插入探针（& 表示原样保留匹配行，再追加一行）
+sudo sed -i 's|^    location = /maintenance.html { internal; }|&\n    location = /__maint_probe__ { proxy_pass http://127.0.0.1:9; }|' \
+  /etc/nginx/sites-available/product-db
+
+# 2) 先确认插入成功 —— 这一步不能省：sed 没匹配到时 nginx -t 照样通过，只会静默不生效
+grep -n '__maint_probe__' /etc/nginx/sites-available/product-db    # 必须有一行输出
+
+# 3) 生效
+sudo nginx -t && sudo systemctl reload nginx
+
+# 4) 期望：状态码 502 + 响应体是维护页（注意状态码**故意**不是 200）
+curl -s -o /tmp/mp.html -w '  状态码 → %{http_code}，%{size_download} 字节（期望 502 / ≈1726）\n' 'https://product-db.cn/__maint_probe__'
+grep -c '服务正在重启' /tmp/mp.html                                # 期望 1
+
+# 5) 清理 + 最终核对
+sudo sed -i '/__maint_probe__/d' /etc/nginx/sites-available/product-db
+sudo nginx -t && sudo systemctl reload nginx
+curl -s -o /dev/null -w '  health → %{http_code}，%{size_download} 字节（期望 200 / 15）\n' 'https://product-db.cn/product-db/api/health'
+curl -s -o /dev/null -w '  维护页直访 → %{http_code}，%{size_download} 字节（期望 404 / 153，internal 生效）\n' 'https://product-db.cn/maintenance.html'
+```
+
+> 排查提示：如果第 4 步响应体只有 ~150 字节，是 nginx 默认错误页 —— 说明 `error_page` 没生效（第 2 步没输出就是探针没插进去）。
+> ⚠️ URL 两侧不要夹带反引号（从聊天窗口复制时容易被带上）。实测两种假象：`/__maint_probe__\`` 会失配精确 location 变成 404（153 字节默认页）；`/product-db/api/health\`` 更会被 SPA catch-all 兜成 **200**（body 是 784 字节首页）—— 状态码看着一切正常，其实全错。所以验证一律带上 `%{size_download}` 对字节数。
 
 **回滚**：
 
