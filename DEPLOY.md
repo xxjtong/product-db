@@ -252,6 +252,37 @@ print(s.new_with_vector_index(u.IPv4, 'data/ip2region_v4.xdb',
 
 > 库文件缺失/损坏时不会阻断登录：进程启动后首次用到时记一次 WARNING，之后永久回落 ipapi.co 在线查询。
 
+### 为什么不加第二级兜底源（2026-09-17 评估，结论：不加）
+
+**生产实测的命中率**：`login_logs` 里 33 个不同 IP 逐个跑离线库 → **31/31 真实 IP 全部命中**；唯二未命中的是 `127.0.0.1`（357 次）和 `testclient`（6 次），两者由代码里的「本地」短路直接返回、根本不走兜底。即国内兜底源当前能服务的流量为 **0**。
+
+```bash
+# 复现该评估
+cd /opt/product-db/backend && venv/bin/python -c "
+import sqlite3, ip2region.util as u, ip2region.searcher as s
+se = s.new_with_vector_index(u.IPv4, 'data/ip2region_v4.xdb', u.load_vector_index_from_file('data/ip2region_v4.xdb'))
+for ip, c in sqlite3.connect('product_db.db').execute('SELECT ip_address, COUNT(*) FROM login_logs GROUP BY ip_address'):
+    try: print(ip, c, '->', se.search(ip))
+    except Exception as e: print(ip, c, '-> ERR', e)"
+```
+
+**候选在线源实测**（全部在生产机上执行）：
+
+| 候选 | 结果 |
+|------|------|
+| pconline `whois.pconline.com.cn/ipJson.jsp` | 免 key，HTTPS 200 / 139ms，`pro=陕西省 city=西安市 addr=陕西省西安市 电信ADSL`；**GBK 编码需转码**，纯 HTTP 被 403 |
+| 腾讯位置服务 `apis.map.qq.com/ws/location/v1/ip` | 需 key（`{"status":301,"message":"必要字段key缺少"}`） |
+| 高德 `restapi.amap.com/v3/ip` | 需 key（`INVALID_USER_KEY`） |
+| ip.zxinc.org | 免 key，200 但 **1.6s**（偏慢） |
+| 百度 qifu-api | `ResourceNotFound`，不支持指定 IP |
+| 新浪 iplookup / ip.useragentinfo | 12s 超时 / 空响应 |
+
+**候选第二级离线库**：ip2region 自家 v6 库仅在有 IPv6 客户端时才有用；纯真现在主推**需 APPCODE 的商业 API**，老 `qqwry.dat` 社区版的商用授权条款未能核实到官方原文（PyPI 上的 `qqwry-py3`/`qqwry` 只是读取器，不覆盖数据授权），商用项目不宜直接引入。
+
+**数据新旧度**：库快照 `createdAt = 2026-08-28`（评估时 20 天旧），「新分配 IP 段缺失」这个理由不成立。
+
+**结论与再评估信号**：都不加。判断「该加了」的信号是**离线未命中且在线也失败**——这种情况目前只在 ipapi.co 侧留 WARNING（`journalctl -u product-db`，见「日志」）。真出现国内 IP 未命中时再考虑，届时优先腾讯位置服务（数据最全，需 key）。
+
 ## 日志
 
 - **应用日志**: `/opt/product-db/backend/app.log`（loguru，10MB 轮转 / 保留 7 天，权限 600）

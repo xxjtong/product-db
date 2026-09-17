@@ -35,7 +35,7 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 - 原有在线分支的 13 条用例通过 fixture 强制「离线未命中」隔离，语义不变
 - 基线核对（`pytest --collect-only` 实测）：R29 前 364 → R29 后 373（R29 记的 372 passed + 1 skipped 正确）→ c8a06ac +18 = 391 → 本次 +13 = 404
 
-**文档:** `DEPLOY.md` 新增「IP 地区离线库」一节（SHA256 pin、验证命令、更新方式）；后端部署命令补 `pip install`，并去掉会静默丢弃服务器改动的 `git stash + stash drop`
+**文档:** `DEPLOY.md` 新增「IP 地区离线库」一节（SHA256 pin、验证命令、更新方式）与「为什么不加第二级兜底源」（生产 31/31 命中率实测，结论：不加，含再评估信号）；后端部署命令补 `pip install`，并去掉会静默丢弃服务器改动的 `git stash + stash drop`
 
 **日志落点（本次实测发现，已写进代码注释）:** 地区相关的 WARNING 走 stdlib `logging.getLogger("uvicorn")`，落点是 **journald**（`journalctl -u product-db`），**不进** `backend/app.log` —— loguru 只接管自己的 logger，仓库里 21 处 `logging.getLogger` 同理（实测 `grep -c uvicorn app.log` = 0，而 `journalctl` 里能看到 `ip2region 离线库已加载`）。所以「地区静默失效」的告警在两处都要看，只看 `app.log` 会误判为「又没有告警」。
 
