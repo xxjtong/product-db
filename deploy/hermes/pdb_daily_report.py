@@ -191,7 +191,7 @@ def account_lines(acct_view, limit=MAX_ACCOUNT_LINES):
             seg = f"👥 {a['name']}: 登录 {a['cnt']} 次"
             if a["peak"] >= BURST_PER_MIN:
                 seg += f"（峰值 {a['peak']} 次/分，疑似自动化测试）"
-            seg += f" · 活跃约 {a['minutes']} 分钟"
+            seg += f" · 活跃跨度 {a['minutes']} 分钟 · 有请求 {a['busy']} 分钟"
             if len(a["ips"]) > 1:
                 seg += f" · {len(a['ips'])} 个 IP"
             elif a["ips"]:
@@ -199,7 +199,8 @@ def account_lines(acct_view, limit=MAX_ACCOUNT_LINES):
         else:
             # 有访问但没有登录记录（爬虫/云监控/匿名）
             seg = (f"👥 未识别（无登录记录的访问）: {a['reqs']} 请求"
-                   f" · 活跃约 {a['minutes']} 分钟 · {len(a['ips'])} 个 IP")
+                   f" · 活跃跨度 {a['minutes']} 分钟 · 有请求 {a['busy']} 分钟"
+                   f" · {len(a['ips'])} 个 IP")
         lines.append(seg)
     if len(acct_view) > limit:
         lines.append(f"👥 …等共 {len(acct_view)} 个账号（其余省略）")
@@ -409,18 +410,23 @@ def main():
         acct[r["username"]] = {"name": r["username"], "role": r["role"],
                                "cnt": r["cnt"], "peak": peaks.get(r["username"], 0),
                                "first": r["first_login"], "last": r["last_login"],
-                               "reqs": 0, "minutes": 0, "ips": []}
+                               "reqs": 0, "minutes": 0, "busy": 0, "minset": set(),
+                               "ips": []}
     for name, per_ip in buckets.items():
         a = acct.setdefault(name, {"name": name, "role": "", "cnt": 0, "peak": 0,
                                    "first": None, "last": None,
-                                   "reqs": 0, "minutes": 0, "ips": []})
+                                   "reqs": 0, "minutes": 0, "busy": 0, "minset": set(),
+                                   "ips": []})
         for ip, times in per_ip.items():
-            rng = span_range(times)
+            mins = {minute_of(t) for t in times}
             a["reqs"] += len(times)
-            a["ips"].append((ip, len(times), rng))
+            a["minset"] |= mins
+            a["ips"].append((ip, len(times), span_range(times), len(mins)))
     for a in acct.values():
         # 同一账号的多个 IP 区间先合并再计时长（并行时段不能算两遍）
-        a["minutes"] = merge_minutes([rng for _ip, _n, rng in a["ips"]])
+        a["minutes"] = merge_minutes([rng for _ip, _n, rng, _b in a["ips"]])
+        a["busy"] = len(a["minset"])      # 至少发过一次请求的分钟数（下界）
+        del a["minset"]
         a["ips"].sort(key=lambda x: -x[1])
     # 有登录记录的在前，按登录次数；匿名 IP 归入「未识别」排最后
     acct_view = sorted(acct.values(), key=lambda a: (-a["cnt"], -a["minutes"]))
@@ -519,14 +525,17 @@ def main():
             else:
                 head += f" — 无登录记录，{a['reqs']} 次访问"
             lines.append(head)
-            lines.append(f"      活跃约 {a['minutes']} 分钟 / {len(a['ips'])} 个 IP")
-            for ip, n, (s, e) in a["ips"]:
-                lines.append(f"      · {ip}: {n:,} 请求, 活跃约 {e - s} 分钟")
+            lines.append(f"      活跃跨度 {a['minutes']} 分钟"
+                         f"（其中有请求 {a['busy']} 分钟）/ {len(a['ips'])} 个 IP")
+            for ip, n, (s, e), busy in a["ips"]:
+                lines.append(f"      · {ip}: {n:,} 请求, 跨度 {e - s} 分钟"
+                             f"（有请求 {busy} 分钟）")
     else:
         lines.append("  （无用户登录、无访问）")
     if failed:
         lines.append(f"  ⚠️ 登录失败尝试: {failed} 次")
-    lines.append("  (注: 活跃时长按请求日志估算并已排除探针流量, 跨天会话会被截断)")
+    lines.append("  (注: 活跃跨度 = 首末请求间隔(含空闲); 有请求 = 至少发过一次请求的分钟数;"
+                 " 已排除探针流量; 跨天会话会被截断)")
 
     lines.append("\n🤖 AI 助手使用")
     if ai:
