@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     DEV_MODE: bool = False
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
     DISABLE_IP_LOOKUP: bool = False
+    # IP → 地区：ip2region 离线库优先，未命中/不适用时才回落 ipapi.co（见 auth_routes）。
+    # 相对路径以 backend/ 为基准；文件是 11MB 的只读数据（见 DEPLOY.md）。
+    IP2REGION_XDB: str = "data/ip2region_v4.xdb"
     LOGIN_RATE_LIMIT: int = 10  # max failed attempts per window
     LOGIN_RATE_WINDOW: int = 300  # window in seconds
     # 可信反向代理列表：只有直连对端是这些地址时，才采信 X-Forwarded-For /
@@ -50,6 +53,13 @@ if settings.DATABASE_PATH:
 else:
     # Derive from DATABASE_URL: sqlite:///path → /path
     DB_FILESYSTEM_PATH = settings.DATABASE_URL.replace("sqlite:///", "", 1)
+
+# Resolve the ip2region xdb path against the backend dir（进程 CWD 不可靠）
+if not os.path.isabs(settings.IP2REGION_XDB):
+    settings.IP2REGION_XDB = os.path.abspath(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        settings.IP2REGION_XDB,
+    ))
 
 if not settings.SECRET_KEY:
     print("ERROR: SECRET_KEY is not set. Use environment variable or .env file.", file=sys.stderr)

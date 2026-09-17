@@ -29,6 +29,7 @@ packaging==26.2
 
 pillow==11.0.0
 pluggy==1.6.0
+py-ip2region==3.0.4
 pycparser==2.23
 pydantic==2.10.3
 pydantic-settings==2.7.0

@@ -2,7 +2,44 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-16, R29)
+## 最新变更 (2026-09-17, R30)
+
+### R30: 登录审计加固 — 地区静默失效、XFF 免信代理、ip2region 离线化 (2026-09-17)
+
+生产 L0–L4 全量测试暴露的两个问题都在「审计数据不可信」这条线上：登录日志「地区」大面积为空、限流可被伪造请求头绕过。前两项已随 `c8a06ac` 部署（本次补记入变更日志），第三项为本次改造。
+
+**1) 地区静默失效**
+- 根因：ipapi.co 免费额度耗尽时返回 **HTTP 200 + 纯文本付费提示**；旧实现直接 `resp.json()`，`JSONDecodeError` 被裸 `except Exception` 吞掉且只记 DEBUG（生产 sink 是 INFO）→ 静默变空。实测某日 189 条登录记录中 188 条地区为空，无人察觉
+- 修复（`auth_routes.py`）：先判 content-type（非 JSON 走独立分支记 WARNING）、各失败分支均记 WARNING、结果加缓存（成功 24h / 失败 5min / 上限 2048 条）
+- 生产验证：`login_logs` 恢复记录真实 IP 113.132.197.169 + "Xi'an, China"
+
+**2) XFF 可绕过限流**
+- 根因（`auth.py` `client_ip()`）：无条件采信 XFF 首跳 → 客户端自带一个 XFF 即可改写限流 key，同时绕过全局限流与登录爆破限流（10 次/300s），并污染 `login_logs` 的 IP/地区审计
+- 修复：新增 `TRUSTED_PROXIES`（默认 `127.0.0.1,::1`），仅直连对端可信才采信转发头；优先 `X-Real-IP`，否则取 XFF **最右跳**（与 nginx `$proxy_add_x_forwarded_for` 的追加语义一致）
+- 生产验证：连发 11 次、每次伪造不同 XFF，第 11 次仍 429
+
+**3) IP 地区改为离线优先（本次）**
+- 改造前：地区查询挂在登录必经路径上，每个陌生 IP 首次登录最多阻塞 **3s**，且完全依赖第三方免费配额
+- 改造后：**ip2region 离线库为主，未命中才回落 ipapi.co**
+  - 组件：`py-ip2region==3.0.4`（官方 Python binding，Apache-2.0）+ `backend/data/ip2region_v4.xdb`（11MB，入 git，随 `git pull` 下发）
+  - 新增配置 `IP2REGION_XDB`（默认 `data/ip2region_v4.xdb`，相对 `backend/` 解析，不依赖进程 CWD）
+  - 离线库返回 `国家|省份|城市|ISP|国家代码`，缺失字段为 `"0"`；保留地址段是 `Reserved|Reserved|Reserved|0|0` → **视同「查不到」回落在线**，而不是记成「在 Reserved 地区登录」
+  - IPv6 地址查 v4 库必然抛错，属预期回落场景 → 只记 DEBUG，不刷 WARNING、不阻断登录
+  - 库缺失/损坏 → 首次用到时记一次 WARNING 并永久回落在线（不阻断登录，且不每次刷日志）
+  - 进程内单例 + `threading.Lock` 双检（同步路由跑在线程池里），首次加载预载 VectorIndex（512KB）
+- 实测（本机 Python 3.9.6）：首次调用含加载 **1.37ms**，单次查询约 **6µs**（2000 次 12.3ms），命中离线库时外部请求 **0 次**；对比改造前最长 3s
+- 生产实测：113.132.197.169 → 「西安市, 中国」（此前经 ipapi.co 得到 "Xi'an, China"）
+
+**测试:**
+- backend pytest: **403 passed** (1 skipped)，+13（离线命中不发外部请求 1 + Reserved 回落 1 + 库缺失只告警一次 1 + 查库异常回落 1 + 离线结果缓存 1 + 本地地址短路 1 + 返回格式 7）
+- 原有在线分支的 13 条用例通过 fixture 强制「离线未命中」隔离，语义不变
+- 基线核对（`pytest --collect-only` 实测）：R29 前 364 → R29 后 373（R29 记的 372 passed + 1 skipped 正确）→ c8a06ac +18 = 391 → 本次 +13 = 404
+
+**文档:** `DEPLOY.md` 新增「IP 地区离线库」一节（SHA256 pin、验证命令、更新方式）；后端部署命令补 `pip install`，并去掉会静默丢弃服务器改动的 `git stash + stash drop`
+
+**变更统计:** 7 文件, +298/-25（不含新增的 11MB 数据文件）
+
+## 历史变更 (2026-09-16, R29)
 
 ### R29: 方案页 AI 多轮对话修复 — 会话 ID 类型 + 历史序列合法性 + DSML 还原 (2026-09-16)
 
@@ -86,7 +123,7 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 **中等修复:**
 - `/auth/profile` 密码修改补 8 位最小长度校验（与注册/重置一致）
 - 审批任务绑定 user_id，非本人/admin 不能审批；`asyncio.Event` → `threading.Event`（修复 Python 3.9 下 2 个测试失败）
-- 登录限流与登录日志改用 X-Forwarded-For 首跳 IP（反代场景正确）
+- 登录限流与登录日志改用 X-Forwarded-For 首跳 IP（反代场景正确）〔**已被 R30 推翻**：无条件信任首跳可被客户端伪造 XFF 绕过限流，现改为仅信任可信代理〕
 - 编辑 AI prompt 不再清空全部 AI 对话历史
 - `streamAiChat` 会话 ID 解析修复（方案页内嵌 AI 多轮对话不再断链）
 - 过时 E2E 更新（LLM 配置卡片断言改为 Base URL 字段）

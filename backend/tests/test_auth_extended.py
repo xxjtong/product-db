@@ -19,6 +19,7 @@ from app.models.user import User
 from app.auth import hash_password, create_token, verify_password, _get_admin_ids, filter_by_ownership, check_ownership
 from app.models.product import Product
 from app.models.category import Category
+from app.config import settings as app_settings
 
 client = TestClient(app)
 
@@ -446,13 +447,17 @@ class TestIpRegionLookup:
     """回归：ipapi.co 免费额度耗尽时返回的是 HTTP 200 + 纯文本付费提示（不是 JSON）。
     旧实现直接 `resp.json()` → JSONDecodeError 被裸 `except Exception` 吞掉且只记
     DEBUG（生产 sink 是 INFO）→ 登录日志「地区」静默变空。2026-09 实测某日 189 条
-    登录记录里 188 条为空，没有任何告警。"""
+    登录记录里 188 条为空，没有任何告警。
+
+    本类只覆盖**在线兜底分支**（离线库命中路径见 TestIpRegionOffline），
+    因此 fixture 强制离线查询「未命中」。"""
 
     @pytest.fixture(autouse=True)
     def _clear_cache(self):
         import app.routers.auth_routes as ar
         ar._ip_region_cache.clear()
-        yield
+        with patch("app.routers.auth_routes._lookup_ip_region_offline", return_value=""):
+            yield
         ar._ip_region_cache.clear()
 
     @staticmethod
@@ -543,6 +548,114 @@ class TestIpRegionLookup:
             for i in range(ar._IP_REGION_CACHE_MAX + 10):
                 ar._lookup_ip_region(f"1.2.{i // 250}.{i % 250}")
         assert len(ar._ip_region_cache) <= ar._IP_REGION_CACHE_MAX
+
+
+# ============================================================
+# IP 地区查询 —— ip2region 离线库优先（2026-09 改造）
+# ============================================================
+_XDB_PATH = app_settings.IP2REGION_XDB
+_xdb_available = os.path.exists(_XDB_PATH)
+
+
+class TestIpRegionOffline:
+    """离线库为主、ipapi.co 兜底：命中离线库时不得发出任何外部请求
+    （该调用在登录必经路径上，此前最多阻塞 3s，且 IP 会出服务器）。"""
+
+    @pytest.fixture(autouse=True)
+    def _reset_searcher(self):
+        import app.routers.auth_routes as ar
+        ar._ip_region_cache.clear()
+        ar._ip2region_searcher = None
+        ar._ip2region_loaded = False
+        yield
+        ar._ip_region_cache.clear()
+        ar._ip2region_searcher = None
+        ar._ip2region_loaded = False
+
+    @staticmethod
+    def _resp(payload):
+        r = MagicMock()
+        r.status_code = 200
+        r.headers = {"content-type": "application/json"}
+        r.text = ""
+        r.json.return_value = payload
+        return r
+
+    @pytest.mark.parametrize("raw,expected", [
+        ("中国|陕西省|西安市|电信|CN", "西安市, 中国"),
+        ("中国|江苏省|南京市|0|CN", "南京市, 中国"),
+        ("United States|California|0|Google LLC|US", "California, United States"),
+        ("中国|0|0|0|CN", "中国"),
+        ("", ""),
+        ("Reserved|Reserved|Reserved|0|0", ""),
+        ("0|0|0|0|0", ""),
+    ])
+    def test_format_offline_region(self, raw, expected):
+        from app.routers.auth_routes import _format_offline_region
+        assert _format_offline_region(raw) == expected
+
+    @pytest.mark.skipif(not _xdb_available, reason="ip2region xdb 数据文件缺失")
+    def test_china_ip_resolved_offline_without_http(self):
+        from app.routers.auth_routes import _lookup_ip_region
+        with patch("app.routers.auth_routes.httpx.get") as g:
+            assert _lookup_ip_region("113.132.197.169") == "西安市, 中国"
+            g.assert_not_called()
+
+    @pytest.mark.skipif(not _xdb_available, reason="ip2region xdb 数据文件缺失")
+    def test_reserved_ip_falls_back_to_online(self):
+        """保留地址段（含 SSRF 目标 169.254.169.254）在库里是 Reserved，
+        必须当「查不到」处理并回落在线，而不是记成「在 Reserved 地区登录」。"""
+        from app.routers.auth_routes import _lookup_ip_region
+        with patch("app.routers.auth_routes.httpx.get",
+                   return_value=self._resp({"city": "Xi'an", "country_name": "China"})) as g:
+            assert _lookup_ip_region("169.254.169.254") == "Xi'an, China"
+            assert g.call_count == 1
+
+    def test_missing_xdb_falls_back_online_and_warns_once(self, caplog):
+        """离线库文件缺失：只告警一次，登录照常走在线查询（不阻断、不每次刷日志）。"""
+        from app.routers.auth_routes import _lookup_ip_region
+        with patch("app.routers.auth_routes.settings.IP2REGION_XDB", "/nonexistent/ip2region.xdb"):
+            with patch("app.routers.auth_routes.httpx.get",
+                       return_value=self._resp({"city": "Xi'an", "country_name": "China"})) as g:
+                with caplog.at_level(logging.WARNING):
+                    assert _lookup_ip_region("1.2.3.4") == "Xi'an, China"
+                    assert _lookup_ip_region("1.2.3.5") == "Xi'an, China"
+                assert g.call_count == 2
+        warns = [r for r in caplog.records if "ip2region 离线库不可用" in r.message]
+        assert len(warns) == 1, "库不可用只应告警一次"
+
+    def test_offline_search_error_falls_back_online(self, caplog):
+        """查不动（如 IPv6 地址查 IPv4 库）时静默回落在线：不抛错、不刷 WARNING。"""
+        import app.routers.auth_routes as ar
+        searcher = MagicMock()
+        searcher.search.side_effect = ValueError("invalid ip address")
+        ar._ip2region_searcher = searcher
+        ar._ip2region_loaded = True
+        with patch("app.routers.auth_routes.httpx.get",
+                   return_value=self._resp({"city": "Xi'an", "country_name": "China"})) as g:
+            with caplog.at_level(logging.WARNING):
+                assert ar._lookup_ip_region("240e:3b7:3272:d8d0:db09:c067:8d59:539e") == "Xi'an, China"
+        assert g.call_count == 1
+        assert not [r for r in caplog.records if "ip2region" in str(r.message)]
+
+    def test_offline_hit_is_cached(self):
+        """离线命中也走缓存：第二次不再查库（登录路径上）。"""
+        import app.routers.auth_routes as ar
+        with patch("app.routers.auth_routes._lookup_ip_region_offline",
+                   return_value="西安市, 中国") as off:
+            with patch("app.routers.auth_routes.httpx.get") as g:
+                assert ar._lookup_ip_region("113.132.197.169") == "西安市, 中国"
+                assert ar._lookup_ip_region("113.132.197.169") == "西安市, 中国"
+                assert off.call_count == 1
+                g.assert_not_called()
+
+    def test_local_ips_never_touch_the_library(self):
+        """本机/内网地址直接返回「本地」，连离线库都不查。"""
+        import app.routers.auth_routes as ar
+        with patch("app.routers.auth_routes._lookup_ip_region_offline") as off:
+            assert ar._lookup_ip_region("127.0.0.1") == "本地"
+            assert ar._lookup_ip_region("testclient") == "本地"
+            off.assert_not_called()
 
 
 # ============================================================

@@ -65,6 +65,7 @@ ssh -p 28793 tong@124.221.178.161 'sudo apt-get install -y --no-install-recommen
 | **环境变量** | `backend/.env` | `/opt/product-db/backend/.env` | 手动编辑（不入 git） |
 | **数据库** | `backend/product_db.db` | `/opt/product-db/backend/product_db.db` | 不入 git；**以服务器为准**，禁止用本地库覆盖（见「数据库归属」） |
 | **上传文件** | `backend/app/uploads/` | `/opt/product-db/backend/app/uploads/` | 不入 git |
+| **IP 地区离线库** | `backend/data/ip2region_v4.xdb`（11MB） | `/opt/product-db/backend/data/ip2region_v4.xdb` | 入 git，随 `git pull` 下发；只读，无需额外步骤（见「IP 地区离线库」） |
 | **文档** | `docs/`, `AGENTS.md` | `/opt/product-db/` | `git push` → `git pull` |
 | **Nginx 配置** | — | `/etc/nginx/sites-enabled/product-db` | 手动编辑，`sudo nginx -t && sudo nginx -s reload` |
 | **systemd** | — | `/etc/systemd/system/product-db.service` | `sudo systemctl daemon-reload && sudo systemctl restart product-db` |
@@ -104,13 +105,18 @@ rsync -az --delete -e "ssh -p 28793" dist/ \
 # 1. 本地提交推送
 git add -A && git commit -m "..." && git push
 
-# 2. 服务器拉取 + 重启
-ssh -p 28793 tong@124.221.178.161 \
-  'cd /opt/product-db && git stash && git pull && git stash drop 2>/dev/null; sudo systemctl restart product-db'
+# 2. 先看服务器工作区状态（有未提交改动就先弄清是什么，不要盲目 stash+drop）
+ssh -p 28793 tong@124.221.178.161 'cd /opt/product-db && git status --short'
 
-# 3. 验证
-curl -s 'https://product-db.cn/product-db/api/health'  # 如果有 health endpoint
+# 3. 服务器拉取 + 装依赖（requirements.txt 有新增时必需）+ 重启
+ssh -p 28793 tong@124.221.178.161 \
+  'cd /opt/product-db && git pull && backend/venv/bin/pip install -q -r backend/requirements.txt && sudo systemctl restart product-db'
+
+# 4. 验证
+curl -s -w ' → HTTP %{http_code}\n' https://product-db.cn/product-db/api/health
 ```
+
+> 不要用 `git stash && git pull && git stash drop`：服务器上任何未提交改动会被静默丢弃（2026-09 曾发现服务器遗留未跟踪文件）。
 
 ## 部署命令（全栈变更）
 
@@ -214,6 +220,37 @@ curl -s -o /dev/null -w '图片 → HTTP %{http_code}\n' "https://product-db.cn$
 
 > 用 `find` 分别处理目录与文件，而不是 `chmod -R`：后者只能给同一个模式，而目录要 `700`（可进入）、文件要 `600`（不给执行位）。
 > 新建文件的权限由 systemd 的 `UMask=0077` 保证（见上），这里只处理存量。
+
+## IP 地区离线库（ip2region）
+
+登录日志的「地区」列由 `backend/data/ip2region_v4.xdb` 离线解析（**ip2region 为主，ipapi.co 只做兜底**）。
+
+| 项 | 值 |
+|----|-----|
+| 数据文件 | `backend/data/ip2region_v4.xdb`（11,122,036 字节，只读，入 git） |
+| 数据来源 | `https://raw.githubusercontent.com/lionsoul2014/ip2region/master/data/ip2region_v4.xdb` |
+| SHA256 | `8e31bbdccb5bf21028af10592d4312ec975da0bffa108c0c5d862a12190f9ad3` |
+| 查询库 | `py-ip2region==3.0.4`（官方 Python binding，Apache-2.0，已在 `requirements.txt`） |
+| 配置 | `IP2REGION_XDB`（默认 `data/ip2region_v4.xdb`，相对 `backend/`） |
+
+**部署**：文件与代码同在 git 里，`git pull` 即完成下发，无额外步骤。首次部署需 `pip install -r requirements.txt` 装上 `py-ip2region`（见「部署命令（后端变更）」）。
+
+**验证**（服务器上执行，确认库可加载且能解析）：
+
+```bash
+cd /opt/product-db/backend && sha256sum data/ip2region_v4.xdb
+venv/bin/python -c "
+import ip2region.util as u, ip2region.searcher as s
+u.verify_from_file('data/ip2region_v4.xdb')
+print(s.new_with_vector_index(u.IPv4, 'data/ip2region_v4.xdb',
+      u.load_vector_index_from_file('data/ip2region_v4.xdb')).search('113.132.197.169'))"
+# 期望：中国|陕西省|西安市|电信|CN
+```
+
+**更新数据**（ip2region 不定期发版，无需跟进）：替换文件 → 记下新的 SHA256 并更新本节 → 重启服务。
+`git pull` 每次会重传整个 11MB 文件，不要频繁更新。
+
+> 库文件缺失/损坏时不会阻断登录：进程启动后首次用到时记一次 WARNING，之后永久回落 ipapi.co 在线查询。
 
 ## 日志
 
