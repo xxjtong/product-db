@@ -2,7 +2,35 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-17, R32)
+## 最新变更 (2026-09-17, R33)
+
+### R33: 数据层一致性 — 让「从零建库」可用并与生产/模型对齐 (2026-09-17)
+
+起点是审查里的一条：「迁移链里完全没有 `product_categories`」。实测比对「alembic 全新库 vs 生产库」后发现比预想严重得多 —— **`alembic upgrade head` 从零根本跑不通**，且建出的结构与生产/模型不一致。
+
+**修复的 4 处（都能定位到具体报错）**
+1. **全新库第一步就崩**：`fix_explicit_ddl` 无条件 `DROP TABLE download_tickets`，而 `DownloadTicket` 模型已在 R27 删除、全新库不会建它 → `OperationalError: no such table: download_tickets`。改为 `DROP TABLE IF EXISTS`（upgrade/downgrade 两处）
+2. **第二步崩**：`b2c3d4e5f6a7` 无条件 `ADD COLUMN is_link`，而显式 DDL 是照当时的模型写的、已含该列 → `duplicate column name: is_link`。改为先探测列是否存在
+3. **3.9 下迁移链不可用**：`c3d4e5f6a7b8` 的 `down_revision: str | None` 是模块级注解、又没有 `from __future__ import annotations` → Python 3.9 导入即抛 `TypeError: unsupported operand type(s) for |`。本地（3.9）因此完全不能跑迁移，生产（3.11）才没暴露
+4. **全新库缺表/缺列/缺索引**：新增收敛迁移 `d4e5f6a7b8c9`（幂等）
+   - 建 `product_categories`（非 ORM 表，历史链一处都没有；缺它 → 产品按品类过滤、产品导入、AI 上下文全报 `no such table`）+ `idx_pc_category`，DDL 按生产实测原样照搬（FK 指向的是 `device_categories`）
+   - 补全新库缺的 **16 处列**（`created_by` 系列 + 字典表 `description/accuracy/resolution`、`manufacturers.sort_order`、`quotations.download_count`）
+   - 补 **26 个索引**：模型 `index=True` 但两边都缺的 15 个（含 **11 个 `created_by`**）+ 生产手工建而全新库没有的 11 个；按「列组合」判重，避免同列出现两个同义索引
+   - 清掉全新库会多出来的死表 `download_tickets`
+
+**收敛验证（实测）**
+- 全新库 vs 生产：表 **33 = 33**、列无缺、索引列组合**双向一致**
+- 生产副本上跑该迁移：索引 32 → 47（**只 +15**，即那 15 个模型索引），数据零变动（products 396 / login_logs 678 / product_categories 731）
+
+**生产执行与验证**：`alembic upgrade head` → `c3d4e5f6a7b8` → `d4e5f6a7b8c9`，索引 32 → 47，`created_by` 索引 0 → **11**，数据 396/731 不变，`integrity_check` = ok；随后实打会用到这两处的接口——`/products`（created_by 归属过滤）200、`/products?category_id=1`（关联表）200、`/categories/tree` 200，journald 2 分钟内错误关键字命中 0
+
+**测试:** backend **439 passed** (1 skipped, +2)：`tests/test_migrations.py` —— 从零建库可用性（表/列/索引断言）+ 重复 `upgrade` 幂等
+
+**遗留（留给文档/运维批处理）**：部署命令里没有 `alembic upgrade head`，迁移目前靠手工执行 —— 这是「迁移静默滞后」的根源，应在 DEPLOY.md 的部署流程里补上
+
+**变更统计:** 5 文件, +309/-66
+
+## 历史变更 (2026-09-17, R32)
 
 ### R32: 安全批量修复 ② — 功能缺陷（导入页不可用、对比入口参数、长密码、图片清理）(2026-09-17)
 
