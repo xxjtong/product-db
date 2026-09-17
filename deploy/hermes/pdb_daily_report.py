@@ -171,7 +171,7 @@ def system_status(day, journal, req_total, s5xx, s4xx, probe):
         alerts.append(f"服务被 systemd 自动重启 {auto_restarts} 次（非人工操作，怀疑崩溃）")
     out.append(f"  服务: product-db {app_state} / nginx {nginx_state}"
                f"｜当日启动 {starts} 次（含部署重启）｜自动重启 {auto_restarts} 次")
-    compact.append(f"服务{app_state}" + (f"（当日启动 {starts} 次）" if starts else ""))
+    compact.append(f"服务 {app_state}" + (f"（当日启动 {starts} 次）" if starts else ""))
 
     # ── 请求与错误 ──
     # 应用自身的日志是 `| ERROR | logger | msg`；uvicorn 的是 `ERROR:    ...`，
@@ -375,9 +375,12 @@ def main():
 
     # ── 输出：正常极简 / 异常全量 ──
     if not alerts and not force_full:
-        print(f"✅ product-db 日报 {day}｜一切正常")
-        print(f"   使用: 登录 {today_users} 人/{today_cnt} 次 · 活跃 {activity_minutes} 分钟"
-              f" · AI {ai_calls} 次/{ai_tokens//1000}k tokens · 下载 {dl_total}"
+        # 用「无告警项」而不是「一切正常」：阈值内的 5xx / ERROR 仍会显示在下面一行，
+        # 说「一切正常」会和数字自相矛盾
+        print(f"✅ product-db 日报 {day}｜无告警项")
+        print(f"   使用: 登录 {today_users} 人/{today_cnt} 次 · 活跃合计 {activity_minutes} 分钟"
+              f" · AI {ai_calls} 次" + (f"/{ai_tokens//1000}k tokens" if ai_tokens else "")
+              + f" · 下载 {dl_total}"
               f" · 新建 " + " ".join(f"{k}+{v}" for k, v in created))
         print("   运行: " + " · ".join(compact))
         return 0
