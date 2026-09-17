@@ -29,7 +29,16 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 
 **D) 活跃时长不再被探针污染**：R35 上线了每 2 分钟一次的可用性探针（约 720 次/天），v1 的统计会把它算成用户请求（实测当天 442 次探针流量）。v2 排除 `/product-db/api/health` 与本机/自身公网 IP。
 
-**E) 脚本归属**：正文版本化入仓 `deploy/hermes/pdb_daily_report.py`，服务器上 `~/.hermes/scripts/pdb_daily_report.py` 是指向它的**软链接**（Hermes 要求脚本在该目录下），随 `git pull` 更新，不再有无版本管理的服务器孤本。
+**E) 脚本归属：仓库版本化 + 部署时复制**（**不能用软链接**）
+- 正文入仓 `deploy/hermes/pdb_daily_report.py`（唯一修改处），部署时复制到 `~/.hermes/scripts/`
+- ⚠️ 曾经试过「服务器软链接指向仓库文件」，**被 Hermes 直接拦死**：`cron/scheduler.py` 在 fire 时做
+  ```python
+  path = (scripts_dir / raw).resolve()          # resolve() 会展开软链接
+  path.relative_to(scripts_dir_resolved)        # → ValueError
+  return False, "Blocked: script path resolves outside the scripts directory"
+  ```
+  软链接解析后落在 `/opt/product-db/...`，不在 `~/.hermes/scripts/` 内 → 任务当天 21:00 会静默失败。硬链接也不行（`git pull` 会写新文件、悄悄断开）。**结论：必须复制**。
+- 改脚本的完整流程：本机改 → push → 服务器 `git pull` + `install -m 700 deploy/hermes/pdb_daily_report.py ~/.hermes/scripts/` → 手跑一次确认
 
 **验证:** 09-16 与 09-17 两天实跑对比（09-16 登录数从 179 修正为 5，与服务端 v1 报告同一时段的真实登录吻合）；极简模式与告警模式分别用真实数据与强制阈值验证。
 

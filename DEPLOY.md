@@ -471,11 +471,25 @@ sudo nginx -t && sudo systemctl reload nginx
 |---|---|
 | 任务 | Hermes `cron/jobs.json` 中的 `7f01bb46e256`「product-db每日运行报告」 |
 | 计划 | `0 21 * * *`，`no_agent=true`（脚本 stdout 原样投递），`deliver=origin`（飞书群） |
-| 脚本 | **仓库** `deploy/hermes/pdb_daily_report.py` ← 唯一修改处；服务器 `~/.hermes/scripts/pdb_daily_report.py` 是指向它的软链接 |
+| 脚本 | **仓库** `deploy/hermes/pdb_daily_report.py` ← 唯一修改处；服务器 `~/.hermes/scripts/pdb_daily_report.py` 是**部署时复制过去的副本** |
 | 输出留档 | `~/.hermes/cron/output/7f01bb46e256/YYYY-MM-DD_HH-MM-SS.md` |
 | 数据源 | `product_db.db`（只读）、`journalctl -u product-db`、`/opt/product-db-backups/`、`/proc/meminfo` —— **全部无需 sudo** |
 
-改脚本：本机改 → push → 服务器 `git pull` 即生效（软链接直接指向仓库文件，不需要复制）；**不要直接编辑 `~/.hermes/scripts/` 下的文件**（那是软链接）。
+改脚本（**改完必须复制，否则线上还是旧版**）：
+
+```bash
+# 本机：改 deploy/hermes/pdb_daily_report.py → commit → push
+# 服务器：
+cd /opt/product-db && git pull --ff-only
+install -m 700 deploy/hermes/pdb_daily_report.py ~/.hermes/scripts/pdb_daily_report.py
+python3 ~/.hermes/scripts/pdb_daily_report.py --full | head -5      # 手跑确认
+```
+
+> ⚠️ **不能用软链接把 `~/.hermes/scripts/pdb_daily_report.py` 指向仓库文件**（试过，被拦死）：Hermes
+> `cron/scheduler.py` 在触发时 `Path(...).resolve()` + `relative_to(scripts_dir)` 校验脚本必须落在
+> `~/.hermes/scripts/` 内，软链接解析后指向 `/opt/product-db/...` → 返回
+> `Blocked: script path resolves outside the scripts directory`，**任务会静默失败**。
+> 硬链接同样不行：`git pull` 会写新文件、悄悄断开链接。**只能复制**，所以上面那条 `install` 不能省。
 
 手动跑一次（排查用）：
 
