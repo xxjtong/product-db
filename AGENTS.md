@@ -2,7 +2,47 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-17, R33)
+## 最新变更 (2026-09-17, R34)
+
+### R34: 文档与运维 — 漂移校正 + 可用性探针 + 重启就绪门控 (2026-09-17)
+
+安全/功能/数据层三批之后的最后一批，处理审查里「运维没人管」的那一类问题。
+
+**1) 部署流程补上迁移（这是「迁移静默滞后」的根源）**
+- 部署命令改为：`git pull` → `pip install -r requirements.txt` → **`venv/bin/alembic upgrade head`** → `deploy/restart-ready.sh`
+- 此前部署流程里没有迁移步骤、全靠手工执行 → `created_by` 列、`product_categories` 表、一批索引在生产静默滞后了数月（R33 才补齐）
+
+**2) 重启就绪门控**（新增 `deploy/restart-ready.sh`）
+- 裸 `systemctl restart` 期间 uvicorn 不监听，nginx 对用户直接 502（实测 5-8s），失败与否无判据
+- 新脚本：记录重启前 revision → restart → 轮询健康接口直到 200（默认 30s）→ 再验经 nginx 的接口与前端首页（能发现 dist 丢失导致的 503）；失败打印 `journalctl` 与回滚命令并非 0 退出（**不自动回滚**，避免掩盖问题）
+- 配套维护页 `static/maintenance.html`（每 5s 自动探测健康接口，恢复后回首页）+ nginx `error_page 502 503 504 /maintenance.html` 的改法（nginx 配置属 root，**需人工 sudo 执行**，已在 DEPLOY.md 给出完整片段与验证步骤）
+
+**3) 最小可用性探针**（新增 `deploy/health-check.sh` + `product-db-healthcheck.{service,timer}`）
+- 此前**没有任何可用性告警**：进程崩了只有 `Restart=always` 静默拉起，dist 丢失会让首页 503，两者只能靠用户反馈
+- 每 2 分钟检查三项：本机健康接口（绕 nginx）、经 nginx 的健康接口、前端首页；**只在状态变化时**写一条显著日志（持续故障不刷屏）
+- 可选 webhook 通知（`ALERT_WEBHOOK` + `ALERT_WEBHOOK_STYLE=feishu|text`），不配置则只写 `/opt/product-db-backups/health.log`
+
+**4) 文档漂移校正（逐条实测过口径）**
+
+| 位置 | 原写法 | 实测 |
+|------|--------|------|
+| DEPLOY.md 日志节 | stdlib `logging.getLogger` 21 处 | **23 处 / 10 个文件**（写 21 是我上一批的错） |
+| DEPLOY.md 备份节 | 「当前无自动备份」（与同章自相矛盾） | timer 早已落地，**实测 2026-09-17 03:30:57 成功运行** |
+| AGENTS.md 技术栈 | `PostgreSQL (prod)` | SQLite（dev/prod 都是，生产库为唯一权威源） |
+| AGENTS.md 技术栈 | `Docker Compose + Nginx` | systemd + nginx + rsync（compose 是早期实验、非生产路径） |
+| AGENTS.md 测试数 | `pytest 372 tests`（两处） | **440 collected（439 passed + 1 skipped）** |
+| AGENTS.md E2E | `full-regression 51 tests` | **53**（各文件实测：53/17/19/4/2/1 = 96） |
+| AGENTS.md R21.1 | 括号内相加 104 ≠ 96 | 标注为当时笔误并给出当前分布 |
+| AGENTS.md 结构树 | routers 只列 12 个文件名 | 补 `product_files.py`、`agent.py`（实际 14 ✓） |
+| AGENTS.md 结构树 | `router.ts 16 条路由` | 18 条 path（16 组件路由 + 2 redirect） |
+| AGENTS.md R28 | 「生产尚无自动备份」 | 标注 2026-09 已落地 + 实测运行时间 |
+| AGENTS.md：`32 张业务表` | — | **实测正确**（34 个表 − `alembic_version` − `sqlite_sequence` = 32，含非 ORM 的 `product_categories`），不改 |
+
+**测试:** backend 439 passed (1 skipped)、vitest 69 passed、vue-tsc 0（本批未动应用代码，仅脚本/静态页/文档）
+
+**变更统计:** 8 文件（2 脚本 + 2 unit + 1 静态页 + 3 文档），+约 250
+
+## 历史变更 (2026-09-17, R33)
 
 ### R33: 数据层一致性 — 让「从零建库」可用并与生产/模型对齐 (2026-09-17)
 
@@ -199,7 +239,7 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 
 **当前状态**: 生产与本地一致 — product_files 28 条 0 缺失、product_images 73 条引用 0 缺失、alembic 均到 head。
 
-**遗留风险**: 生产尚无自动备份（无 cron/定时器）。已建议部署每日 DB 快照 + uploads 增量备份，未实施。
+**遗留风险**: ~~生产尚无自动备份（无 cron/定时器）~~ → **2026-09 已落地**：`deploy/systemd/product-db-backup.{service,timer}`（用户级，每日 03:30，保留 14 份），实测 2026-09-17 03:30:57 成功运行。uploads 的镜像仍是手动命令。
 
 ## 历史变更 (2026-08-02, R27)
 
@@ -228,7 +268,7 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 
 **清理:**
 - 删除死代码 `_cached_dict_query`、`DownloadTicket` 模型（无表无引用）、main.py 过时注释与未用导入
-- README/系统功能说明 测试数量更新（341/60/96）
+- README/系统功能说明 测试数量更新（341/60/96 — 历史值，当前为 440/69/96）
 
 ## 历史变更 (2026-07-23, R26)
 
@@ -346,6 +386,7 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 **.gitignore:** 添加 `frontend/test-results/`, `backend/test-results/`, `frontend/playwright-report/`
 
 **测试:** backend pytest 129/129 / frontend vue-tsc 0 errors, vitest 60/60 / E2E: 96 tests (2 agent + 2 login-log + 2 error-scenarios + 75 full-regression + 19 API + 4 perf), 1 pre-existing failure (LLM config — R20 API key input removed)
+（括号内相加为 104 ≠ 96，是当时的记录笔误；当前各文件实测分布见 R34：full-regression 53 / error-scenarios 17 / api-health 19 / perf 4 / agent-isolation 2 / core-flows 1 = 96）
 
 ## 历史变更 (2026-07-07, R21.1)
 
@@ -941,7 +982,7 @@ E2E 新增 17 测试 (`error-scenarios.spec.ts`):
 | 层 | 技术 |
 |----|------|
 | Backend | FastAPI + SQLAlchemy 2.0 + Alembic + Pydantic v2 |
-| Database | SQLite (dev) / PostgreSQL (prod) |
+| Database | SQLite（dev 与 prod 都是；生产库 `/opt/product-db/backend/product_db.db` 为唯一权威源） |
 | Frontend | Vue 3 + TypeScript + Vite + CSS Variables |
 | Icons | Lucide Icons (lucide-vue-next) |
 | AI | DeepSeek API (LlmEngine async) + Tool Calling + SSE |
@@ -949,8 +990,8 @@ E2E 新增 17 测试 (`error-scenarios.spec.ts`):
 | XSS | DOMPurify (所有 v-html 已清洗) |
 | SSRF | validate_url() + 手动重定向验证 |
 | Logging | loguru (structured + rotation) |
-| Testing | pytest 372 tests + vitest 62 tests + Playwright 96 tests |
-| Deployment | Docker Compose + Nginx |
+| Testing | pytest 440 collected（439 passed + 1 skipped）+ vitest 69 tests + Playwright 96 tests |
+| Deployment | systemd + nginx + rsync（`deploy/` 下备份/探针/就绪门控脚本；`docker-compose.yml` 是早期实验、**非生产路径**） |
 
 ## 开发命令
 
@@ -967,7 +1008,7 @@ npx vitest run
 npx vue-tsc --noEmit
 
 # E2E 测试
-npx playwright test e2e/full-regression.spec.ts --reporter=list   # 全功能 (51 tests)
+npx playwright test e2e/full-regression.spec.ts --reporter=list   # 全功能 (53 tests)
 npx playwright test e2e/api-health.spec.ts --reporter=list        # API 端点 (19 tests)
 npx playwright test e2e/perf-check.spec.ts --reporter=list        # 性能+可访问性 (4 tests)
 npx playwright test --reporter=list                               # 全部套件
@@ -1005,10 +1046,10 @@ backend/app/
 │   ├── login_log.py, system_setting.py, field_setting.py
 │   └── download_log.py               # 下载审计
 ├── routers/             # 14 个路由模块
-│   ├── products.py, product_import.py
+│   ├── products.py, product_import.py, product_files.py
 │   ├── categories.py, suppliers.py
 │   ├── solutions.py, quotations.py, bom_templates.py
-│   ├── ai.py, auth_routes.py, admin_routes.py
+│   ├── ai.py, agent.py, auth_routes.py, admin_routes.py
 │   ├── dictionaries.py, system_settings.py
 ├── services/
 │   ├── ai_engine.py            # LlmEngine (DeepSeek API async)
@@ -1025,12 +1066,12 @@ backend/app/
 │   ├── helpers.py       # apply_partial_update
 │   └── escape.py        # SQL LIKE 转义
 ├── schemas/             # Pydantic 请求/响应模型
-└── tests/               # pytest 372 tests
+└── tests/               # pytest 440 collected（439 passed + 1 skipped）
 
 frontend/src/
 ├── App.vue              # 主布局 (暗侧边栏 + 全局搜索 + toast + 用户菜单)
 ├── api.ts               # 集中式 API 客户端 + SSE streamAiChat
-├── router.ts            # 16 条路由 (JWT 过期检测 + admin 守卫)
+├── router.ts            # 18 条 path（16 条组件路由 + 2 条 redirect；含 JWT 过期检测与 admin 守卫）
 ├── types.ts             # TypeScript 类型定义 (Product, Category, Solution...)
 ├── utils/
 │   └── markdown.ts      # 共享 HTML/markdown 格式化工具

@@ -67,6 +67,7 @@ ssh -p 28793 tong@124.221.178.161 'sudo apt-get install -y --no-install-recommen
 | **上传文件** | `backend/app/uploads/` | `/opt/product-db/backend/app/uploads/` | 不入 git |
 | **IP 地区离线库** | `backend/data/ip2region_v4.xdb`（11MB） | `/opt/product-db/backend/data/ip2region_v4.xdb` | 入 git，随 `git pull` 下发；只读，无需额外步骤（见「IP 地区离线库」） |
 | **文档** | `docs/`, `AGENTS.md` | `/opt/product-db/` | `git push` → `git pull` |
+| **静态占位页** | `static/`（`coming-soon.html`、`maintenance.html`） | `/opt/product-db/static/` | 随 `git pull` 下发（仓库根目录就是 `/opt/product-db`），nginx `root` 直接读该目录 |
 | **Nginx 配置** | — | `/etc/nginx/sites-enabled/product-db` | 手动编辑，`sudo nginx -t && sudo nginx -s reload` |
 | **systemd** | — | `/etc/systemd/system/product-db.service` | `sudo systemctl daemon-reload && sudo systemctl restart product-db` |
 
@@ -108,13 +109,19 @@ git add -A && git commit -m "..." && git push
 # 2. 先看服务器工作区状态（有未提交改动就先弄清是什么，不要盲目 stash+drop）
 ssh -p 28793 tong@124.221.178.161 'cd /opt/product-db && git status --short'
 
-# 3. 服务器拉取 + 装依赖（requirements.txt 有新增时必需）+ 重启
+# 3. 服务器拉取 + 装依赖 + 执行迁移 + 带就绪门控重启
 ssh -p 28793 tong@124.221.178.161 \
-  'cd /opt/product-db && git pull && backend/venv/bin/pip install -q -r backend/requirements.txt && sudo systemctl restart product-db'
-
-# 4. 验证
-curl -s -w ' → HTTP %{http_code}\n' https://product-db.cn/product-db/api/health
+  'cd /opt/product-db && git pull && backend/venv/bin/pip install -q -r backend/requirements.txt \
+   && cd backend && venv/bin/alembic upgrade head && cd .. \
+   && deploy/restart-ready.sh'
 ```
+
+> ⚠️ **`alembic upgrade head` 不要省**：迁移直到 2026-09 都是靠手工执行的，结果是
+> `created_by` 列、`product_categories` 表、一批索引在生产静默滞后了几个月
+> （R33 才补齐）。它幂等，可以每次都跑。
+>
+> `deploy/restart-ready.sh` 取代裸 `systemctl restart`：它会轮询健康接口直到就绪
+> 再验一次经 nginx 的入口与前端首页，失败则打印 journalctl 与回滚命令并以非 0 退出。
 
 > 不要用 `git stash && git pull && git stash drop`：服务器上任何未提交改动会被静默丢弃（2026-09 曾发现服务器遗留未跟踪文件）。
 
@@ -131,10 +138,15 @@ cd .. && git add -A && git commit -m "..." && git push
 rsync -az --delete -e "ssh -p 28793" frontend/dist/ \
   tong@124.221.178.161:/opt/product-db/frontend/dist/
 
-# 4. 服务器拉取后端 + 安装依赖（如有新增）+ 重启
+# 4. 服务器拉取后端 + 装依赖（如有新增）+ 迁移 + 就绪门控重启
 ssh -p 28793 tong@124.221.178.161 \
-  'cd /opt/product-db && git pull && cd backend && source venv/bin/activate && pip install -r requirements.txt -q; sudo systemctl restart product-db'
+  'cd /opt/product-db && git pull && backend/venv/bin/pip install -q -r backend/requirements.txt \
+   && cd backend && venv/bin/alembic upgrade head && cd .. \
+   && deploy/restart-ready.sh'
 ```
+
+> 前端产物是独立 rsync 的（不入 git），所以只改前端时**不需要重启后端**：
+> FastAPI 每次请求都从磁盘读 `frontend/dist`，`git pull` 之后直接生效。
 
 ## Nginx 配置位置
 
@@ -289,9 +301,82 @@ for ip, c in sqlite3.connect('product_db.db').execute('SELECT ip_address, COUNT(
   - ⚠️ 早先本节写的是 `/opt/product-db/app.log`，**那是错的**：日志路径原本是相对路径 `"app.log"`，落点取决于进程 CWD。历史上 CWD 变过，日志因此散落在项目根、`backend/`、`frontend/` 三处，且残留文件是 644（world-readable）。
   - 2026-09 已改为基于 `backend/` 的绝对路径（`backend/app/main.py` 的 `LOG_FILE`），此后只有 `backend/app.log` 会更新。旧位置的文件是历史残留，不会被 loguru 的 retention 接管，可手工删除。
 - **systemd 日志**: `journalctl -u product-db -f`
-  - ⚠️ 后端代码里用 stdlib `logging.getLogger(...)` 的地方（21 处，含登录地区查询、AI、报价单等）记录**只在这里**，不进 `app.log`：loguru 只接管自己的 logger。排查这类代码的告警时只看 `app.log` 会误判为「没有日志」。
+  - ⚠️ 后端代码里用 stdlib `logging.getLogger(...)` 的地方（**23 处 / 10 个文件**，含登录地区查询、AI、报价单等）记录**只在这里**，不进 `app.log`：loguru 只接管自己的 logger。排查这类代码的告警时只看 `app.log` 会误判为「没有日志」。
+    （统计口径：`grep -rho 'logging.getLogger' backend/app --include='*.py' | wc -l`）
 - **Nginx 日志**: `/var/log/nginx/access.log`, `/var/log/nginx/error.log`
 - **备份日志**: `/opt/product-db-backups/db/backup.log`（每日备份脚本写入，超过 1MB 自动截断）
+- **探针日志**: `/opt/product-db-backups/health.log`（可用性探针写入，超过 1MB 自动截断）
+
+## 可用性探针（每 2 分钟）
+
+此前**没有任何服务可用性告警**：进程崩了只有 `Restart=always` 静默拉起，前端 dist 丢失会让 SPA 返回 503 —— 两者都只能靠用户反馈才知道。
+
+`deploy/health-check.sh` + 用户级 timer（与备份同样的模式）：
+
+| 检查项 | 说明 |
+|--------|------|
+| `http://127.0.0.1:8000/product-db/api/health` | 绕开 nginx，判断应用本身是否活着 |
+| `https://product-db.cn/product-db/api/health` | 经 nginx 的端到端 |
+| `https://product-db.cn/product-db/` | 前端首页（dist 丢失时应用自身返回 503） |
+
+只在**状态变化**时写一条显著日志（`OK 服务已恢复` / `FAIL ...`），持续故障只记一行「FAIL（持续）」，避免每 2 分钟刷屏。
+
+```bash
+# 安装/更新（用户级，无需 sudo；与备份 timer 同一目录）
+mkdir -p ~/.config/systemd/user
+cp /opt/product-db/deploy/systemd/product-db-healthcheck.* ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now product-db-healthcheck.timer
+systemctl --user list-timers product-db-healthcheck.timer
+
+# 手动跑一次（排查用）
+/opt/product-db/deploy/health-check.sh; echo "exit=$?"
+tail -5 /opt/product-db-backups/health.log
+```
+
+**可选：失败时推送到飞书/钉钉等 webhook**（不配置则只写本地日志）。把地址写进 timer 的环境变量即可：
+
+```bash
+mkdir -p ~/.config/systemd/user/product-db-healthcheck.service.d
+cat > ~/.config/systemd/user/product-db-healthcheck.service.d/webhook.conf <<'EOF'
+[Service]
+Environment=ALERT_WEBHOOK=<webhook 地址>
+Environment=ALERT_WEBHOOK_STYLE=feishu   # 飞书自定义机器人用 feishu；其它用默认 text
+EOF
+systemctl --user daemon-reload
+```
+
+## 重启就绪门控
+
+裸 `sudo systemctl restart product-db` 期间 uvicorn 不监听，nginx 会对用户直接返回 **502（实测 5-8s）**，且失败与否没有判据。改用：
+
+```bash
+cd /opt/product-db && deploy/restart-ready.sh
+```
+
+它做四件事：记录重启前的 revision → restart → 轮询健康接口直到 200（默认 30s 超时）→ 再验一次经 nginx 的接口与前端首页。任一步失败会打印 `journalctl` 片段与**回滚命令**并以非 0 退出（不自动回滚，避免掩盖问题）。
+
+### 维护页（需 sudo：nginx 配置属 root）
+
+502 窗口目前仍存在，但可以让用户看到维护页而不是错误页。维护页在仓库里（`static/maintenance.html`，随 `git pull` 落到 `/opt/product-db/static/`），只需改 nginx。
+
+在 `/etc/nginx/sites-available/product-db` 的 `location /product-db/ { ... }` 里加两行（**需要 sudo 密码**）：
+
+```nginx
+location /product-db/ {
+    proxy_pass http://127.0.0.1:8000;
+    # ↓ 新增：后端未就绪时不返回裸 502，而是给用户一个会自动重试的维护页
+    error_page 502 503 504 /maintenance.html;
+    location = /maintenance.html { root /opt/product-db/static; internal; }
+}
+```
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+# 验证：语法通过后，停一次后端应看到维护页而不是 502（维护页每 5s 自动探测健康接口，恢复后回首页）
+```
+
+> 维护页 `/opt/product-db/static/maintenance.html` 与首页备用 `static/index.html` 同目录，都由 nginx 的 `root /opt/product-db/static` 提供；该目录不在 git 的部署路径里，需要单独 `cp`。
 
 ## 数据库备份
 
@@ -373,4 +458,6 @@ ssh -p 28793 tong@124.221.178.161 \
 
 `POST /product-db/api/agent/cleanup-uploads`（admin）只删除**未被数据库引用**且超过 7 天的文件，这是 2026-06 文件丢失事故（21 个产品文档被误删）后加固的行为。不要在代码/脚本里扩大它的删除范围；产品文件与图片的删除必须走应用接口（delete_product_file / 产品编辑）。
 
-**当前无自动备份**（截至 2026-08-02），建议部署 cron/systemd timer 每日执行上面的快照 + rsync。
+**自动备份**：`deploy/systemd/product-db-backup.timer` 每日 03:30（用户级，`Linger=yes`）执行 `deploy/backup-db.sh`，产物进 `/opt/product-db-backups/db/`，保留 14 份。
+> 本节 2026-09-17 之前写的是「当前无自动备份，建议部署 cron/systemd timer」——**已过时**：timer 早已落地，且实测 2026-09-17 03:30:57 无人值守跑过（`systemctl --user show product-db-backup.service -p Result` → `success`，产出 `product_db.db.bak.20260917_033057`）。
+> **uploads 仍只在手动命令里镜像**（`db/` 的自动快照不含上传文件）。

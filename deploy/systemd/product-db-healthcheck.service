@@ -1,0 +1,7 @@
+[Unit]
+Description=product-db 可用性探针（健康接口 + 前端首页）
+
+[Service]
+Type=oneshot
+ExecStart=/opt/product-db/deploy/health-check.sh
+# 失败不做任何自动处置，只记录 + 可选通知（见脚本头部说明）

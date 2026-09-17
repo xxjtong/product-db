@@ -1,0 +1,12 @@
+[Unit]
+Description=product-db 可用性探针（每 2 分钟）
+
+[Timer]
+# 开机 2 分钟后开始，之后每 2 分钟一次
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=10s
+Unit=product-db-healthcheck.service
+
+[Install]
+WantedBy=timers.target
