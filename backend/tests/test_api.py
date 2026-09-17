@@ -1146,6 +1146,91 @@ class TestPerimeterHardening:
             assert res.json()["product"]["view_count"] == expected
 
 
+class TestImportConfirm:
+    """补齐此前**零覆盖**的写路径：POST /products/import-confirm（批量导入落库）。
+
+    审查发现只有 import-preview 的拒绝路径被覆盖，真正写库的这条从未验证过。
+    顺带修掉：products.category_id 是 NOT NULL，品类名匹配不到时插 None 会让整批
+    在 commit 处 IntegrityError → 500（且无任何可操作提示、整批数据丢失）。
+    """
+
+    def _auth_for(self, user):
+        return {"Authorization": f"Bearer {create_token(user.id, user.username)}"}
+
+    def test_import_confirm_creates_products_and_maps_fields(self, db):
+        admin = db.query(User).filter_by(username="admin").first()
+        headers = self._auth_for(admin)
+        cat = _seed_category(db, name="导入品类", slug="import-cat")
+        cat2 = _seed_category(db, name="无线网关", slug="import-cat2")
+
+        res = client.post("/product-db/api/products/import-confirm", json={
+            "mapping": {"0": "name", "1": "model", "2": "price", "3": "category"},
+            "rows": [
+                ["导入产品A", "IA-1", "12.5", "导入品类"],
+                ["导入产品B", "IB-1", "8", "无线"],      # 走模糊匹配分支
+            ],
+        }, headers=headers)
+        assert res.status_code == 200, res.text
+        assert res.json()["imported"] == 2
+
+        p1 = db.query(Product).filter_by(model="IA-1").first()
+        assert p1 is not None and p1.name == "导入产品A"
+        assert float(p1.base_price) == 12.5
+        assert p1.category_id == cat.id, "品类名应映射到对应 category_id"
+
+        p2 = db.query(Product).filter_by(model="IB-1").first()
+        assert p2 is not None and p2.category_id == cat2.id, "应支持品类名模糊匹配"
+
+    def test_import_confirm_rejects_unmatched_category_without_writing(self, db):
+        """回归：匹配不到的品类名曾导致整批 IntegrityError → 500（生产实测）。"""
+        admin = db.query(User).filter_by(username="admin").first()
+        before = db.query(Product).count()
+
+        res = client.post("/product-db/api/products/import-confirm", json={
+            "mapping": {"0": "name", "1": "category"},
+            "rows": [["回归产品X", "不存在的品类XYZ"]],
+        }, headers=self._auth_for(admin))
+
+        assert res.status_code == 400, f"应给出可操作的 400，而不是 500：{res.status_code}"
+        assert "不存在的品类XYZ" in res.json()["detail"]
+        assert db.query(Product).count() == before, "校验失败时不得写入任何产品"
+
+    def test_import_confirm_requires_category_column(self, db):
+        """Excel 没有品类列时也必须明确报错，而不是 500。"""
+        admin = db.query(User).filter_by(username="admin").first()
+        res = client.post("/product-db/api/products/import-confirm", json={
+            "mapping": {"0": "name", "1": "model"},
+            "rows": [["只有名称的产品", "NC-1"]],
+        }, headers=self._auth_for(admin))
+        assert res.status_code == 400
+        assert "品类" in res.json()["detail"]
+
+    def test_import_confirm_skips_empty_rows(self, db):
+        """空行按既有语义跳过；全部为空则明确报错而不是返回 imported=0。"""
+        admin = db.query(User).filter_by(username="admin").first()
+        headers = self._auth_for(admin)
+        _seed_category(db, name="跳过测试品类", slug="skip-cat")
+
+        res = client.post("/product-db/api/products/import-confirm", json={
+            "mapping": {"0": "name", "1": "category"},
+            "rows": [["有效产品", "跳过测试品类"], ["", ""]],
+        }, headers=headers)
+        assert res.status_code == 200
+        assert res.json()["imported"] == 1, "空行应被跳过、其余行正常导入"
+
+        res = client.post("/product-db/api/products/import-confirm", json={
+            "mapping": {"0": "name", "1": "category"},
+            "rows": [["", ""]],
+        }, headers=headers)
+        assert res.status_code == 400
+
+    def test_import_confirm_rejects_empty_payload(self, db):
+        admin = db.query(User).filter_by(username="admin").first()
+        res = client.post("/product-db/api/products/import-confirm",
+                          json={"mapping": {}, "rows": []}, headers=self._auth_for(admin))
+        assert res.status_code == 400
+
+
 class TestOwnershipGaps:
     """Ownership checks that were missing: dependencies, export, compare."""
 

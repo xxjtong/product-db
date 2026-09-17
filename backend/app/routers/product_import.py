@@ -53,7 +53,11 @@ def import_confirm(data: ProductImportConfirm, db: Session = Depends(get_db), us
     if not rows or not mapping:
         raise HTTPException(400, "No data to import")
 
-    imported = 0
+    # 先整体解析 + 校验，再落库：products.category_id 是 NOT NULL（模型与生产库一致），
+    # 品类名匹配不到时若直接插 None，整批会在 commit 处 IntegrityError → 500，
+    # 且因为只在最后 commit 一次，用户拿不到任何可操作的提示、也丢掉了整批数据。
+    parsed = []
+    unmatched = set()
     for row in rows:
         pdata = {}
         for col_idx, field in mapping.items():
@@ -64,17 +68,34 @@ def import_confirm(data: ProductImportConfirm, db: Session = Depends(get_db), us
         name = pdata.get("name", "")
         model = pdata.get("model", "")
         if not name and not model:
-            continue
+            continue   # 空行/无关键字段的行按既有语义跳过
 
         cat_name = pdata.get("category", "")
         category_id = None
         if cat_name:
             cat = db.query(Category).filter(Category.name == cat_name).first()
             if not cat:
-                cat = db.query(Category).filter(Category.name.ilike(f"%{escape_like(cat_name)}%", escape=LIKE_ESCAPE)).first()
+                cat = db.query(Category).filter(
+                    Category.name.ilike(f"%{escape_like(cat_name)}%", escape=LIKE_ESCAPE)
+                ).first()
             if cat:
                 category_id = cat.id
+        if not category_id:
+            unmatched.add(cat_name or "（本行未填品类）")
+            continue
+        parsed.append((pdata, category_id))
 
+    if unmatched:
+        raise HTTPException(
+            400,
+            "以下品类在系统中不存在，请先在「品类管理」中创建或修正表格后重试："
+            + "、".join(sorted(unmatched)),
+        )
+    if not parsed:
+        raise HTTPException(400, "没有可导入的行：每行至少需要「产品名称」或「型号」，且必须能匹配到已有品类")
+
+    imported = 0
+    for pdata, category_id in parsed:
         mfg_name = pdata.get("manufacturer", "")
         manufacturer_id = None
         if mfg_name:
@@ -88,8 +109,8 @@ def import_confirm(data: ProductImportConfirm, db: Session = Depends(get_db), us
         spec_items = {k.replace("spec:", ""): v for k, v in pdata.items() if k.startswith("spec:")}
 
         p = Product(
-            name=name or model,
-            model=model or "",
+            name=pdata.get("name") or pdata.get("model") or "",
+            model=pdata.get("model", ""),
             sku=pdata.get("sku", ""),
             category_id=category_id,
             manufacturer_id=manufacturer_id,
