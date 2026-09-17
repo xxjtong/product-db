@@ -13,9 +13,10 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 - 此前部署流程里没有迁移步骤、全靠手工执行 → `created_by` 列、`product_categories` 表、一批索引在生产静默滞后了数月（R33 才补齐）
 
 **2) 重启就绪门控**（新增 `deploy/restart-ready.sh`）
-- 裸 `systemctl restart` 期间 uvicorn 不监听，nginx 对用户直接 502（实测 5-8s），失败与否无判据
+- 裸 `systemctl restart` 期间 uvicorn 不监听，nginx 短暂返回 502，且失败与否无判据
 - 新脚本：记录重启前 revision → restart → 轮询健康接口直到 200（默认 30s）→ 再验经 nginx 的接口与前端首页（能发现 dist 丢失导致的 503）；失败打印 `journalctl` 与回滚命令并非 0 退出（**不自动回滚**，避免掩盖问题）
-- 配套维护页 `static/maintenance.html`（每 5s 自动探测健康接口，恢复后回首页）+ nginx `error_page 502 503 504 /maintenance.html` 的改法（nginx 配置属 root，**需人工 sudo 执行**，已在 DEPLOY.md 给出完整片段与验证步骤）
+- **实测（0.15s 间隔打公开入口）**：应用就绪 **1s**、对外 502 窗口 **≈1.3s** —— 早先文档写的「5-8s」是错的（那是部署时操作者 `sleep 4` 的等待，不是用户可见窗口）。因此该脚本的主要价值是「部署失败立刻可见 + 有回滚提示」，而非消灭这 1.3s
+- 配套维护页 `static/maintenance.html`（每 5s 自动探测健康接口，恢复后回首页）为**可选项**（窗口仅 1.3s，收益有限）；nginx `error_page 502 503 504` 的改法已在 DEPLOY.md 给出，配置属 root **需人工 sudo 执行**
 
 **3) 最小可用性探针**（新增 `deploy/health-check.sh` + `product-db-healthcheck.{service,timer}`）
 - 此前**没有任何可用性告警**：进程崩了只有 `Restart=always` 静默拉起，dist 丢失会让首页 503，两者只能靠用户反馈

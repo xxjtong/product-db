@@ -348,7 +348,7 @@ systemctl --user daemon-reload
 
 ## 重启就绪门控
 
-裸 `sudo systemctl restart product-db` 期间 uvicorn 不监听，nginx 会对用户直接返回 **502（实测 5-8s）**，且失败与否没有判据。改用：
+裸 `sudo systemctl restart product-db` 期间 uvicorn 不监听，nginx 会短暂返回 502。改用：
 
 ```bash
 cd /opt/product-db && deploy/restart-ready.sh
@@ -356,9 +356,18 @@ cd /opt/product-db && deploy/restart-ready.sh
 
 它做四件事：记录重启前的 revision → restart → 轮询健康接口直到 200（默认 30s 超时）→ 再验一次经 nginx 的接口与前端首页。任一步失败会打印 `journalctl` 片段与**回滚命令**并以非 0 退出（不自动回滚，避免掩盖问题）。
 
-### 维护页（需 sudo：nginx 配置属 root）
+**实测数据（2026-09-17，在生产机上以 0.15s 间隔打自己的公开入口）**：
 
-502 窗口目前仍存在，但可以让用户看到维护页而不是错误页。维护页在仓库里（`static/maintenance.html`，随 `git pull` 落到 `/opt/product-db/static/`），只需改 nginx。
+| 指标 | 实测值 |
+|------|--------|
+| 应用就绪耗时 | **1s**（脚本轮询间隔 0.5s，报出 1s） |
+| 对外 502 窗口 | **约 1.3s**（80 个样本里 7 个 502，集中在 3.23s–4.42s） |
+
+> 早先文档里写的「5-8s」是**错的**（那是部署时操作者 `sleep 4` 的等待时间，不是用户可见窗口）。真实窗口只有 1.3s，所以本脚本的主要价值是**「部署失败能立刻发现」**（并有回滚提示），而不是消灭这 1.3s。
+
+### 维护页（可选，需 sudo：nginx 配置属 root）
+
+既然窗口只有 1.3s，维护页收益有限，属于**可选**项；想做的话：维护页已在仓库里（`static/maintenance.html`，随 `git pull` 落到 `/opt/product-db/static/`）。
 
 在 `/etc/nginx/sites-available/product-db` 的 `location /product-db/ { ... }` 里加两行（**需要 sudo 密码**）：
 

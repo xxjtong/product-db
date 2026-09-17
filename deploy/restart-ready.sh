@@ -29,7 +29,9 @@ sudo systemctl restart "$SERVICE" || { echo "ERROR: restart 命令本身失败";
 start=$(date +%s)
 ready=0
 while [ $(( $(date +%s) - start )) -lt "$TIMEOUT" ]; do
-  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "$HEALTH_URL" 2>/dev/null || echo 000)"
+  # curl 连接失败时自己会输出 "000" 并非 0 退出，不要再 `|| echo 000`（会拼成 000000）
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "$HEALTH_URL" 2>/dev/null)"
+  code="${code:-000}"
   if [ "$code" = "200" ]; then ready=1; break; fi
   sleep 0.5
 done
@@ -46,9 +48,11 @@ fi
 echo "== 应用已就绪（${elapsed}s）: $HEALTH_URL → 200"
 
 fail=0
-pub="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$PUBLIC_URL" 2>/dev/null || echo 000)"
+pub="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$PUBLIC_URL" 2>/dev/null)"
+pub="${pub:-000}"
 [ "$pub" = "200" ] || { echo "ERROR: 经 nginx 的健康检查返回 $pub"; fail=1; }
-home="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$HOME_URL" 2>/dev/null || echo 000)"
+home="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$HOME_URL" 2>/dev/null)"
+home="${home:-000}"
 [ "$home" = "200" ] || { echo "ERROR: 前端首页返回 $home（dist 是否已部署？）"; fail=1; }
 
 if [ "$fail" != "0" ]; then

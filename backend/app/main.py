@@ -133,6 +133,12 @@ app.mount("/product-db/api/uploads", UploadsStaticFiles(directory=upload_dir), n
 
 @app.get("/product-db/api/health")
 def health():
+    # 注意：这里**不能**靠 `@limiter.exempt` 豁免限流 —— 实测无效。slowapi 的
+    # SlowAPIMiddleware 用 `_find_route_handler()` 取「最后一个 FULL 匹配的路由」
+    # 作为 handler，而 SPA catch-all `/product-db/{full_path:path}` 注册在本路由之后，
+    # 同样匹配 /product-db/api/health → 解析到的 handler 是 serve_spa，函数级豁免
+    # 永远匹配不上（实测：连续打 65 次仍会 429）。
+    # 因此可用性探针改为「本地接口每 2 分钟、公开接口每 30 分钟」双频（见 deploy/health-check.sh）。
     return {"status": "ok"}
 
 
