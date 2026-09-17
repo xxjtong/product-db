@@ -47,6 +47,8 @@ TH = {
     "error_lines": 20,       # 当日 ERROR 级日志行数
 }
 # 快照份数不设阈值：保留策略是攒到 14 份，刚上线那几天必然不够，只报数不告警
+BURST_PER_MIN = 10      # 单账号一分钟内登录次数达到此值就标注「疑似自动化」
+MAX_ACCOUNT_LINES = 5   # 极简模式下最多列几个账号，其余折成一行
 
 ACCESS_RE = re.compile(
     r'^(\w{3}\s+\d{1,2} \d{2}:\d{2}:\d{2}).*?INFO:\s+(\d+\.\d+\.\d+\.\d+):\d+ - '
@@ -139,12 +141,55 @@ def parse_requests(text):
     return total, s5xx, s4xx, probe, by_ip
 
 
-def span_minutes(times):
-    """首末请求时间差（分钟）"""
+def span_range(times):
+    """首末请求时间 → (起始分钟, 结束分钟)，从 0 点起的分钟数"""
     def mins(t):
         return int(t[0:2]) * 60 + int(t[3:5])
     times = sorted(times)
-    return max(mins(times[-1]) - mins(times[0]), 0)
+    return mins(times[0]), mins(times[-1])
+
+
+def merge_minutes(intervals):
+    """合并重叠区间后求总时长（分钟）
+
+    同一账号常同时用两个 IP（家里 + 公司），逐 IP 相加会把并行时间算两遍。
+    """
+    total = 0
+    cur_s = cur_e = None
+    for s, e in sorted(intervals):
+        if cur_s is None:
+            cur_s, cur_e = s, e
+        elif s <= cur_e:
+            cur_e = max(cur_e, e)
+        else:
+            total += cur_e - cur_s
+            cur_s, cur_e = s, e
+    if cur_s is not None:
+        total += cur_e - cur_s
+    return total
+
+
+def account_lines(acct_view, limit=MAX_ACCOUNT_LINES):
+    """每个账号一行：登录次数（峰值高时标注疑似自动化）+ 活跃时长 + IP"""
+    lines = []
+    for a in acct_view[:limit]:
+        if a["cnt"]:
+            seg = f"👥 {a['name']}: 登录 {a['cnt']} 次"
+            if a["peak"] >= BURST_PER_MIN:
+                seg += f"（峰值 {a['peak']} 次/分，疑似自动化测试）"
+            seg += f" · 活跃约 {a['minutes']} 分钟"
+            if len(a["ips"]) > 1:
+                seg += f" · {len(a['ips'])} 个 IP"
+            elif a["ips"]:
+                seg += f" · IP {a['ips'][0][0]}"
+        else:
+            # 有访问但没有登录记录（爬虫/云监控/匿名）
+            seg = (f"👥 未识别（无登录记录的访问）: {a['reqs']} 请求"
+                   f" · 活跃约 {a['minutes']} 分钟 · {len(a['ips'])} 个 IP")
+        lines.append(seg)
+    if len(acct_view) > limit:
+        lines.append(f"👥 …等共 {len(acct_view)} 个账号（其余省略）")
+    return lines
 
 
 def system_status(day, journal, req_total, s5xx, s4xx, probe):
@@ -304,7 +349,7 @@ def main():
         "SELECT COUNT(*) FROM login_logs WHERE created_at >= ? AND created_at < ? AND success=0",
         (day_from, day_to)).fetchone()[0]
 
-    # ── 2. 活跃时长（按 IP 聚合非探针请求；IP → 当日登录用户）──
+    # ── 2. 活跃时长（按 IP 聚合非探针请求 → 归到账号）──
     ip_user = {}
     c.execute("""
         SELECT l.ip_address, u.username FROM login_logs l JOIN users u ON u.id=l.user_id
@@ -313,10 +358,38 @@ def main():
     for row in c.fetchall():
         ip_user[row["ip_address"]] = row["username"]
 
-    activity = []
-    for ip, times in sorted(act_by_ip.items(), key=lambda x: -len(x[1])):
-        activity.append((ip_user.get(ip, "未识别"), ip, len(times), span_minutes(times)))
-    activity_minutes = sum(a[3] for a in activity)
+    # 登录事件按账号的分钟峰值：自动化测试会在一分钟内打几十次，
+    # 标出来免得把「181 次登录」误读成异常
+    peaks = {}
+    c.execute("""
+        SELECT u.username AS username, substr(l.created_at, 12, 5) AS minute, COUNT(*) AS n
+        FROM login_logs l JOIN users u ON u.id = l.user_id
+        WHERE l.created_at >= ? AND l.created_at < ? AND l.success = 1
+        GROUP BY u.username, minute
+    """, (day_from, day_to))
+    for row in c.fetchall():
+        peaks[row["username"]] = max(peaks.get(row["username"], 0), row["n"])
+
+    acct = {}
+    for r in logins:
+        acct[r["username"]] = {"name": r["username"], "role": r["role"],
+                               "cnt": r["cnt"], "peak": peaks.get(r["username"], 0),
+                               "first": r["first_login"], "last": r["last_login"],
+                               "reqs": 0, "minutes": 0, "ips": []}
+    for ip, times in act_by_ip.items():
+        name = ip_user.get(ip, "未识别")
+        a = acct.setdefault(name, {"name": name, "role": "", "cnt": 0, "peak": 0,
+                                   "first": None, "last": None,
+                                   "reqs": 0, "minutes": 0, "ips": []})
+        rng = span_range(times)
+        a["reqs"] += len(times)
+        a["ips"].append((ip, len(times), rng))
+    for a in acct.values():
+        # 同一账号的多个 IP 区间先合并再计时长（并行时段不能算两遍）
+        a["minutes"] = merge_minutes([rng for _ip, _n, rng in a["ips"]])
+        a["ips"].sort(key=lambda x: -x[1])
+    # 有登录记录的在前，按登录次数；匿名 IP 归入「未识别」排最后
+    acct_view = sorted(acct.values(), key=lambda a: (-a["cnt"], -a["minutes"]))
 
     # ── 3. AI 使用 ──
     c.execute("""
@@ -378,11 +451,16 @@ def main():
         # 用「无告警项」而不是「一切正常」：阈值内的 5xx / ERROR 仍会显示在下面一行，
         # 说「一切正常」会和数字自相矛盾
         print(f"✅ product-db 日报 {day}｜无告警项")
-        print(f"   使用: 登录 {today_users} 人/{today_cnt} 次 · 活跃合计 {activity_minutes} 分钟"
-              f" · AI {ai_calls} 次" + (f"/{ai_tokens//1000}k tokens" if ai_tokens else "")
-              + f" · 下载 {dl_total}"
-              f" · 新建 " + " ".join(f"{k}+{v}" for k, v in created))
-        print("   运行: " + " · ".join(compact))
+        if acct_view:
+            for seg in account_lines(acct_view):
+                print("   " + seg)
+        else:
+            print("   👥 今日无登录、无访问")
+        print("   🖥️ " + " · ".join(compact))
+        print(f"   🤖 AI {ai_calls} 次" + (f"/{ai_tokens//1000}k tokens" if ai_tokens else "")
+              + f" · 📥 下载 {dl_total}"
+              f" · 📦 新建 " + " ".join(f"{k}+{v}" for k, v in created)
+              + (f" · ⚠️ 登录失败 {failed} 次" if failed else ""))
         return 0
 
     lines = []
@@ -394,24 +472,27 @@ def main():
         lines.append(f"📊 product-db 运行报告 — {day}")
     lines.append("=" * 46)
 
-    lines.append(f"\n👥 登录用户 ({today_users} 人)")
-    if logins:
-        for r in logins:
-            lines.append(f"  • {r['username']} ({r['role']}) — {r['cnt']} 次登录")
-            lines.append(f"      时间: {to_local(r['first_login'])} ~ {to_local(r['last_login'])}（本地时间）")
-            lines.append(f"      IP: {r['ips']}")
+    lines.append(f"\n👥 账号使用情况 ({today_users} 个账号有登录)")
+    if acct_view:
+        for a in acct_view:
+            head = f"  • {a['name']}" + (f" ({a['role']})" if a["role"] else "")
+            if a["cnt"]:
+                head += f" — 登录 {a['cnt']} 次"
+                if a["first"]:
+                    head += f"（{to_local(a['first'])} ~ {to_local(a['last'])}）"
+                if a["peak"] >= BURST_PER_MIN:
+                    head += f"（峰值 {a['peak']} 次/分，疑似自动化测试）"
+            else:
+                head += f" — 无登录记录，{a['reqs']} 次访问"
+            lines.append(head)
+            lines.append(f"      活跃约 {a['minutes']} 分钟 / {len(a['ips'])} 个 IP")
+            for ip, n, (s, e) in a["ips"]:
+                lines.append(f"      · {ip}: {n:,} 请求, 活跃约 {e - s} 分钟")
     else:
-        lines.append("  （无用户登录）")
+        lines.append("  （无用户登录、无访问）")
     if failed:
         lines.append(f"  ⚠️ 登录失败尝试: {failed} 次")
-
-    lines.append("\n⏱️ 活跃时长 (访问日志统计, 已排除探针流量)")
-    if activity:
-        for user, ip, cnt, span in activity:
-            lines.append(f"  • {user} (IP {ip}): {cnt} 请求, 活跃约 {span} 分钟")
-    else:
-        lines.append("  （无用户访问）")
-    lines.append("  (注: 跨天会话可能被截断, 仅供参考)")
+    lines.append("  (注: 活跃时长按请求日志估算并已排除探针流量, 跨天会话会被截断)")
 
     lines.append("\n🤖 AI 助手使用")
     if ai:
