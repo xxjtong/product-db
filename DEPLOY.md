@@ -378,25 +378,52 @@ cd /opt/product-db && deploy/restart-ready.sh
 
 ### 维护页（可选，需 sudo：nginx 配置属 root）
 
-既然窗口只有 1.3s，维护页收益有限，属于**可选**项；想做的话：维护页已在仓库里（`static/maintenance.html`，随 `git pull` 落到 `/opt/product-db/static/`）。
+既然窗口只有 1.3s，维护页收益有限，属于**可选**项。维护页已在仓库里（`static/maintenance.html`，随 `git pull` 落到 `/opt/product-db/static/`，nginx 的 `root` 直接能读到）。
 
-在 `/etc/nginx/sites-available/product-db` 的 `location /product-db/ { ... }` 里加两行（**需要 sudo 密码**）：
+改法：在 `/etc/nginx/sites-available/product-db` 的 **server 级**（例如 `index coming-soon.html;` 之后）加两行：
 
 ```nginx
-location /product-db/ {
-    proxy_pass http://127.0.0.1:8000;
-    # ↓ 新增：后端未就绪时不返回裸 502，而是给用户一个会自动重试的维护页
+    # 后端未就绪时不返回裸 502/503/504，改为给用户一个会自动重试的维护页
     error_page 502 503 504 /maintenance.html;
-    location = /maintenance.html { root /opt/product-db/static; internal; }
-}
+    location = /maintenance.html { internal; }
 ```
+
+> ⚠️ **必须放在 server 级，不要嵌进 `location /product-db/` 里面**：嵌套 location 匹配的是父级前缀之后的剩余 URI，`location = /maintenance.html` 写在里面永远匹配不到，维护页不会生效。
+> `internal` 表示该页只能由 nginx 内部跳转（`error_page`）访问，直接请求会 404；`root` 从 server 级继承（`root /opt/product-db/static;`），不用重复写。
 
 ```bash
+# 1) 备份（改坏了能一键回滚）
+sudo cp -a /etc/nginx/sites-available/product-db ~/product-db.nginx.bak.$(date +%Y%m%d_%H%M%S)
+
+# 2) 幂等插入两行（以 index 行做锚点；已插入过则不会重复）
+sudo sed -i 's|^    index coming-soon.html;|    index coming-soon.html;\n\n    # 后端未就绪时不返回裸 502/503/504，改为给用户一个会自动重试的维护页\n    error_page 502 503 504 /maintenance.html;\n    location = /maintenance.html { internal; }|' \
+  /etc/nginx/sites-available/product-db
+
+# 3) 语法检查 + 生效
 sudo nginx -t && sudo systemctl reload nginx
-# 验证：语法通过后，停一次后端应看到维护页而不是 502（维护页每 5s 自动探测健康接口，恢复后回首页）
+
+# 4) 验证：正常路径不受影响；维护页不可被直接访问（internal → 404）
+curl -s -o /dev/null -w '  health → %{http_code}\n' https://product-db.cn/product-db/api/health
+curl -s -o /dev/null -w '  直接访问维护页 → %{http_code}（期望 404）\n' https://product-db.cn/maintenance.html
 ```
 
-> 维护页 `/opt/product-db/static/maintenance.html` 与首页备用 `static/index.html` 同目录，都由 nginx 的 `root /opt/product-db/static` 提供；该目录不在 git 的部署路径里，需要单独 `cp`。
+**真实验证维护页生效**（不停后端：临时加一个指向死端口的 location，验证完删掉）：
+
+```bash
+sudo sed -i 's|^    location = /maintenance.html { internal; }|    location = /maintenance.html { internal; }\n    location = /__maint_probe__ { proxy_pass http://127.0.0.1:9; error_page 502 503 504 /maintenance.html; }|' \
+  /etc/nginx/sites-available/product-db
+sudo nginx -t && sudo systemctl reload nginx
+curl -s https://product-db.cn/__maint_probe__ | grep -o '服务正在重启' | head -1   # 期望打印「服务正在重启」
+sudo sed -i '/__maint_probe__/d' /etc/nginx/sites-available/product-db            # 删掉测试位置
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+**回滚**：
+
+```bash
+sudo cp -a ~/product-db.nginx.bak.<时间戳> /etc/nginx/sites-available/product-db
+sudo nginx -t && sudo systemctl reload nginx
+```
 
 ## 数据库备份
 
