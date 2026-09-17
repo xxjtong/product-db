@@ -2,7 +2,43 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-17, R34)
+## 最新变更 (2026-09-17, R35)
+
+### R35: 收敛暴露面与静默失败 + 运维配置入仓 + 导入写路径缺陷 (2026-09-17)
+
+审查清单里剩余可落地项的一次性处理。**其中一条是在补测试时现挖出来的生产缺陷**。
+
+**A) 生产实测确认的真实缺陷：Excel 导入遇到不匹配的品类会整批 500（`c7c82a1`）**
+- `products.category_id` 是 `NOT NULL`（模型与生产库一致，实测 `notnull=1`、0 个 NULL），而 `import_confirm` 在品类名匹配不到时插 `None` → `IntegrityError` → **500 Internal Server Error**；因为只在最后 `commit` 一次，**整批数据全丢且用户只看到「Internal Server Error」**
+- 常见触发：表格里没有「品类」列，或品类名与系统里不一致（含模糊匹配也匹配不到时）
+- 修复：改为「先整体解析+校验，再落库」，匹配不到的品类名汇总成 **400 + 具体名字列表**；全部行不合格也返回 400 说明原因（不再是 `imported=0` 的假成功）
+- 生产验证：修复前同一请求 **500** + journald `IntegrityError`；修复后 **400** + 「以下品类在系统中不存在…绝不存在的品类ZZZ」，产品总数保持 396
+- ⚠️ **行为变化**：导入现在**要求品类能匹配到已有品类**（表格必须有品类列且名字对得上），否则整批拒绝而不是部分成功
+
+**B) 安全与边界（4 项）**
+| 项 | 问题 | 修法 |
+|----|------|------|
+| SSRF 重定向绕过 | `excel_style._resolve_image` 用 `requests` 默认跟随 302/307，重定向目标不再过 `validate_url` → 盲 SSRF（图片来源 `image_url` 任意登录用户可写，导出即触发） | `allow_redirects=False` + 逐跳校验（≤3 跳），与 `products.py`/`storage` 一致 |
+| `/ai/stats` 口径溢出 | 全站 AI 用量（`total`/`total_tokens_*`）返回给任意登录用户 | 全局口径仅 admin；侧边栏只展示 `user_*`，界面不受影响 |
+| 导入预览内存 | `import-preview` 把整个文件读进内存且无上限 | 改用 `storage.read_limited` + `FILE_MAX_SIZE` |
+| 计数竞态 | `GET /products/{id}` 的 `view_count`、报价单导出的 `download_count` 是读-改-写 | 改 SQL 层 `coalesce(x,0)+1` 自增（并发不丢计数，GET 不再长持写锁） |
+
+**C) 静默失败 8 处**：OCR 失败 / AI 提取回落 / 读自定义提示词 / agent 提示词与用量统计 / 文件清理 / llm-models 拉取与 JSON 解析 —— 原来是 `except: pass` 或只记 `debug`（生产 sink 是 INFO，线上不可见），统一升为 `warning` 并带异常信息；其中 3 处是**裸 `except:`**（会连 `KeyboardInterrupt` 一起吞）。
+
+**D) 工程与运维**
+- 删除前端未使用依赖 `exceljs` / `jszip` / `@types/dompurify`（全仓零引用，实测确认）
+- systemd 主 unit 与 UMask drop-in **版本化入仓**（`deploy/systemd/product-db.service`、`deploy/systemd/product-db.service.d/umask.conf`），此前只以文档内联代码块存在，改错了没人能发现
+- 补 `import-confirm` 写路径测试（此前**零覆盖**）
+
+**E) 明确不改（附理由）**：`/agent/config` 向登录用户返回 `db_path`/`upload_dir`
+- 这两个路径本就是 **agent 提示词的必需内容**（前端把它们填进 `{{DB_PATH}}`/`{{UPLOAD_DIR}}` 占位符），且 `db_path` 的默认值已硬编码在公开的 JS bundle 里；要真正收敛得把提示词模板替换搬到后端，属改造成本高于收益
+- 这不是「也没人管」，而是**按设计暴露**，记在此处避免以后反复讨论
+
+**测试:** backend **448 passed** (1 skipped, +9) / vitest 69 passed / vue-tsc 0
+
+**变更统计:** 15 文件
+
+## 历史变更 (2026-09-17, R34)
 
 ### R34: 文档与运维 — 漂移校正 + 可用性探针 + 重启就绪门控 (2026-09-17)
 
