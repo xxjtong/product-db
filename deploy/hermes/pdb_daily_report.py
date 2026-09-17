@@ -58,6 +58,50 @@ ACCESS_RE = re.compile(
 )
 SNAP_RE = re.compile(r'^product_db\.db\.bak\.\d+_\d+$')
 
+# 区域解析：直接调应用自己的 venv + ip2region 离线库，保证与登录接口的地区口径一致
+# （Hermes 的解释器没装 ip2region，只能用应用的 venv；xdb 是只读文件，无副作用）
+REGION_PY = "/opt/product-db/backend/venv/bin/python"
+REGION_XDB = "/opt/product-db/backend/data/ip2region_v4.xdb"
+REGION_SNIPPET = r'''
+import sys
+import ip2region.searcher as s, ip2region.util as u
+path = sys.argv[1]
+u.verify_from_file(path)
+sr = s.new_with_vector_index(u.IPv4, path, u.load_vector_index_from_file(path))
+for ip in sys.argv[2:]:
+    try:
+        f = (sr.search(ip) or "").split("|")
+    except Exception:
+        f = []
+    country = f[0] if len(f) > 0 else ""
+    prov = f[1] if len(f) > 1 else ""
+    city = f[2] if len(f) > 2 else ""
+    label = ""
+    if country and country not in ("0", "Reserved"):
+        # 与 auth_routes._format_offline_region 同口径：城市优先，其次省份，最后国家
+        for val in (city, prov):
+            if val and val != "0":
+                label = val + ", " + country
+                break
+        else:
+            label = country
+    print(ip + "\t" + label)
+'''
+
+
+def resolve_regions(ips):
+    """批量把 IP 解析成「城市, 国家」标签；解析不到的留空由调用方兜底"""
+    ips = [ip for ip in ips if ip]
+    if not ips or not (os.path.exists(REGION_PY) and os.path.exists(REGION_XDB)):
+        return {}
+    out = run([REGION_PY, "-c", REGION_SNIPPET, REGION_XDB] + ips, timeout=60) or ""
+    regions = {}
+    for line in out.splitlines():
+        ip, _, label = line.partition("\t")
+        if ip and label.strip():
+            regions[ip.strip()] = label.strip()
+    return regions
+
 
 def utc_bounds(day):
     """本地日 → 数据库里的 UTC 时间边界 [start, end)
@@ -187,24 +231,25 @@ def merge_minutes(intervals):
     return total
 
 
-def account_lines(acct_view, limit=MAX_ACCOUNT_LINES):
-    """每个账号一行：登录次数（峰值高时标注疑似自动化）+ 活跃时长 + IP"""
+def account_lines(acct_view, region_map, limit=MAX_ACCOUNT_LINES):
+    """每个账号一行：登录次数（峰值高时标注疑似自动化）+ 活跃时长/跨度 + 登录区域"""
     lines = []
     for a in acct_view[:limit]:
+        regions = []
+        for ip, _n, _rng, _busy in a["ips"]:
+            label = region_map.get(ip, "未知区域")
+            if label not in regions:
+                regions.append(label)
         if a["cnt"]:
             seg = f"👥 {a['name']}: 登录 {a['cnt']} 次"
             if a["peak"] >= BURST_PER_MIN:
                 seg += f"（峰值 {a['peak']} 次/分，疑似自动化测试）"
-            seg += f" · 活跃跨度 {a['minutes']} 分钟 · 有请求 {a['busy']} 分钟"
-            if len(a["ips"]) > 1:
-                seg += f" · {len(a['ips'])} 个 IP"
-            elif a["ips"]:
-                seg += f" · IP {a['ips'][0][0]}"
         else:
-            # 有访问但没有登录记录（爬虫/云监控/匿名）
-            seg = (f"👥 未识别（无登录记录的访问）: {a['reqs']} 请求"
-                   f" · 活跃跨度 {a['minutes']} 分钟 · 有请求 {a['busy']} 分钟"
-                   f" · {len(a['ips'])} 个 IP")
+            seg = f"👥 未识别（无登录记录的访问）: {a['reqs']} 请求"
+        seg += f" · 活跃时长 {a['busy']} 分钟 · 跨度 {a['minutes']} 分钟"
+        if regions:
+            shown = " / ".join(regions[:3]) + (f" 等 {len(regions)} 个" if len(regions) > 3 else "")
+            seg += f" · 区域 {shown}"
         lines.append(seg)
     if len(acct_view) > limit:
         lines.append(f"👥 …等共 {len(acct_view)} 个账号（其余省略）")
@@ -435,6 +480,21 @@ def main():
     # 有登录记录的在前，按登录次数；匿名 IP 归入「未识别」排最后
     acct_view = sorted(acct.values(), key=lambda a: (-a["cnt"], -a["minutes"]))
 
+    # 登录区域：优先用 ip2region 离线库现查（口径与登录接口一致，且能补上
+    # 历史空值），查不到的（如 IPv6、库外的地址段）退回登录记录里存过的区域
+    region_map = resolve_regions([ip for a in acct_view for ip, _n, _r, _b in a["ips"]])
+    stored = {}
+    c.execute("""
+        SELECT ip_address AS ip, region, COUNT(*) AS n FROM login_logs
+        WHERE region IS NOT NULL AND region <> ''
+        GROUP BY ip_address, region
+    """)
+    for row in c.fetchall():
+        if row["ip"] not in stored or row["n"] > stored[row["ip"]][1]:
+            stored[row["ip"]] = (row["region"], row["n"])
+    for ip, (label, _n) in stored.items():
+        region_map.setdefault(ip, label)
+
     # ── 3. AI 使用 ──
     c.execute("""
         SELECT u.username, COUNT(*) AS calls,
@@ -496,7 +556,7 @@ def main():
         # 说「一切正常」会和数字自相矛盾
         print(f"✅ product-db 日报 {day}｜无告警项")
         if acct_view:
-            for seg in account_lines(acct_view):
+            for seg in account_lines(acct_view, region_map):
                 print("   " + seg)
         else:
             print("   👥 今日无登录、无访问")
@@ -529,17 +589,17 @@ def main():
             else:
                 head += f" — 无登录记录，{a['reqs']} 次访问"
             lines.append(head)
-            lines.append(f"      活跃跨度 {a['minutes']} 分钟"
-                         f"（其中有请求 {a['busy']} 分钟）/ {len(a['ips'])} 个 IP")
+            lines.append(f"      活跃时长 {a['busy']} 分钟 / 跨度 {a['minutes']} 分钟"
+                         f" / {len(a['ips'])} 个 IP")
             for ip, n, (s, e), busy in a["ips"]:
-                lines.append(f"      · {ip}: {n:,} 请求, 跨度 {e - s} 分钟"
-                             f"（有请求 {busy} 分钟）")
+                lines.append(f"      · {region_map.get(ip, '未知区域')}（{ip}）: {n:,} 请求,"
+                             f" 活跃时长 {busy} 分钟 / 跨度 {e - s} 分钟")
     else:
         lines.append("  （无用户登录、无访问）")
     if failed:
         lines.append(f"  ⚠️ 登录失败尝试: {failed} 次")
-    lines.append("  (注: 活跃跨度 = 首末请求间隔(含空闲); 有请求 = 至少发过一次请求的分钟数;"
-                 " 已排除探针流量; 跨天会话会被截断)")
+    lines.append("  (注: 活跃时长 = 至少发过一次请求的分钟数(下界); 跨度 = 首末请求间隔(含空闲);"
+                 " 区域来自 ip2region 离线库; 已排除探针流量; 跨天会话会被截断)")
 
     lines.append("\n🤖 AI 助手使用")
     if ai:
