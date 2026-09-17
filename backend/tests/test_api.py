@@ -990,6 +990,56 @@ class TestFieldVisibility:
         snap = res.json()["quotation"]["items"][0]["product_snapshot"]
         assert snap.get("cost_price") == 66.6
 
+    def test_bom_snapshot_and_export_hide_cost_for_user(self, db):
+        """BOM 快照与 xlsx 导出也必须遵守字段可见性。
+
+        回归：`get_bom_snapshot` 原样返回快照、`export_bom_xlsx` 在「有快照」的分支
+        里完全不看 show_cost，而快照的 J 列固定写死每个产品的 cost_price →
+        管理员关掉成本可见性后，普通用户照样能拿到逐条成本。
+        """
+        import io
+        import openpyxl
+
+        self._clear_field_settings(db)
+        self._seed_field_setting(db, "cost_price", False)
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, base_price=100, cost_price=66.6)
+        user = self._make_user(db)
+        admin = db.query(User).filter_by(username="admin").first()
+
+        res = client.post("/product-db/api/solutions", json={"name": "BOM 成本"},
+                          headers=self._auth_for(user))
+        assert res.status_code in (200, 201), res.text
+        sid = res.json()["solution"]["id"]
+        res = client.post(f"/product-db/api/solutions/{sid}/items",
+                          json={"product_id": p.id, "quantity": 2, "unit_price": 50},
+                          headers=self._auth_for(user))
+        assert res.status_code in (200, 201), res.text
+
+        # 快照（首次读会生成并落库）：普通用户看不到 J 列，其它列不受影响
+        res = client.get(f"/product-db/api/solutions/{sid}/bom-snapshot",
+                         headers=self._auth_for(user))
+        assert res.status_code == 200
+        cells = res.json()["bom_snapshot"]["snapshot"]["cells"]
+        assert not [k for k in cells if k.startswith("J")], "快照不得含成本列"
+        assert cells.get("B1", {}).get("v") == "产品名称", "其它列必须保留"
+
+        # 导出走的是「已有快照」分支，正是历史上漏过滤的那条
+        res = client.get(f"/product-db/api/solutions/{sid}/bom-snapshot/export-xlsx",
+                         headers=self._auth_for(user))
+        assert res.status_code == 200
+        ws = openpyxl.load_workbook(io.BytesIO(res.content)).active
+        assert ws["J3"].value in (None, ""), "导出不得含成本值"
+        assert ws["B3"].value == p.name, "导出仍需包含产品行"
+
+        # admin 照旧能拿到成本
+        res = client.get(f"/product-db/api/solutions/{sid}/bom-snapshot",
+                         headers=self._auth_for(admin))
+        assert res.status_code == 200
+        admin_cells = res.json()["bom_snapshot"]["snapshot"]["cells"]
+        assert any(k.startswith("J") for k in admin_cells), "admin 仍应看到成本列"
+        assert admin_cells["J3"]["v"] == 66.6
+
     def test_admin_always_sees_cost_price(self, db):
         """Admin sees cost_price regardless of field visibility setting."""
         self._clear_field_settings(db)
@@ -1143,3 +1193,70 @@ class TestOwnershipGaps:
             headers=self._auth_for(user2),
         )
         assert res.status_code == 404, res.text
+
+
+class TestMasterDataAdminOnly:
+    """回归：主数据（品类/厂商/供应商/字典/BOM 模板）的写操作原用
+    check_ownership(strict=False)，而它对 created_by IS NULL 的历史行直接放行；
+    生产上这些表几乎全是 NULL（manufacturers 48/48、suppliers 55/55、
+    dict_sensor_metrics 36/36…）→ 任何登录用户都能改删全站共用数据。
+    现改为仅 admin 可写；业务数据（产品/方案/报价单）仍按归属校验。"""
+
+    def _make_user(self, db, username, role="user"):
+        u = User(username=username, password_hash=hash_password("test123"), role=role)
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        return u
+
+    def _auth_for(self, user):
+        return {"Authorization": f"Bearer {create_token(user.id, user.username)}"}
+
+    def test_non_admin_cannot_write_master_data(self, db):
+        cat = _seed_category(db)
+        # 模拟生产现状：历史行 created_by 为 NULL
+        cat.created_by = None
+        db.commit()
+        user = self._make_user(db, "md_user")
+        headers = self._auth_for(user)
+
+        cases = [
+            ("post", "/product-db/api/categories", {"name": "越权品类"}),
+            ("put", f"/product-db/api/categories/{cat.id}", {"name": "改名"}),
+            ("delete", f"/product-db/api/categories/{cat.id}", None),
+            ("post", "/product-db/api/suppliers", {"name": "越权供应商"}),
+            ("post", "/product-db/api/dicts/manufacturers", {"name": "越权厂商"}),
+            ("delete", "/product-db/api/dicts/sensor-metrics/1", None),
+            ("post", "/product-db/api/bom-templates", {"name": "越权模板"}),
+        ]
+        for method, url, body in cases:
+            call = getattr(client, method)
+            res = call(url, json=body, headers=headers) if body is not None else call(url, headers=headers)
+            assert res.status_code == 403, f"{method.upper()} {url} 应 403，实际 {res.status_code}"
+
+    def test_admin_can_still_write_master_data(self, db):
+        admin = db.query(User).filter_by(username="admin").first()
+        headers = self._auth_for(admin)
+        res = client.post("/product-db/api/categories", json={"name": "管理员建的品类"}, headers=headers)
+        assert res.status_code == 201, res.text
+
+    def test_non_admin_business_data_writes_unaffected(self, db):
+        """门禁只针对主数据：普通用户仍可创建/修改自己的产品与方案。"""
+        cat = _seed_category(db)
+        user = self._make_user(db, "biz_user")
+        headers = self._auth_for(user)
+
+        res = client.post("/product-db/api/products",
+                          json={"name": "普通用户产品", "model": "U-1", "category_id": cat.id},
+                          headers=headers)
+        assert res.status_code in (200, 201), res.text
+        pid = res.json()["product"]["id"]
+
+        res = client.put(f"/product-db/api/products/{pid}", json={"name": "改名后"}, headers=headers)
+        assert res.status_code == 200, res.text
+
+        res = client.post("/product-db/api/solutions", json={"name": "普通用户方案"}, headers=headers)
+        assert res.status_code in (200, 201), res.text
+
+        res = client.post("/product-db/api/quotations", json={"title": "普通用户报价"}, headers=headers)
+        assert res.status_code == 201, res.text

@@ -120,6 +120,19 @@ def get_current_user(
     return user
 
 
+def require_admin(user=Depends(get_current_user)):
+    """主数据写操作只允许管理员（品类/厂商/供应商/字典/BOM 模板）。
+
+    背景：这些接口原用 check_ownership(..., strict=False)，而它对 created_by IS NULL
+    的历史行**直接放行**；生产上主数据几乎全是 NULL（manufacturers 48/48、
+    suppliers 55/55、dict_sensor_metrics 36/36…，见 R31），等于任何登录用户都能
+    改删全站共用数据。业务数据（产品/方案/报价单）不受影响，仍按归属校验。
+    """
+    if getattr(user, "role", "") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅管理员可修改主数据")
+    return user
+
+
 _admin_ids_cache: tuple = ()
 
 def _get_admin_ids(session) -> list:

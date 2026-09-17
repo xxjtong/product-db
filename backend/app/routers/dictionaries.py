@@ -5,7 +5,7 @@ from app.database import get_db
 from app.utils.helpers import get_or_404, apply_partial_update
 from app.models.dictionary import (Manufacturer, DictCommMethod, DictCommProtocol,
                                    DictPowerSupply, DictSensorMetric)
-from app.auth import get_current_user, filter_by_ownership, check_ownership
+from app.auth import get_current_user, filter_by_ownership, check_ownership, require_admin
 from app.schemas.dictionary import (ManufacturerCreate, ManufacturerUpdate,
     CommMethodCreate, CommMethodUpdate, CommProtocolCreate, CommProtocolUpdate,
     PowerSupplyCreate, PowerSupplyUpdate, SensorMetricCreate, SensorMetricUpdate)
@@ -30,7 +30,7 @@ def get_manufacturer(mfg_id: int, db: Session = Depends(get_db), user=Depends(ge
 
 
 @router.post("/dicts/manufacturers", status_code=201)
-def create_manufacturer(data: ManufacturerCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def create_manufacturer(data: ManufacturerCreate, db: Session = Depends(get_db), user=Depends(require_admin)):
     m = Manufacturer(name=data.name, website=data.website, description=data.description, created_by=user.id)
     db.add(m)
     db.commit()
@@ -39,7 +39,7 @@ def create_manufacturer(data: ManufacturerCreate, db: Session = Depends(get_db),
 
 
 @router.put("/dicts/manufacturers/{mfg_id}")
-def update_manufacturer(mfg_id: int, data: ManufacturerUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_manufacturer(mfg_id: int, data: ManufacturerUpdate, db: Session = Depends(get_db), user=Depends(require_admin)):
     m = get_or_404(db, Manufacturer, mfg_id)
     check_ownership(m, user)
     apply_partial_update(m, data, ["name", "website", "description", "sort_order"])
@@ -48,7 +48,7 @@ def update_manufacturer(mfg_id: int, data: ManufacturerUpdate, db: Session = Dep
 
 
 @router.delete("/dicts/manufacturers/{mfg_id}")
-def delete_manufacturer(mfg_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def delete_manufacturer(mfg_id: int, db: Session = Depends(get_db), user=Depends(require_admin)):
     m = get_or_404(db, Manufacturer, mfg_id)
     check_ownership(m, user)
     db.delete(m)
@@ -118,17 +118,17 @@ def _dict_update(item, data: dict, db: Session):
 # --- Comm Methods CRUD ---
 
 @router.post("/dicts/comm-methods", status_code=201)
-def create_comm_method(data: CommMethodCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def create_comm_method(data: CommMethodCreate, db: Session = Depends(get_db), user=Depends(require_admin)):
     return {"comm_method": _dict_create(DictCommMethod, data.model_dump(), db, user)}
 
 @router.put("/dicts/comm-methods/{item_id}")
-def update_comm_method(item_id: int, data: CommMethodUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_comm_method(item_id: int, data: CommMethodUpdate, db: Session = Depends(get_db), user=Depends(require_admin)):
     item = get_or_404(db, DictCommMethod, item_id, "Not found")
     check_ownership(item, user)
     return {"comm_method": _dict_update(item, data.model_dump(exclude_unset=True), db)}
 
 @router.delete("/dicts/comm-methods/{item_id}")
-def delete_comm_method(item_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def delete_comm_method(item_id: int, db: Session = Depends(get_db), user=Depends(require_admin)):
     item = get_or_404(db, DictCommMethod, item_id, "Not found")
     check_ownership(item, user)
     db.delete(item); db.commit()
@@ -138,17 +138,17 @@ def delete_comm_method(item_id: int, db: Session = Depends(get_db), user=Depends
 # --- Comm Protocols CRUD ---
 
 @router.post("/dicts/comm-protocols", status_code=201)
-def create_comm_protocol(data: CommProtocolCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def create_comm_protocol(data: CommProtocolCreate, db: Session = Depends(get_db), user=Depends(require_admin)):
     return {"comm_protocol": _dict_create(DictCommProtocol, data.model_dump(), db, user)}
 
 @router.put("/dicts/comm-protocols/{item_id}")
-def update_comm_protocol(item_id: int, data: CommProtocolUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_comm_protocol(item_id: int, data: CommProtocolUpdate, db: Session = Depends(get_db), user=Depends(require_admin)):
     item = get_or_404(db, DictCommProtocol, item_id, "Not found")
     check_ownership(item, user)
     return {"comm_protocol": _dict_update(item, data.model_dump(exclude_unset=True), db)}
 
 @router.delete("/dicts/comm-protocols/{item_id}")
-def delete_comm_protocol(item_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def delete_comm_protocol(item_id: int, db: Session = Depends(get_db), user=Depends(require_admin)):
     item = get_or_404(db, DictCommProtocol, item_id, "Not found")
     check_ownership(item, user)
     db.delete(item); db.commit()
@@ -158,17 +158,17 @@ def delete_comm_protocol(item_id: int, db: Session = Depends(get_db), user=Depen
 # --- Power Supplies CRUD ---
 
 @router.post("/dicts/power-supplies", status_code=201)
-def create_power_supply(data: PowerSupplyCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def create_power_supply(data: PowerSupplyCreate, db: Session = Depends(get_db), user=Depends(require_admin)):
     return {"power_supply": _dict_create(DictPowerSupply, data.model_dump(), db, user)}
 
 @router.put("/dicts/power-supplies/{item_id}")
-def update_power_supply(item_id: int, data: PowerSupplyUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_power_supply(item_id: int, data: PowerSupplyUpdate, db: Session = Depends(get_db), user=Depends(require_admin)):
     item = get_or_404(db, DictPowerSupply, item_id, "Not found")
     check_ownership(item, user)
     return {"power_supply": _dict_update(item, data.model_dump(exclude_unset=True), db)}
 
 @router.delete("/dicts/power-supplies/{item_id}")
-def delete_power_supply(item_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def delete_power_supply(item_id: int, db: Session = Depends(get_db), user=Depends(require_admin)):
     item = get_or_404(db, DictPowerSupply, item_id, "Not found")
     check_ownership(item, user)
     db.delete(item); db.commit()
@@ -178,17 +178,17 @@ def delete_power_supply(item_id: int, db: Session = Depends(get_db), user=Depend
 # --- Sensor Metrics CRUD ---
 
 @router.post("/dicts/sensor-metrics", status_code=201)
-def create_sensor_metric(data: SensorMetricCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def create_sensor_metric(data: SensorMetricCreate, db: Session = Depends(get_db), user=Depends(require_admin)):
     return {"sensor_metric": _dict_create(DictSensorMetric, data.model_dump(), db, user)}
 
 @router.put("/dicts/sensor-metrics/{item_id}")
-def update_sensor_metric(item_id: int, data: SensorMetricUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_sensor_metric(item_id: int, data: SensorMetricUpdate, db: Session = Depends(get_db), user=Depends(require_admin)):
     item = get_or_404(db, DictSensorMetric, item_id, "Not found")
     check_ownership(item, user)
     return {"sensor_metric": _dict_update(item, data.model_dump(exclude_unset=True), db)}
 
 @router.delete("/dicts/sensor-metrics/{item_id}")
-def delete_sensor_metric(item_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def delete_sensor_metric(item_id: int, db: Session = Depends(get_db), user=Depends(require_admin)):
     item = get_or_404(db, DictSensorMetric, item_id, "Not found")
     check_ownership(item, user)
     db.delete(item); db.commit()

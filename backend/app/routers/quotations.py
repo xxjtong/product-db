@@ -131,6 +131,9 @@ def create_quotation(data: QuotationCreate, db: Session = Depends(get_db), user=
     if solution_id:
         sol = db.get(Solution, solution_id)
         if sol:
+            # 归属校验：否则任意登录用户传别人的 solution_id 就能把该方案的
+            # 条目/单价/产品快照整体复制进自己的报价单（ai_tools 里同一动作是 strict）
+            check_ownership(sol, user, strict=True)
             if not qt.title:
                 qt.title = sol.name
             if not qt.client_name:

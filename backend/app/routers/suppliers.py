@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.utils.helpers import get_or_404
 from app.models.supplier import Supplier
-from app.auth import get_current_user, filter_by_ownership, check_ownership
+from app.auth import get_current_user, filter_by_ownership, check_ownership, require_admin
 from app.utils.escape import escape_like, LIKE_ESCAPE
 from app.utils.helpers import apply_partial_update
 from app.schemas.supplier import SupplierCreate, SupplierUpdate
@@ -39,7 +39,7 @@ def get_supplier(supplier_id: int, db: Session = Depends(get_db), user=Depends(g
 
 
 @router.post("/suppliers", status_code=201)
-def create_supplier(data: SupplierCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def create_supplier(data: SupplierCreate, db: Session = Depends(get_db), user=Depends(require_admin)):
     s = Supplier(
         name=data.name,
         contact_person=data.contact_person,
@@ -56,7 +56,7 @@ def create_supplier(data: SupplierCreate, db: Session = Depends(get_db), user=De
 
 
 @router.put("/suppliers/{supplier_id}")
-def update_supplier(supplier_id: int, data: SupplierUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_supplier(supplier_id: int, data: SupplierUpdate, db: Session = Depends(get_db), user=Depends(require_admin)):
     s = get_or_404(db, Supplier, supplier_id, "Supplier not found")
     check_ownership(s, user)
     apply_partial_update(s, data, ["name", "contact_person", "phone", "email", "website", "notes"])
@@ -65,7 +65,7 @@ def update_supplier(supplier_id: int, data: SupplierUpdate, db: Session = Depend
 
 
 @router.delete("/suppliers/{supplier_id}")
-def delete_supplier(supplier_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def delete_supplier(supplier_id: int, db: Session = Depends(get_db), user=Depends(require_admin)):
     s = get_or_404(db, Supplier, supplier_id, "Supplier not found")
     check_ownership(s, user)
     db.delete(s)

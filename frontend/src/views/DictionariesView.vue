@@ -18,48 +18,48 @@
   </div>
 
   <div class="card" v-show="activeTab === 'comm_methods'">
-    <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">通讯方式</h3><button class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
+    <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">通讯方式</h3><button v-if="isAdmin" class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
     <table class="data-table">
       <thead><tr><th>ID</th><th>类型</th><th>名称</th><th>说明</th><th style="white-space:nowrap">操作</th></tr></thead>
       <tbody><tr v-for="m in commMethods" :key="m.id"><td>{{ m.id }}</td><td>{{ m.method_type === 'wired' ? '有线' : '无线' }}</td><td>{{ m.name }}</td><td class="text-sm text-muted">{{ m.description || '—' }}</td><td style="white-space:nowrap">
-        <button class="btn-icon btn-sm" @click="openDictEdit(m)"><PencilIcon style="width:14px;height:14px" /></button>
-        <button class="btn-icon btn-sm" @click="doDictDelete(m.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
+        <button v-if="isAdmin" class="btn-icon btn-sm" @click="openDictEdit(m)"><PencilIcon style="width:14px;height:14px" /></button>
+        <button v-if="isAdmin" class="btn-icon btn-sm" @click="doDictDelete(m.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
     </table>
     <Pagination :total="cmTotal" :page="cmPage" :per-page="dictPerPage" @change="p => { cmPage = p; loadCommMethods() }" @update:per-page="s => { dictPerPage = s; cmPage = 1; loadCommMethods() }" />
   </div>
 
   <!-- 通讯协议 -->
   <div class="card" v-show="activeTab === 'comm_protocols'">
-    <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">通讯协议</h3><button class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
+    <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">通讯协议</h3><button v-if="isAdmin" class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
     <table class="data-table">
       <thead><tr><th>ID</th><th>名称</th><th>说明</th><th style="white-space:nowrap">操作</th></tr></thead>
       <tbody><tr v-for="p in commProtocols" :key="p.id"><td>{{ p.id }}</td><td>{{ p.name }}</td><td class="text-sm text-muted">{{ p.description || '—' }}</td><td style="white-space:nowrap">
-        <button class="btn-icon btn-sm" @click="openDictEdit(p)"><PencilIcon style="width:14px;height:14px" /></button>
-        <button class="btn-icon btn-sm" @click="doDictDelete(p.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
+        <button v-if="isAdmin" class="btn-icon btn-sm" @click="openDictEdit(p)"><PencilIcon style="width:14px;height:14px" /></button>
+        <button v-if="isAdmin" class="btn-icon btn-sm" @click="doDictDelete(p.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
     </table>
     <Pagination :total="cpTotal" :page="cpPage" :per-page="dictPerPage" @change="p => { cpPage = p; loadCommProtocols() }" @update:per-page="s => { dictPerPage = s; cpPage = 1; loadCommProtocols() }" />
   </div>
 
   <!-- 供电方式 -->
   <div class="card" v-show="activeTab === 'power_supplies'">
-    <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">供电方式</h3><button class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
+    <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">供电方式</h3><button v-if="isAdmin" class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
     <table class="data-table">
       <thead><tr><th>ID</th><th>类别</th><th>名称</th><th>说明</th><th style="white-space:nowrap">操作</th></tr></thead>
       <tbody><tr v-for="p in powerSupplies" :key="p.id"><td>{{ p.id }}</td><td>{{ p.supply_category }}</td><td>{{ p.name }}</td><td class="text-sm text-muted">{{ p.description || '—' }}</td><td style="white-space:nowrap">
-        <button class="btn-icon btn-sm" @click="openDictEdit(p)"><PencilIcon style="width:14px;height:14px" /></button>
-        <button class="btn-icon btn-sm" @click="doDictDelete(p.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
+        <button v-if="isAdmin" class="btn-icon btn-sm" @click="openDictEdit(p)"><PencilIcon style="width:14px;height:14px" /></button>
+        <button v-if="isAdmin" class="btn-icon btn-sm" @click="doDictDelete(p.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
     </table>
     <Pagination :total="psTotal" :page="psPage" :per-page="dictPerPage" @change="p => { psPage = p; loadPowerSupplies() }" @update:per-page="s => { dictPerPage = s; psPage = 1; loadPowerSupplies() }" />
   </div>
 
   <!-- 传感器指标 -->
   <div class="card" v-show="activeTab === 'sensor_metrics'">
-    <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">传感器指标</h3><button class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
+    <div class="flex justify-between items-center" style="margin-bottom:12px"><h3 style="margin:0">传感器指标</h3><button v-if="isAdmin" class="btn-primary btn-sm" @click="openDictAdd">+ 新增</button></div>
     <table class="data-table">
       <thead><tr><th>ID</th><th>名称</th><th>单位</th><th>精度</th><th>分辨率</th><th>说明</th><th style="white-space:nowrap">操作</th></tr></thead>
       <tbody><tr v-for="m in sensorMetrics" :key="m.id"><td>{{ m.id }}</td><td>{{ m.name }}</td><td>{{ m.unit || '—' }}</td><td>{{ m.accuracy || '—' }}</td><td>{{ m.resolution || '—' }}</td><td class="text-sm text-muted">{{ m.description || '—' }}</td><td style="white-space:nowrap">
-        <button class="btn-icon btn-sm" @click="openDictEdit(m)"><PencilIcon style="width:14px;height:14px" /></button>
-        <button class="btn-icon btn-sm" @click="doDictDelete(m.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
+        <button v-if="isAdmin" class="btn-icon btn-sm" @click="openDictEdit(m)"><PencilIcon style="width:14px;height:14px" /></button>
+        <button v-if="isAdmin" class="btn-icon btn-sm" @click="doDictDelete(m.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td></tr></tbody>
     </table>
     <Pagination :total="smTotal" :page="smPage" :per-page="dictPerPage" @change="p => { smPage = p; loadSensorMetrics() }" @update:per-page="s => { dictPerPage = s; smPage = 1; loadSensorMetrics() }" />
   </div>
@@ -68,7 +68,7 @@
   <div class="card" v-show="activeTab === 'manufacturers'">
     <div class="flex justify-between items-center" style="margin-bottom:12px">
       <h3 style="margin:0">厂商</h3>
-      <button class="btn-primary btn-sm" @click="openAddMfg">+ 新增</button>
+      <button v-if="isAdmin" class="btn-primary btn-sm" @click="openAddMfg">+ 新增</button>
     </div>
     <table class="data-table">
       <thead><tr><th>ID</th><th>名称</th><th>网站</th><th>排序</th><th style="white-space:nowrap">操作</th></tr></thead>
@@ -79,8 +79,8 @@
           <td><a v-if="m.website" :href="m.website" target="_blank" class="text-sm">{{ m.website }}</a><span v-else class="text-muted">—</span></td>
           <td class="font-mono text-sm">{{ m.sort_order ?? 100 }}</td>
           <td style="white-space:nowrap">
-            <button class="btn-icon btn-sm" @click="openEditMfg(m)"><PencilIcon style="width:14px;height:14px" /></button>
-            <button class="btn-icon btn-sm" @click="doDeleteMfg(m)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
+            <button v-if="isAdmin" class="btn-icon btn-sm" @click="openEditMfg(m)"><PencilIcon style="width:14px;height:14px" /></button>
+            <button v-if="isAdmin" class="btn-icon btn-sm" @click="doDeleteMfg(m)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
           </td>
         </tr>
       </tbody>
@@ -103,7 +103,7 @@
   <div class="card" v-show="activeTab === 'suppliers'">
     <div class="flex justify-between items-center" style="margin-bottom:12px">
       <h3 style="margin:0">供应商</h3>
-      <button class="btn-primary btn-sm" @click="openAddSup">+ 新增</button>
+      <button v-if="isAdmin" class="btn-primary btn-sm" @click="openAddSup">+ 新增</button>
     </div>
     <table class="data-table">
       <thead><tr><th>ID</th><th>名称</th><th>联系人</th><th>电话</th><th>邮箱</th><th style="white-space:nowrap">操作</th></tr></thead>
@@ -115,8 +115,8 @@
           <td>{{ s.phone || '—' }}</td>
           <td class="text-sm text-muted">{{ s.email || '—' }}</td>
           <td style="white-space:nowrap">
-            <button class="btn-icon btn-sm" @click="openEditSup(s)"><PencilIcon style="width:14px;height:14px" /></button>
-            <button class="btn-icon btn-sm" @click="showConfirm(() => deleteSup(s.id))"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
+            <button v-if="isAdmin" class="btn-icon btn-sm" @click="openEditSup(s)"><PencilIcon style="width:14px;height:14px" /></button>
+            <button v-if="isAdmin" class="btn-icon btn-sm" @click="showConfirm(() => deleteSup(s.id))"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
           </td>
         </tr>
       </tbody>
@@ -157,7 +157,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, inject } from 'vue'
+import { ref, onMounted, inject, computed } from 'vue'
 import { PencilIcon, Trash2Icon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import Modal from '../components/Modal.vue'
@@ -178,6 +178,11 @@ const tabs = [
   { key: 'suppliers', label: '供应商' },
 ]
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
+
+// 主数据（厂商/供应商/通讯方式/协议/供电/传感器指标/品类）仅管理员可写，
+// 与后端 require_admin 门禁保持一致，普通用户隐藏编辑入口
+const currentUser = inject<any>('currentUser', ref(null))
+const isAdmin = computed(() => currentUser?.value?.role === 'admin')
 const confirmState = ref({ visible: false, action: () => {} })
 function showConfirm(action: () => void) { confirmState.value = { visible: true, action } }
 

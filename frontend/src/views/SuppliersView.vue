@@ -1,7 +1,7 @@
 <template>
   <PageHeader title="供应商管理">
     <SearchInput v-model="search" placeholder="搜索供应商..." autofocus />
-    <button class="btn-primary" @click="openAdd">
+    <button v-if="isAdmin" class="btn-primary" @click="openAdd">
       <PlusIcon style="width:16px;height:16px" />新增供应商
     </button>
   </PageHeader>
@@ -17,8 +17,8 @@
           <td>{{ s.phone || '—' }}</td>
           <td>{{ s.email || '—' }}</td>
           <td>
-            <button class="btn-icon btn-sm" @click="openEdit(s)"><PencilIcon style="width:14px;height:14px" /></button>
-            <button class="btn-icon btn-sm" @click="confirmDelete(s)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
+            <button v-if="isAdmin" class="btn-icon btn-sm" @click="openEdit(s)"><PencilIcon style="width:14px;height:14px" /></button>
+            <button v-if="isAdmin" class="btn-icon btn-sm" @click="confirmDelete(s)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
           </td>
         </tr>
       </tbody>
@@ -46,7 +46,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, inject } from 'vue'
+import { ref, watch, onMounted, inject, computed } from 'vue'
 import { PlusIcon, PencilIcon, Trash2Icon, InboxIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import SearchInput from '../components/SearchInput.vue'
@@ -57,6 +57,10 @@ import { fetchSuppliersPaginated, createSupplier, updateSupplier, deleteSupplier
 import type { Supplier } from '../types'
 
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
+
+// 供应商属主数据，仅管理员可写（后端 require_admin 门禁），非管理员隐藏入口
+const currentUser = inject<any>('currentUser', ref(null))
+const isAdmin = computed(() => currentUser?.value?.role === 'admin')
 
 const suppliers = ref<Supplier[]>([])
 const total = ref(0)

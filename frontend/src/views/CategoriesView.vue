@@ -1,6 +1,6 @@
 <template>
   <PageHeader v-if="!embedded" title="品类管理">
-    <button class="btn-primary" @click="openAddCategory">
+    <button v-if="isAdmin" class="btn-primary" @click="openAddCategory">
       <PlusIcon style="width:16px;height:16px" />新增
     </button>
   </PageHeader>
@@ -8,7 +8,7 @@
   <div class="card">
     <div v-if="embedded" class="flex justify-between items-center" style="margin-bottom:12px">
       <h3 style="margin:0">品类</h3>
-      <button class="btn-primary btn-sm" @click="openAddCategory">+ 新增</button>
+      <button v-if="isAdmin" class="btn-primary btn-sm" @click="openAddCategory">+ 新增</button>
     </div>
     <table class="data-table" v-if="categories.length">
       <thead>
@@ -26,9 +26,9 @@
           <td>{{ c.sort_order }}</td>
           <td>{{ c.is_active ? '启用' : '停用' }}</td>
           <td>
-            <button class="btn-icon btn-sm" title="规格定义" @click="openSpecDefs(c)"><SettingsIcon style="width:15px;height:15px" /></button>
-            <button class="btn-icon btn-sm" title="编辑" @click="openEditCategory(c)"><PencilIcon style="width:15px;height:15px" /></button>
-            <button class="btn-icon btn-sm" title="删除" @click="confirmDelete(c)"><Trash2Icon style="width:15px;height:15px;color:var(--color-danger)" /></button>
+            <button v-if="isAdmin" class="btn-icon btn-sm" title="规格定义" @click="openSpecDefs(c)"><SettingsIcon style="width:15px;height:15px" /></button>
+            <button v-if="isAdmin" class="btn-icon btn-sm" title="编辑" @click="openEditCategory(c)"><PencilIcon style="width:15px;height:15px" /></button>
+            <button v-if="isAdmin" class="btn-icon btn-sm" title="删除" @click="confirmDelete(c)"><Trash2Icon style="width:15px;height:15px;color:var(--color-danger)" /></button>
           </td>
         </tr>
       </tbody>
@@ -73,14 +73,14 @@
             <td>{{ sd.display_group || '—' }}</td>
             <td>{{ sd.is_filterable ? '✓' : '—' }}</td>
             <td>
-              <button class="btn-icon btn-sm" @click="openEditSpecDef(sd)"><PencilIcon style="width:14px;height:14px" /></button>
-              <button class="btn-icon btn-sm" @click="deleteSpecDef(sd.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
+              <button v-if="isAdmin" class="btn-icon btn-sm" @click="openEditSpecDef(sd)"><PencilIcon style="width:14px;height:14px" /></button>
+              <button v-if="isAdmin" class="btn-icon btn-sm" @click="deleteSpecDef(sd.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button>
             </td>
           </tr>
         </tbody>
       </table>
       <div v-else class="empty-state" style="padding:24px"><p>暂无规格定义</p></div>
-      <button class="btn-secondary btn-sm" @click="openAddSpecDef" style="margin-top:8px">+ 新增规格</button>
+      <button v-if="isAdmin" class="btn-secondary btn-sm" @click="openAddSpecDef" style="margin-top:8px">+ 新增规格</button>
 
       <!-- Spec def form -->
       <div v-if="specDefFormVisible" style="margin-top:12px;padding:12px;border:1px solid var(--color-border);border-radius:8px">
@@ -111,7 +111,7 @@
 
 <script setup lang="ts">
 defineProps<{ embedded?: boolean }>()
-import { ref, reactive, onMounted, inject } from 'vue'
+import { ref, reactive, onMounted, inject, computed } from 'vue'
 import { PlusIcon, PencilIcon, Trash2Icon, SettingsIcon, InboxIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import Pagination from '../components/Pagination.vue'
@@ -121,6 +121,10 @@ import { fetchCategories, createCategory, updateCategory, deleteCategory, fetchS
 import type { Category, SpecDefinition } from '../types'
 
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
+
+// 品类与规格定义属主数据，仅管理员可写（后端 require_admin 门禁），非管理员隐藏入口
+const currentUser = inject<any>('currentUser', ref(null))
+const isAdmin = computed(() => currentUser?.value?.role === 'admin')
 
 const categories = ref<Category[]>([])
 const allCats = ref<Category[]>([])

@@ -49,6 +49,10 @@ vi.mock('../api', () => ({
   deleteQuotation: vi.fn().mockResolvedValue({}),
   batchDeleteQuotations: vi.fn().mockResolvedValue({}),
   updateQuotation: vi.fn().mockResolvedValue({}),
+  fetchSuppliersPaginated: vi.fn().mockResolvedValue({ suppliers: [], total: 0 }),
+  createSupplier: vi.fn().mockResolvedValue({}),
+  updateSupplier: vi.fn().mockResolvedValue({}),
+  deleteSupplier: vi.fn().mockResolvedValue({}),
 }))
 
 // Mock fetch for AdminView and LoginView
@@ -274,5 +278,37 @@ describe('NotFoundView', () => {
     expect(link.text()).toContain('返回产品列表')
     // router-link stub renders as <a> but doesn't map 'to' prop to 'href'
     expect(wrapper.html()).toContain('products')
+  })
+})
+
+// 主数据（品类/厂商/供应商/字典）写操作后端已收紧为仅 admin（require_admin），
+// 前端必须同步隐藏入口，否则普通用户点了才吃 403
+describe('主数据编辑入口的角色门禁', () => {
+  const mountWithRole = async (component: string, role: string, props = {}) => {
+    const mod = await import(`../views/${component}.vue`)
+    return shallowMount(mod.default, {
+      props,
+      global: { provide: { currentUser: ref({ id: 1, role }), toast: () => {} } },
+    })
+  }
+
+  it('普通用户看不到供应商的新增入口', async () => {
+    const wrapper = await mountWithRole('SuppliersView', 'user')
+    expect(wrapper.text()).not.toContain('新增供应商')
+  })
+
+  it('管理员能看到供应商的新增入口', async () => {
+    const wrapper = await mountWithRole('SuppliersView', 'admin')
+    expect(wrapper.text()).toContain('新增供应商')
+  })
+
+  it('普通用户看不到品类的新增入口', async () => {
+    const wrapper = await mountWithRole('CategoriesView', 'user', { embedded: true })
+    expect(wrapper.text()).not.toContain('+ 新增')
+  })
+
+  it('管理员能看到品类的新增入口', async () => {
+    const wrapper = await mountWithRole('CategoriesView', 'admin', { embedded: true })
+    expect(wrapper.text()).toContain('+ 新增')
   })
 })

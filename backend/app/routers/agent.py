@@ -21,7 +21,7 @@ from app.models.ai_usage_log import AIUsageLog
 from app.schemas.ai import AgentChatRequest, AgentApprovalRequest
 from app.utils.escape import escape_like, LIKE_ESCAPE
 from app.database import get_db
-from app.services.storage import save_file, UPLOAD_DIR, read_limited
+from app.services.storage import save_file, UPLOAD_DIR, read_limited, detect_upload_extension
 from app.services.approval_manager import approval_manager
 
 logger = logging.getLogger(__name__)
@@ -156,12 +156,16 @@ async def agent_upload(
     except ValueError:
         raise HTTPException(400, f"File too large (max {MAX_UPLOAD_SIZE // 1024 // 1024}MB)")
 
+    # 扩展名由服务端按文件内容决定，绝不用客户端给的 Content-Type / 文件名扩展名：
+    # 否则可以传一个叫 x.html 的文件（Content-Type 谎报为 image/png）落盘，
+    # 再借 uploads 的静态托管诱导管理员打开 → 同源 XSS 读到 localStorage 里的 JWT。
+    ext = detect_upload_extension(contents, file.filename or "")
+    if not ext:
+        raise HTTPException(400, "无法识别的文件类型：内容与允许的类型不匹配")
+
     # Save to uploads dir with UUID filename
     import uuid
-    ext = (file.filename or "file").rsplit(".", 1)[-1] if "." in (file.filename or "") else ""
-    stored_name = f"{uuid.uuid4().hex}"
-    if ext:
-        stored_name += f".{ext}"
+    stored_name = f"{uuid.uuid4().hex}{ext}"
     stored_path = UPLOAD_DIR / stored_name
     stored_path.write_bytes(contents)
 
@@ -175,12 +179,14 @@ async def agent_upload(
 
     file_url = f"{base_host}/product-db/api/uploads/{stored_name}"
 
+    # 返回服务端判定出的类型，而不是客户端声明值
+    canonical_type = mimetypes.guess_type(stored_name)[0] or mime_type
     logger.info("agent_upload: %s → %s (%d bytes)", file.filename, stored_name, len(contents))
     return {
         "url": file_url,
         "filename": file.filename,
         "size": len(contents),
-        "type": mime_type,
+        "type": canonical_type,
     }
 
 

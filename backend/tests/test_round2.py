@@ -613,6 +613,54 @@ class TestQuotationExportEdgeCases:
 
 
 # ============================================================
+# 报价单引用的方案必须做归属校验
+# ============================================================
+class TestQuotationSolutionOwnership:
+    """回归：POST /quotations 传别人的 solution_id 曾能整体复制他人方案的条目、
+    单价与产品快照（`db.get(Solution, ...)` 之后没有任何归属校验），而同仓
+    ai_tools 里同一动作是 check_ownership(strict=True) —— 属遗漏而非设计。"""
+
+    @staticmethod
+    def _token(user: User) -> dict:
+        return {"Authorization": f"Bearer {create_token(user.id, user.username)}"}
+
+    def _make_user(self, db, username: str) -> User:
+        u = User(username=username, password_hash=hash_password("password123"), role="user")
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        return u
+
+    def test_cannot_create_quotation_from_others_solution(self, db):
+        victim = self._make_user(db, "victim1")
+        attacker = self._make_user(db, "attacker1")
+        cat = _seed_category(db, name="归属品类", slug="owner-cat")
+        prod = _seed_product(db, name="归属产品", model="OWN-1", category_id=cat.id)
+        sol = Solution(name="他人方案", client_name="他人客户", created_by=victim.id)
+        db.add(sol)
+        db.commit()
+        db.refresh(sol)
+        db.add(SolutionItem(solution_id=sol.id, product_id=prod.id, quantity=3, unit_price=88.0))
+        db.commit()
+
+        resp = client.post("/product-db/api/quotations",
+                           json={"solution_id": sol.id}, headers=self._token(attacker))
+        assert resp.status_code == 403, "非本人方案必须拒绝"
+
+    def test_owner_can_still_create_quotation_from_own_solution(self, db):
+        owner = self._make_user(db, "owner1")
+        sol = Solution(name="我的方案", client_name="我的客户", created_by=owner.id)
+        db.add(sol)
+        db.commit()
+        db.refresh(sol)
+
+        resp = client.post("/product-db/api/quotations",
+                           json={"solution_id": sol.id}, headers=self._token(owner))
+        assert resp.status_code == 201, "本人方案不应被误拦"
+        assert resp.json()["quotation"]["solution_id"] == sol.id
+
+
+# ============================================================
 # Solution edge cases (89% → ~95%)
 # ============================================================
 class TestSolutionEdgeCases:

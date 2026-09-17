@@ -11,7 +11,7 @@ from app.utils.helpers import get_or_404, apply_partial_update, format_descripti
 from app.models.bom_template import BOMTemplate, SolutionBOMSnapshot
 from app.models.solution import Solution, SolutionItem
 from app.models.product import Product
-from app.auth import get_current_user, check_ownership
+from app.auth import get_current_user, check_ownership, require_admin
 from app.models.user import User
 from app.schemas.bom_template import BOMTemplateCreate, BOMTemplateUpdate, SaveAsTemplateRequest
 from app.schemas.solution import BOMSnapshotSave
@@ -19,6 +19,34 @@ from datetime import datetime, timezone
 from io import BytesIO
 
 router = APIRouter()
+
+# BOM 表的成本列（_generate_snapshot 固定把成本写在 J 列，表头 J1="成本"）
+_COST_COLUMN = "J"
+
+
+def _cost_visible(user, db: Session) -> bool:
+    """当前用户能否看到成本价：admin 恒可，其他人看字段可见性设置。"""
+    if getattr(user, "role", "") == "admin":
+        return True
+    from app.services.field_visibility import get_field_visibility
+    return get_field_visibility(db).get("cost_price", True)
+
+
+def _strip_cost_column(snapshot: dict) -> dict:
+    """返回去掉成本列（J）的快照副本。
+
+    快照/导出这两条路径原先直接透传含成本的单元格，绕过了字段可见性
+    （配额/报价单列表都已正确过滤，只有这里漏了）。
+    """
+    if not snapshot:
+        return snapshot
+    clean = dict(snapshot)
+    cells = dict(clean.get("cells") or {})
+    for ref in list(cells):
+        if "".join(c for c in ref if c.isalpha()).upper() == _COST_COLUMN:
+            cells.pop(ref)
+    clean["cells"] = cells
+    return clean
 
 
 # --- BOM Templates ---
@@ -30,7 +58,7 @@ def list_templates(db: Session = Depends(get_db), user=Depends(get_current_user)
 
 
 @router.post("/bom-templates", status_code=201)
-def create_template(data: BOMTemplateCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def create_template(data: BOMTemplateCreate, db: Session = Depends(get_db), user=Depends(require_admin)):
     t = BOMTemplate(
         name=data.name,
         description=data.description,
@@ -52,7 +80,7 @@ def get_template(template_id: int, db: Session = Depends(get_db), user=Depends(g
 
 
 @router.put("/bom-templates/{template_id}")
-def update_template(template_id: int, data: BOMTemplateUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_template(template_id: int, data: BOMTemplateUpdate, db: Session = Depends(get_db), user=Depends(require_admin)):
     t = get_or_404(db, BOMTemplate, template_id, "Template not found")
     check_ownership(t, user)
     apply_partial_update(t, data, ["name", "description", "sheet_name", "snapshot", "is_default"])
@@ -62,7 +90,7 @@ def update_template(template_id: int, data: BOMTemplateUpdate, db: Session = Dep
 
 
 @router.delete("/bom-templates/{template_id}")
-def delete_template(template_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def delete_template(template_id: int, db: Session = Depends(get_db), user=Depends(require_admin)):
     t = get_or_404(db, BOMTemplate, template_id, "Template not found")
     check_ownership(t, user, strict=True)
     db.delete(t)
@@ -71,7 +99,7 @@ def delete_template(template_id: int, db: Session = Depends(get_db), user=Depend
 
 
 @router.post("/bom-templates/{template_id}/duplicate", status_code=201)
-def duplicate_template(template_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def duplicate_template(template_id: int, db: Session = Depends(get_db), user=Depends(require_admin)):
     t = get_or_404(db, BOMTemplate, template_id, "Template not found")
     new_t = BOMTemplate(
         name=f"{t.name} (副本)",
@@ -94,9 +122,14 @@ def get_bom_snapshot(solution_id: int, db: Session = Depends(get_db), user=Depen
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
     check_ownership(sol, user, strict=False)
 
+    allow_cost = _cost_visible(user, db)
+
     existing = db.query(SolutionBOMSnapshot).filter_by(solution_id=solution_id).first()
     if existing:
-        return {"bom_snapshot": existing.to_dict()}
+        data = existing.to_dict()
+        if not allow_cost:
+            data["snapshot"] = _strip_cost_column(data.get("snapshot") or {})
+        return {"bom_snapshot": data}
 
     # Generate from template + solution items
     template_id = None
@@ -114,7 +147,10 @@ def get_bom_snapshot(solution_id: int, db: Session = Depends(get_db), user=Depen
     db.add(new_snapshot)
     db.commit()
     db.refresh(new_snapshot)
-    return {"bom_snapshot": new_snapshot.to_dict()}
+    data = new_snapshot.to_dict()
+    if not allow_cost:
+        data["snapshot"] = _strip_cost_column(data.get("snapshot") or {})
+    return {"bom_snapshot": data}
 
 
 @router.put("/solutions/{solution_id}/bom-snapshot")
@@ -209,7 +245,7 @@ def _sync_snapshot_to_items(solution_id: int, snapshot: dict, db: Session):
 
 
 @router.post("/solutions/{solution_id}/bom-snapshot/save-as-template", status_code=201)
-def save_as_template(solution_id: int, data: SaveAsTemplateRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def save_as_template(solution_id: int, data: SaveAsTemplateRequest, db: Session = Depends(get_db), user=Depends(require_admin)):
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
     check_ownership(sol, user, strict=False)
     snap = db.query(SolutionBOMSnapshot).filter_by(solution_id=solution_id).first()
@@ -238,11 +274,7 @@ def export_bom_xlsx(solution_id: int, db: Session = Depends(get_db), user=Depend
 
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
     check_ownership(sol, user, strict=False)
-    is_admin = getattr(user, 'role', '') == 'admin'
-    show_cost = is_admin
-    if not is_admin:
-        from app.services.field_visibility import get_field_visibility
-        show_cost = get_field_visibility(db).get('cost_price', True)
+    show_cost = _cost_visible(user, db)
 
     snap = db.query(SolutionBOMSnapshot).filter_by(solution_id=solution_id).first()
 
@@ -251,7 +283,9 @@ def export_bom_xlsx(solution_id: int, db: Session = Depends(get_db), user=Depend
     ws.title = "BOM"
 
     if snap and snap.snapshot and snap.snapshot.get("cells"):
-        _write_snapshot_to_xlsx(ws, snap.snapshot)
+        # 快照分支同样必须按 show_cost 过滤：历史上这里把 J 列成本原样写进 xlsx，
+        # 让字段可见性开关对导出完全失效
+        _write_snapshot_to_xlsx(ws, snap.snapshot, show_cost)
     else:
         _write_basic_bom(ws, sol, solution_id, db, user.username, show_cost)
 
@@ -322,12 +356,17 @@ def _inline_style_to_openpyxl(s: dict) -> dict:
     return result
 
 
-def _write_snapshot_to_xlsx(ws, snapshot: dict):
-    """Write snapshot data (cells, styles, merges, colWidths, rowHeights) to openpyxl worksheet."""
+def _write_snapshot_to_xlsx(ws, snapshot: dict, show_cost: bool = True):
+    """Write snapshot data (cells, styles, merges, colWidths, rowHeights) to openpyxl worksheet.
+
+    show_cost=False 时跳过成本列（J），与基本 BOM 分支、以及字段可见性开关保持一致。
+    """
     cells = snapshot.get("cells", {})
 
     # Write cell values, formulas, and styles
     for ref, cell in cells.items():
+        if not show_cost and "".join(c for c in ref if c.isalpha()).upper() == _COST_COLUMN:
+            continue
         row, col = _cell_ref_to_rc(ref)
         openpyxl_cell = ws.cell(row=row, column=col)
 

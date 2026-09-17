@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.utils.helpers import get_or_404
 from app.models.category import Category, CategorySpecDefinition
-from app.auth import get_current_user, filter_by_ownership, check_ownership
+from app.auth import get_current_user, filter_by_ownership, check_ownership, require_admin
 from app.services.product_category_helper import delete_category_cascade
 from app.schemas.category import CategoryCreate, CategoryUpdate, SpecDefinitionCreate, SpecDefinitionUpdate
 
@@ -58,7 +58,7 @@ def category_tree(db: Session = Depends(get_db), user=Depends(get_current_user))
 
 
 @router.post("/categories", status_code=201)
-def create_category(data: CategoryCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def create_category(data: CategoryCreate, db: Session = Depends(get_db), user=Depends(require_admin)):
     slug = data.slug or data.name.lower().replace(" ", "-")
     # Ensure uniqueness
     base_slug = slug
@@ -81,7 +81,7 @@ def create_category(data: CategoryCreate, db: Session = Depends(get_db), user=De
 
 
 @router.put("/categories/{cat_id}")
-def update_category(cat_id: int, data: CategoryUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_category(cat_id: int, data: CategoryUpdate, db: Session = Depends(get_db), user=Depends(require_admin)):
     cat = get_or_404(db, Category, cat_id, "Category not found")
     check_ownership(cat, user)
     # Convert empty slug to None to avoid UNIQUE constraint violations
@@ -96,7 +96,7 @@ def update_category(cat_id: int, data: CategoryUpdate, db: Session = Depends(get
 
 
 @router.delete("/categories/{cat_id}")
-def delete_category(cat_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def delete_category(cat_id: int, db: Session = Depends(get_db), user=Depends(require_admin)):
     cat = get_or_404(db, Category, cat_id, "Category not found")
     check_ownership(cat, user)
 
@@ -132,7 +132,7 @@ def list_spec_defs(cat_id: int, db: Session = Depends(get_db), user=Depends(get_
 
 
 @router.post("/categories/{cat_id}/spec-definitions", status_code=201)
-def create_spec_def(cat_id: int, data: SpecDefinitionCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def create_spec_def(cat_id: int, data: SpecDefinitionCreate, db: Session = Depends(get_db), user=Depends(require_admin)):
     cat = get_or_404(db, Category, cat_id, "Category not found")
     sd = CategorySpecDefinition(
         category_id=cat_id,
@@ -154,7 +154,7 @@ def create_spec_def(cat_id: int, data: SpecDefinitionCreate, db: Session = Depen
 
 
 @router.put("/categories/{cat_id}/spec-definitions/{spec_id}")
-def update_spec_def(cat_id: int, spec_id: int, data: SpecDefinitionUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def update_spec_def(cat_id: int, spec_id: int, data: SpecDefinitionUpdate, db: Session = Depends(get_db), user=Depends(require_admin)):
     sd = db.get(CategorySpecDefinition, spec_id)
     if not sd or sd.category_id != cat_id:
         raise HTTPException(404, "Spec definition not found")
@@ -169,7 +169,7 @@ def update_spec_def(cat_id: int, spec_id: int, data: SpecDefinitionUpdate, db: S
 
 
 @router.delete("/categories/{cat_id}/spec-definitions/{spec_id}")
-def delete_spec_def(cat_id: int, spec_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def delete_spec_def(cat_id: int, spec_id: int, db: Session = Depends(get_db), user=Depends(require_admin)):
     sd = db.get(CategorySpecDefinition, spec_id)
     if not sd or sd.category_id != cat_id:
         raise HTTPException(404, "Spec definition not found")

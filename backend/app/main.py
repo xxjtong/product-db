@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi import HTTPException
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -105,9 +105,30 @@ app.include_router(agent.router, prefix="/product-db/api", tags=["agent"])
 # Static file serving for uploaded images
 upload_dir = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(upload_dir, exist_ok=True)
+
+
+class UploadsStaticFiles(StaticFiles):
+    """上传目录的静态服务，只放行允许上传的扩展名并统一加 nosniff。
+
+    纵深防御：上传入口现在按内容决定扩展名（见 storage.detect_upload_extension），
+    这里再白名单挡一次，避免历史遗留或其它写入路径留下的 .html/.svg 被浏览器
+    按可执行类型渲染（与主站同源 → 可读走 localStorage 的 JWT）。
+    """
+
+    async def get_response(self, path, scope):
+        from app.services.storage import SERVABLE_EXTENSIONS
+
+        if os.path.splitext(path)[1].lower() not in SERVABLE_EXTENSIONS:
+            return Response(status_code=404)
+        resp = await super().get_response(path, scope)
+        if resp.status_code == 200:
+            resp.headers["X-Content-Type-Options"] = "nosniff"
+        return resp
+
+
 # Serve uploads at both paths: old /api/uploads (compat) and new /product-db/api/uploads
-app.mount("/api/uploads", StaticFiles(directory=upload_dir), name="uploads-legacy")
-app.mount("/product-db/api/uploads", StaticFiles(directory=upload_dir), name="uploads")
+app.mount("/api/uploads", UploadsStaticFiles(directory=upload_dir), name="uploads-legacy")
+app.mount("/product-db/api/uploads", UploadsStaticFiles(directory=upload_dir), name="uploads")
 
 
 @app.get("/product-db/api/health")
