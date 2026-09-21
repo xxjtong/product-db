@@ -500,15 +500,16 @@ def _write_basic_bom(ws, sol, solution_id: int, db: Session, username: str = "",
             qty,                                                            # E 数量
             price,                                                          # F 单价
             discount,                                                       # G 折扣%（百分数原值）
-            price * qty,                                                    # H 小计（下行改成公式）
+            price * qty * discount / 100,                                    # H 小计（含折扣，下行改成公式）
             item.remark or "",                                              # I 备注
         ]
         if show_cost:
             values.append(float(p.cost_price or 0) if p else 0)             # J 成本
             formats[10] = NUM_FMT_CURRENCY
         apply_data_row(ws, row, values, formats)
-        # H 小计改成公式，改数量或单价时能自动重算
-        ws.cell(row=row, column=8).value = f"=E{row}*F{row}"
+        # H 小计改成公式（数量 × 单价 × 折扣%，与快照分支 `qty*price*discount/100` 同口径），
+        # 改数量/单价/折扣时都能自动重算
+        ws.cell(row=row, column=8).value = f"=E{row}*F{row}*G{row}/100"
 
     # Total row：大写金额合并到 G，SUM 落在"小计"列（H）—— 成本列（J）不参与合计
     total_row = 3 + len(items) + 1

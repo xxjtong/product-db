@@ -2163,7 +2163,7 @@ class TestBOMColumnLayout:
         assert ws.cell(row=4, column=1).value == 1              # A 序号
         assert ws.cell(row=4, column=5).value == 2              # E 数量
         assert ws.cell(row=4, column=6).value == 100            # F 单价
-        assert ws.cell(row=4, column=8).value == "=E4*F4"       # H 小计 = 数量 × 单价
+        assert ws.cell(row=4, column=8).value == "=E4*F4*G4/100"   # H 小计 = 数量 × 单价 × 折扣%
         assert ws.cell(row=4, column=10).value == 66.6          # J 成本
         # 第 11 列不该再有任何内容 —— 旧的 12 列布局会在这里留「图片」列
         assert ws.cell(row=3, column=11).value is None
@@ -2198,3 +2198,78 @@ class TestBOMColumnLayout:
         # 复位缓存，避免影响后续用例（FieldSetting 行会随每个用例的 drop_all 清掉）
         _cache["ts"] = 0
         _cache["data"] = None
+
+    def test_basic_export_subtotal_includes_discount(self, db):
+        """兜底分支的「小计」必须含折扣，与快照分支 `qty*price*discount/100` 同口径（R48）。
+
+        原先是 `=E*F`（不含折扣），而合计行的大写金额来自含折扣的 `sol.total_price`
+        → 同一张表里 `SUM(H)` 与大写金额会自相矛盾。
+        """
+        import openpyxl
+        from io import BytesIO
+
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, base_price=100)
+        sol = Solution(name="带折扣方案", total_price=900)      # 10 × 100 × 90% = 900
+        db.add(sol)
+        db.commit()
+        db.refresh(sol)
+        db.add(SolutionItem(solution_id=sol.id, product_id=p.id, quantity=10,
+                            unit_price=100, discount_rate=90))
+        db.commit()
+
+        res = client.get(f"/product-db/api/solutions/{sol.id}/bom-snapshot/export-xlsx")
+        assert res.status_code == 200
+        ws = openpyxl.load_workbook(BytesIO(res.content)).active
+        assert ws.cell(row=4, column=7).value == 90                    # G 折扣%
+        assert ws.cell(row=4, column=8).value == "=E4*F4*G4/100"       # H 小计含折扣
+        assert "=SUM(H4:H4)" in str(ws.cell(row=5, column=8).value)    # 合计落在小计列（1 条数据 → 第 5 行）
+
+
+class TestR48Hardening:
+    """R48 修的三条高优先项里，与鉴权/提示词有关的两条。"""
+
+    def test_agent_prompt_uses_header_auth_not_query_token(self):
+        """agent 提示词必须用请求头传 token（R48）。
+
+        后端只允许 **GET** 用 query-string token（`auth.py` 的 method 检查），
+        而写操作（POST/PUT/DELETE）带 `?token=` 一律 401 —— 原提示词恰好要求 agent 这么做，
+        等于让 AI 的建/改/删方案与建报价单必然失败。
+        """
+        import re
+        from app.routers.admin_routes import _PROMPT_DEFAULTS
+
+        prompt = _PROMPT_DEFAULTS["agent_prompt"]
+        assert "Authorization: Bearer {{TOKEN}}" in prompt
+        assert not re.search(r"[/?&]token=\{\{TOKEN\}\}", prompt), "URL 里不该再带 token 占位符"
+
+    def test_admin_cannot_change_or_reset_own_password(self, db, auth_headers):
+        """管理员不能通过管理接口改/重置**自己**的密码（R48）。
+
+        那会把自己刚签发的 token 作废（token_version +1），而管理页用的 adminApi 是原生
+        fetch、不接 api() 的 401 跳转 → 自己把自己锁在报错页。改自己密码要走「个人信息」。
+        """
+        admin = db.query(User).filter_by(username="admin").first()
+
+        res = client.put(f"/product-db/api/admin/users/{admin.id}/password",
+                         json={"password": "whatever123"}, headers=auth_headers)
+        assert res.status_code == 400
+        assert "个人信息" in res.json()["detail"]
+
+        res = client.put(f"/product-db/api/admin/users/{admin.id}",
+                         json={"password": "whatever123"}, headers=auth_headers)
+        assert res.status_code == 400
+
+    def test_admin_can_still_reset_other_users_password(self, db, auth_headers):
+        """改别人的密码不受影响，且确实作废了对方的 token（避免为修自锁而废掉正常功能）"""
+        victim = User(username="victim", password_hash=hash_password("test123"), role="user")
+        db.add(victim)
+        db.commit()
+        db.refresh(victim)
+        victim_token = create_token(victim.id, victim.username, victim.token_version)
+
+        res = client.put(f"/product-db/api/admin/users/{victim.id}/password",
+                         json={"password": "newpass1234"}, headers=auth_headers)
+        assert res.status_code == 200
+        assert client.get("/product-db/api/auth/me",
+                          headers={"Authorization": f"Bearer {victim_token}"}).status_code == 401
