@@ -96,7 +96,7 @@
             <td><input v-model.number="item.quantity" type="number" min="1" style="width:60px" @change="updateItem(item)" /></td>
             <td class="font-mono text-sm">{{ item.unit_price != null ? '¥' + item.unit_price.toLocaleString() : '—' }}</td>
             <td><input v-model.number="item.discount_rate" type="number" style="width:60px" @change="updateItem(item)" /></td>
-            <td class="font-mono text-sm">¥{{ ((item.quantity || 0) * (item.unit_price || 0) * ((item.discount_rate || 100) / 100)).toFixed(0) }}</td>
+            <td class="font-mono text-sm">¥{{ ((item.quantity || 0) * (item.unit_price || 0) * (discountPct(item.discount_rate) / 100)).toFixed(0) }}</td>
             <td><input v-model="item.remark" style="width:100px" @change="updateItem(item)" /></td>
             <td class="font-mono text-sm" v-if="canViewCost">{{ item.product_cost_price || '—' }}</td>
             <td><button class="btn-icon btn-sm" @click="removeItem(item.id)"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td>
@@ -298,6 +298,14 @@ function onCompare(ids: number[]) {
   if (ids.length >= 2) router.push(`/products/compare?ids=${ids.join(',')}`)
 }
 
+// 折扣率 0 是合法值（免费/赠品），只有空值才算未填 → 默认 100%
+// （与后端 `discount_percent` 同口径；旧代码用 `|| 100` 会把 0 当成未填）
+function discountPct(v: unknown): number {
+  if (v === null || v === undefined || v === '') return 100
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 100
+}
+
 // Item CRUD
 async function updateItem(item: any) {
   try {
@@ -306,7 +314,7 @@ async function updateItem(item: any) {
       discount_rate: item.discount_rate, remark: item.remark,
     })
     // Update amount locally
-    item.amount = (item.quantity || 0) * (item.unit_price || 0) * ((item.discount_rate || 100) / 100)
+    item.amount = (item.quantity || 0) * (item.unit_price || 0) * (discountPct(item.discount_rate) / 100)
     if (solution.value) {
       solution.value.total_price = solution.value.items.reduce((s: number, i: any) => s + (i.amount || 0), 0)
     }

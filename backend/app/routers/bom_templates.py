@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.utils.helpers import get_or_404, apply_partial_update, format_description_with_specs
+from app.utils.helpers import get_or_404, apply_partial_update, format_description_with_specs, discount_percent
 from app.models.bom_template import BOMTemplate, SolutionBOMSnapshot
 from app.models.solution import Solution, SolutionItem
 from app.models.product import Product
@@ -240,7 +240,7 @@ def _sync_snapshot_to_items(solution_id: int, snapshot: dict, db: Session):
         sku = sku.strip()
         qty = float(rd.get("E", {}).get("v", 0) or 0)
         price = float(rd.get("F", {}).get("v", 0) or 0)
-        discount = float(rd.get("G", {}).get("v", 100) or 100)
+        discount = discount_percent(rd.get("G", {}).get("v"))
         remark = str(rd.get("I", {}).get("v", "") or "")
         sku_updates[sku] = {"quantity": qty, "unit_price": price, "discount_rate": discount, "remark": remark}
 
@@ -488,7 +488,7 @@ def _write_basic_bom(ws, sol, solution_id: int, db: Session, username: str = "",
         p = product_map.get(item.product_id)
         qty = float(item.quantity or 0)
         price = float(item.unit_price or 0)
-        discount = float(item.discount_rate or 100)
+        discount = discount_percent(item.discount_rate)
         row = 3 + idx
         formats = {5: NUM_FMT_NUMBER, 6: NUM_FMT_CURRENCY,
                    7: NUM_FMT_NUMBER, 8: NUM_FMT_CURRENCY}
@@ -555,7 +555,7 @@ def _generate_snapshot(sol: Solution, template, db: Session) -> dict:
         p = product_map.get(item.product_id)
         qty = float(item.quantity or 0)
         price = float(item.unit_price or 0)
-        discount = float(item.discount_rate or 100)
+        discount = discount_percent(item.discount_rate)
         cells[f"A{row}"] = {"v": idx + 1}
         cells[f"B{row}"] = {"v": p.name if p else ""}
         cells[f"C{row}"] = {"v": p.sku if p else ""}

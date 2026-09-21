@@ -2273,3 +2273,69 @@ class TestR48Hardening:
         assert res.status_code == 200
         assert client.get("/product-db/api/auth/me",
                           headers={"Authorization": f"Bearer {victim_token}"}).status_code == 401
+
+
+class TestDiscountZero:
+    """折扣率 0 是合法值（免费/赠品），不能被 `or 100` 当成「未设置」按 100% 算（R49）。
+
+    历史缺陷：明细金额、方案/报价单合计、导出表格、AI 建单都写成 `discount_rate or 100`，
+    于是 0 被当成未填 → 按 100% 计价。判定现统一走 `helpers.discount_percent`。
+    """
+
+    def test_discount_percent_helper_basics(self):
+        from app.utils.helpers import discount_percent
+
+        assert discount_percent(0) == 0              # 0 必须保留 —— 核心回归点
+        assert discount_percent("0") == 0            # 导入表格里可能是字符串
+        assert discount_percent(None) == 100         # 未填才取默认
+        assert discount_percent("") == 100
+        assert discount_percent("abc") == 100        # 脏数据不抛异常
+        assert discount_percent(90) == 90
+        assert discount_percent(0, default=1) == 0   # default 只对空值生效
+
+    def test_solution_item_with_zero_discount(self, db, auth_headers):
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, base_price=1000)
+        sol = Solution(name="赠品方案")
+        db.add(sol)
+        db.commit()
+        db.refresh(sol)
+
+        res = client.post(f"/product-db/api/solutions/{sol.id}/items",
+                          json={"product_id": p.id, "quantity": 2, "unit_price": 1000,
+                                "discount_rate": 0}, headers=auth_headers)
+        assert res.status_code == 201
+
+        db.expire_all()
+        item = db.query(SolutionItem).filter_by(solution_id=sol.id).first()
+        assert float(item.discount_rate) == 0, "折扣率 0 不能落库成 100"
+        # SolutionItem 没有 amount 列，金额只体现在方案合计上
+        assert float(db.get(Solution, sol.id).total_price or 0) == 0
+
+    def test_quotation_item_with_zero_discount_and_export(self, db, auth_headers):
+        import openpyxl
+        from io import BytesIO
+
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, base_price=1000)
+        qt = Quotation(title="赠品报价", client_name="客户A")
+        db.add(qt)
+        db.commit()
+        db.refresh(qt)
+
+        res = client.post(f"/product-db/api/quotations/{qt.id}/items",
+                          json={"product_id": p.id, "quantity": 2, "unit_price": 1000,
+                                "discount_rate": 0}, headers=auth_headers)
+        assert res.status_code == 201
+
+        db.expire_all()
+        item = db.query(QuotationItem).filter_by(quotation_id=qt.id).first()
+        assert float(item.discount_rate) == 0
+        assert float(item.amount or 0) == 0
+        assert float(db.get(Quotation, qt.id).total_amount or 0) == 0
+
+        # 导出表格里折扣列（I）应为 0（旧代码会写 100 → 与库里 0 不符）
+        res = client.get(f"/product-db/api/quotations/{qt.id}/export-xlsx", headers=auth_headers)
+        assert res.status_code == 200
+        ws = openpyxl.load_workbook(BytesIO(res.content)).active
+        assert ws.cell(row=4, column=9).value == 0

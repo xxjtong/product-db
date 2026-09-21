@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, func, update
 from app.database import get_db
-from app.utils.helpers import get_or_404, apply_partial_update, format_description_with_specs
+from app.utils.helpers import get_or_404, apply_partial_update, format_description_with_specs, discount_percent
 from app.models.quotation import Quotation, QuotationItem
 from app.models.product import Product
 from app.models.solution import Solution, SolutionItem
@@ -76,7 +76,7 @@ def _recalc_total(qt: Quotation, db: Session):
     for item in items:
         qty = float(item.quantity or 0)
         price = float(item.unit_price or 0)
-        rate = float(item.discount_rate or 100)
+        rate = discount_percent(item.discount_rate)
         amount = qty * price * (rate / 100)
         item.amount = amount
         total += amount
@@ -376,7 +376,7 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
         snap = item.product_snapshot or {}
         qty = float(item.quantity or 0)
         price = float(item.unit_price or 0)
-        discount = float(item.discount_rate or 100)
+        discount = discount_percent(item.discount_rate)
         row = 3 + idx
         formats = {6: NUM_FMT_CURRENCY, 7: NUM_FMT_NUMBER, 8: NUM_FMT_CURRENCY,
                    9: NUM_FMT_PERCENT, 10: NUM_FMT_CURRENCY}
@@ -476,7 +476,7 @@ def get_quotation_bom(quotation_id: int, db: Session = Depends(get_db), user=Dep
             "description": (snap.get("description", "") or "")[:200],
             "qty": float(item.quantity or 0),
             "price": float(item.unit_price or 0),
-            "discount": float(item.discount_rate or 100),
+            "discount": discount_percent(item.discount_rate),
             "remark": item.remark or "",
             "cost": None if hide_cost else float(snap.get("cost_price", 0) or 0),
         })
@@ -527,8 +527,8 @@ def save_quotation_bom(quotation_id: int, data: dict, db: Session = Depends(get_
                 product_snapshot=snap,
                 quantity=float(row.get("qty", 1) or 1),
                 unit_price=float(row.get("price", 0) or 0),
-                amount=float(row.get("qty", 1) or 1) * float(row.get("price", 0) or 0) * (float(row.get("discount", 100) or 100) / 100),
-                discount_rate=float(row.get("discount", 100) or 100),
+                amount=float(row.get("qty", 1) or 1) * float(row.get("price", 0) or 0) * (discount_percent(row.get("discount")) / 100),
+                discount_rate=discount_percent(row.get("discount")),
                 remark=str(row.get("remark", "") or ""),
                 sort_order=idx + 1,
             )

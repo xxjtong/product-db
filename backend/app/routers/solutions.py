@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 from app.database import get_db
-from app.utils.helpers import get_or_404, apply_partial_update
+from app.utils.helpers import get_or_404, apply_partial_update, discount_percent
 from app.models.solution import Solution, SolutionItem
 from app.models.product import Product
 from app.models.category import Category
@@ -31,7 +31,7 @@ def _recalc_totals(sol: Solution, db: Session):
     for item in items:
         qty = float(item.quantity or 0)
         price = float(item.unit_price or 0)
-        rate = float(item.discount_rate or 100)
+        rate = discount_percent(item.discount_rate)
         total_cost += qty * (float(item.product.cost_price or 0) if item.product else 0)
         total_price += qty * price * (rate / 100)
     sol.total_cost = total_cost

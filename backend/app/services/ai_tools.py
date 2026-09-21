@@ -3,6 +3,7 @@ import json
 from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 from app.utils.escape import escape_like, LIKE_ESCAPE
+from app.utils.helpers import discount_percent
 from app.services.product_helpers import product_eager_loads
 from app.models.product import Product
 
@@ -321,7 +322,7 @@ def execute_tool(tool_name: str, arguments: dict, db, user_id: int = None) -> st
         if not items:
             return json.dumps({"error": "方案中没有产品"}, ensure_ascii=False)
 
-        total = sum(float(it.quantity or 0) * float(it.unit_price or 0) * (float(it.discount_rate or 100) / 100)
+        total = sum(float(it.quantity or 0) * float(it.unit_price or 0) * (discount_percent(it.discount_rate) / 100)
                     for it in items)
         qt = Quotation(solution_id=solution_id, title=sol.name,
                        client_name=sol.client_name or "",
@@ -337,7 +338,7 @@ def execute_tool(tool_name: str, arguments: dict, db, user_id: int = None) -> st
             snapshot = {"name": p.name, "model": p.model, "sku": p.sku} if p else {}
             db.add(QuotationItem(quotation_id=qt.id, product_id=it.product_id, product_snapshot=snapshot,
                                  quantity=it.quantity, unit_price=it.unit_price,
-                                 discount_rate=it.discount_rate or 100,
+                                 discount_rate=discount_percent(it.discount_rate),
                                  amount=float(it.quantity or 0) * float(it.unit_price or 0)))
         db.commit()
 

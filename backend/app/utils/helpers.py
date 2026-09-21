@@ -58,6 +58,20 @@ def dedup_filename_part(part, container, fallback: str = "") -> str:
     return safe_filename_part(part, fallback)
 
 
+def discount_percent(value, default: float = 100.0) -> float:
+    """折扣率（百分数）标准化 —— 折扣率 0 是**合法值**（免费/赠品），只有 None/空才取默认值。
+
+    历史缺陷：多处写成 `value or 100`，于是 0 被当成「未设置」按 100% 计算：
+    明细金额、方案合计、导出表格、AI 建单全都会算错。判定一律走这里。
+    """
+    if value is None or value == "":
+        return float(default)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
 def apply_partial_update(obj, data, fields: list[str]):
     """Apply non-None values from data (dict or Pydantic model) to obj for given fields."""
     for f in fields:

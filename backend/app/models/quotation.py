@@ -78,7 +78,7 @@ class QuotationItem(Base):
             "quantity": float(self.quantity) if self.quantity else 0,
             "unit_price": float(self.unit_price) if self.unit_price else 0,
             "amount": float(self.amount) if self.amount else 0,
-            "discount_rate": float(self.discount_rate) if self.discount_rate else 100,
+            "discount_rate": float(self.discount_rate) if self.discount_rate is not None else 100,
             "remark": self.remark or "",
             "sort_order": self.sort_order,
         }

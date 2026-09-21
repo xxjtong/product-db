@@ -91,6 +91,14 @@ const totalPrice = computed(() => {
   return rows.value.reduce((sum, r) => sum + r.qty * r.price * (r.discount / 100), 0).toFixed(0)
 })
 
+// 折扣率 0 是合法值（免费/赠品），只有空值才算未填 → 默认 100%
+// （与后端 `discount_percent` 同口径；旧代码用 `|| 100` 会把 0 当成未填）
+function discountPct(v: unknown): number {
+  if (v === null || v === undefined || v === '') return 100
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 100
+}
+
 async function loadSnapshot() {
   loading.value = true
   try {
@@ -99,7 +107,7 @@ async function loadSnapshot() {
       rows.value = (res.rows || []).map((r: any) => ({
         name: r.name || '', sku: r.sku || '', model: r.model || '',
         qty: Number(r.qty) || 1, price: Number(r.price) || 0,
-        discount: Number(r.discount) || 100,
+        discount: discountPct(r.discount),
         description: r.description || '', remark: r.remark || '',
         cost: Number(r.cost) || 0,
       }))
@@ -122,7 +130,7 @@ async function loadSnapshot() {
         else if (col === 'D') rowMap[rowNum].description = String(v)
         else if (col === 'E') rowMap[rowNum].qty = Number(v) || 1
         else if (col === 'F') rowMap[rowNum].price = Number(v) || 0
-        else if (col === 'G') rowMap[rowNum].discount = Number(v) || 100
+        else if (col === 'G') rowMap[rowNum].discount = discountPct(v)
         else if (col === 'H') {/* subtotal, computed */}
         else if (col === 'I') rowMap[rowNum].remark = String(v)
         else if (col === 'J') rowMap[rowNum].cost = Number(v) || 0
