@@ -1762,8 +1762,9 @@ class TestExportFilenames:
         cd = client.get(f"/product-db/api/quotations/{qt['id']}/export-xlsx").headers["content-disposition"]
         assert cd.startswith("attachment;")
         assert f'filename="quotation_{qt["id"]}.xlsx"' in cd                      # ASCII 回退
-        assert quote("报价单_SMC 华东_星纵物联网方案", safe="") in cd               # 客户 + 项目名
-        assert quote(qt["quote_number"], safe="") in cd                           # 编号保证唯一
+        # 格式：报价单_编号_客户_项目标题.xlsx（标识在前、名称在后，避免看起来重复）
+        assert quote(f"报价单_{qt['quote_number']}_SMC 华东_星纵物联网方案", safe="") in cd
+        assert cd.index(quote(qt["quote_number"], safe="")) < cd.index(quote("SMC 华东", safe=""))
 
     def test_bom_export_filename_has_client_and_name(self, db):
         from urllib.parse import quote
@@ -1781,7 +1782,9 @@ class TestExportFilenames:
         res = client.get(f"/product-db/api/solutions/{sol.id}/bom-snapshot/export-xlsx")
         assert res.status_code == 200
         cd = res.headers["content-disposition"]
-        assert quote("BOM_华润_某园区方案", safe="") in cd
+        # 格式：BOM_id{方案ID}_客户_方案名.xlsx
+        assert quote(f"BOM_id{sol.id}_华润_某园区方案", safe="") in cd
+        assert cd.index(f"id{sol.id}") < cd.index(quote("华润", safe=""))
         assert f'filename="bom_solution_{sol.id}.xlsx"' in cd
 
     def test_product_export_filename_has_date(self, db):
@@ -1815,8 +1818,14 @@ class TestExportFilenames:
         assert res.status_code == 200
         assert res.headers["content-type"] == "application/pdf"
         cd = res.headers["content-disposition"]
-        assert quote("产品规格书_雷达传感器 室外_VS373-470M", safe="") in cd
+        assert quote("产品规格书_VS373-470M_雷达传感器 室外", safe="") in cd
         assert f'filename="spec-sheet-{p.id}.pdf"' in cd
+
+        # 缺型号时退回 id{产品ID}，保证「标识在最前」这条口径始终成立
+        p2 = _seed_product(db, category_id=cat.id, name="无型号产品", model=None)
+        res2 = client.get(f"/product-db/api/products/{p2.id}/spec-sheet")
+        assert res2.status_code == 200
+        assert quote(f"产品规格书_id{p2.id}_无型号产品", safe="") in res2.headers["content-disposition"]
 
 
 # ============================================================

@@ -728,13 +728,14 @@ def spec_sheet(product_id: int, db: Session = Depends(get_db), user=Depends(get_
         raise HTTPException(404, "Product not found")
 
     html = build_spec_html(p, db)
-    # 文件名带产品名与型号：产品规格书_名称_型号.pdf（PDF 分支才会用到；生成失败时
-    # 走下面的 HTML 内联展示，那时没有下载文件名）
+    # 文件名：**标识在前、产品名在后**（与其它导出同一口径）。型号本身就是产品标识，
+    # 缺型号时退回 id，保证任何时候都有可排序的前缀。
+    # 仅 PDF 分支会用到；生成失败时走下面的 HTML 内联展示，那时没有下载文件名。
     from app.utils.helpers import attachment_disposition, safe_filename_part
     filename = "_".join(x for x in [
         "产品规格书",
-        safe_filename_part(p.name, f"product{product_id}"),
-        safe_filename_part(p.model),
+        safe_filename_part(p.model, f"id{product_id}"),
+        safe_filename_part(p.name),
     ] if x) + ".pdf"
 
     # Try CLI weasyprint for PDF

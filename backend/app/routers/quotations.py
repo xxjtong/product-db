@@ -440,13 +440,14 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
-    # 文件名带客户与项目名，便于区分：报价单_客户_项目_编号.xlsx
+    # 文件名：**标识在前、客户/项目名在后** —— 便于按编号排序，也避免「客户名与
+    # 项目标题前缀相同」时看着像重复（例：SMC 客户 + SMC-会议室环境检测）
     from app.utils.helpers import attachment_disposition, safe_filename_part
     filename = "_".join(p for p in [
         "报价单",
+        safe_filename_part(qt.quote_number, f"id{quotation_id}"),
         safe_filename_part(qt.client_name),
         safe_filename_part(qt.title),
-        safe_filename_part(qt.quote_number, f"id{quotation_id}"),
     ] if p) + ".xlsx"
     return StreamingResponse(
         buf,
