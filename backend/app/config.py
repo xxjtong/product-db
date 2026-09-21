@@ -3,9 +3,18 @@ import sys
 from pydantic_settings import BaseSettings
 
 
+_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # backend/
+
+
 class Settings(BaseSettings):
-    DATABASE_URL: str = f"sqlite:///{os.path.expanduser('~')}/product-db/backend/product_db.db"
-    DATABASE_PATH: str = ""  # filesystem path, derived from DATABASE_URL if empty
+    # 默认库文件放在**代码同目录**（backend/product_db.db）。
+    # 早前这里写的是 f"sqlite:///{os.path.expanduser('~')}/product-db/backend/product_db.db"，
+    # 依赖运行用户的 HOME —— R51 就因此出事：systemd 加固启用 ProtectHome 后 /home 被隐藏，
+    # 服务能启动但所有查库接口 500（unable to open database file）。路径不应随用户/家目录漂移。
+    DATABASE_URL: str = f"sqlite:///{os.path.join(_BACKEND_DIR, 'product_db.db')}"
+    # 已废弃：库路径的唯一来源是 DATABASE_URL（engine 与 alembic 都读它）。
+    # 字段保留仅为兼容旧 .env（pydantic-settings 对未知字段会直接报错），不再参与任何推导。
+    DATABASE_PATH: str = ""
     SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
@@ -51,12 +60,10 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Resolve filesystem DB path
-if settings.DATABASE_PATH:
-    DB_FILESYSTEM_PATH = settings.DATABASE_PATH
-else:
-    # Derive from DATABASE_URL: sqlite:///path → /path
-    DB_FILESYSTEM_PATH = settings.DATABASE_URL.replace("sqlite:///", "", 1)
+# 库路径的**唯一来源**是 DATABASE_URL（database.py 建 engine、alembic 迁移都用它）；
+# DB_FILESYSTEM_PATH 只是它的文件系统视图，供 agent 展示与运维脚本使用 ——
+# 以前会优先取 DATABASE_PATH，于是出现「engine 用 A 路径、这里报告 B 路径」的不一致（R51 复盘）。
+DB_FILESYSTEM_PATH = settings.DATABASE_URL.replace("sqlite:///", "", 1)
 
 # Resolve the ip2region xdb path against the backend dir（进程 CWD 不可靠）
 if not os.path.isabs(settings.IP2REGION_XDB):

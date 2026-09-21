@@ -2,7 +2,48 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-21, R51)
+## 最新变更 (2026-09-21, R52)
+
+### R52: 库路径收敛为单一来源（拆掉 R51 事故的病根）(2026-09-21)
+
+**问题**：库路径有两个来源，而且**指向不同**：
+
+| 用在哪 | 取自 |
+|---|---|
+| `database.py` 建 engine、`alembic/env.py` 迁移 | `settings.DATABASE_URL` |
+| `routers/agent.py` 报告给 agent 的 `db_path` | `DB_FILESYSTEM_PATH` —— 而它**优先取 `DATABASE_PATH`** |
+
+生产 `.env` 恰好只配了 `DATABASE_PATH=/opt/product-db/backend/product_db.db`，于是 engine 实际用的是
+`DATABASE_URL` 的默认值（`os.path.expanduser('~')` + `product-db/backend/product_db.db`）——
+既出现「engine 读写 A、agent 报告 B」，又让库路径**依赖运行用户的 HOME**（R51 开 ProtectHome 就炸）。
+
+**修复**：
+1. 默认 `DATABASE_URL` 改为**与代码同目录**（`_BACKEND_DIR/product_db.db`），不再用 `~` ——
+   路径不随运行用户/家目录/加固项漂移。
+2. `DB_FILESYSTEM_PATH` 一律由 `DATABASE_URL` 推导，不再看 `DATABASE_PATH`；
+   `DATABASE_PATH` 字段**保留但标注废弃**（pydantic-settings 对 `.env` 里未知字段会直接报错，
+   删字段会让旧 `.env` 启动失败）。
+3. 清掉生产 `.env` 里那行不生效的 `DATABASE_PATH`（改前备份到 `/tmp`，验证后删除）；
+   `.env.example` 同步改为只讲 `DATABASE_URL`。
+
+**生产影响**：库路径从 `/home/tong/product-db/backend/product_db.db`（经符号链接到 `/opt`）
+变为直接 `/opt/product-db/backend/product_db.db` —— **同一个实体文件、WAL/SHM 也只有一份**，
+没有数据迁移、没有停机风险。
+
+**验证**：`/agent/prompt` 的 `db_path` 与 engine 一致（`/opt/product-db/backend/product_db.db`）；
+写库/读库、规格书 PDF、xlsx 导出全部正常。
+
+**测试**：+2（默认 `DATABASE_URL` 落在 backend 目录且不含 `/home`、`/root`；
+`DB_FILESYSTEM_PATH` 与 `DATABASE_URL` 指向同一文件）
+
+**副产物**：现在**具备启用 `ProtectHome` 的条件**了（库不再经过 `/home`）——
+需要 root 执行一次 `deploy/install-systemd-unit.sh`，本次**未启用**，留待决定。
+
+**更正 R51 的一处推断**：两个库路径不是硬链接，而是 `/home/tong/product-db` 为**指向
+`/opt/product-db` 的符号链接**（`stat` 默认不跟随链接，所以先前看到的两个 inode 是链接自身）。
+结论不变：两条路径是同一个文件。
+
+## 历史变更 (2026-09-21, R51)
 
 ### R51: systemd 安全加固（含一次真实回滚：ProtectHome 与数据库路径冲突）(2026-09-21)
 

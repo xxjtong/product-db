@@ -2385,3 +2385,36 @@ class TestQuantityZero:
         assert float(items[0].quantity) == 0, "数量 0 不能落库成 1"
         assert float(items[0].amount or 0) == 0
         assert float(items[1].quantity) == 2
+
+
+class TestConfigConsistency:
+    """库路径只有一个来源（R52）。
+
+    R51 事故根因：默认 DATABASE_URL 用 os.path.expanduser('~') 拼家目录，
+    systemd 启用 ProtectHome 隐藏 /home 后，服务能启动但所有查库接口 500。
+    """
+
+    def test_default_database_url_is_inside_backend_dir(self, monkeypatch):
+        from app import config as cfg
+
+        # 必须先清掉环境变量：pydantic-settings 里 env 的优先级高于代码默认值，
+        # 而本文件顶部已把 DATABASE_URL 指向了临时测试库，否则拿到的是那个值
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.delenv("DATABASE_PATH", raising=False)
+
+        # _env_file=None：也不读 .env，这样拿到的才是代码里的默认值
+        defaults = cfg.Settings(_env_file=None, SECRET_KEY="x" * 32)
+        expected = os.path.join(cfg._BACKEND_DIR, "product_db.db")
+        assert defaults.DATABASE_URL == f"sqlite:///{expected}"
+        assert "/home/" not in defaults.DATABASE_URL
+        assert "/root/" not in defaults.DATABASE_URL
+
+    def test_db_filesystem_path_matches_database_url(self):
+        """reporting 用的 DB_FILESYSTEM_PATH 必须与 engine 用的 DATABASE_URL 指向同一文件。
+
+        以前 DB_FILESYSTEM_PATH 优先取 DATABASE_PATH，会出现「engine 读写 A 路径、
+        agent 却报告 B 路径」的不一致。
+        """
+        from app.config import DB_FILESYSTEM_PATH, settings
+
+        assert DB_FILESYSTEM_PATH == settings.DATABASE_URL.replace("sqlite:///", "", 1)
