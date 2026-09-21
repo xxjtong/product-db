@@ -74,15 +74,15 @@ def _merge_and_style(ws, row, col_start, col_end, value, font, fill, alignment):
             ws.cell(row=row, column=c).fill = fill
 
 
-def apply_info_row(ws, row, text):
-    """Row 1: company/client/contact/date info, gray font, merged A-L."""
-    _merge_and_style(ws, row, 1, MAX_COL, text, FONT_INFO, FILL_NONE, ALIGN_LEFT)
+def apply_info_row(ws, row, text, max_col: int = MAX_COL):
+    """Row 1: company/client/contact/date info, gray font, merged A-<max_col>."""
+    _merge_and_style(ws, row, 1, max_col, text, FONT_INFO, FILL_NONE, ALIGN_LEFT)
     ws.row_dimensions[row].height = 17
 
 
-def apply_title_row(ws, row, text):
-    """Row 2: title, yellow background, merged A-L."""
-    _merge_and_style(ws, row, 1, MAX_COL, text, FONT_TITLE, FILL_TITLE, ALIGN_CENTER)
+def apply_title_row(ws, row, text, max_col: int = MAX_COL):
+    """Row 2: title, yellow background, merged A-<max_col>."""
+    _merge_and_style(ws, row, 1, max_col, text, FONT_TITLE, FILL_TITLE, ALIGN_CENTER)
     ws.row_dimensions[row].height = 18
 
 
@@ -111,16 +111,20 @@ def apply_data_row(ws, row, values, formats=None):
     ws.row_dimensions[row].height = 54
 
 
-def apply_total_row(ws, row, chinese_amount, col_letter="J", data_start_row=4):
+def apply_total_row(ws, row, chinese_amount, col_letter="J", data_start_row=4,
+                    merge_end_col: int = 9, max_col: int = MAX_COL):
     """
-    Total row: A-I merged for Chinese uppercase (right align),
+    Total row: A-<merge_end_col> merged for Chinese uppercase (right align),
     col_letter for SUM formula (center align). Row height 22.
+
+    `merge_end_col` / `max_col` 供列数不同的表使用：BOM 兜底表是 10 列、且"小计"在 H，
+    所以合并区到 G、SUM 落在 H（见 R45）。默认值保持报价单的 A-I + J 不变。
     """
     col_idx = ord(col_letter) - ord("A") + 1
     last_data_row = row - 1
     formula = f"=SUM({col_letter}{data_start_row}:{col_letter}{last_data_row})"
-    # A-I: Chinese uppercase
-    _merge_and_style(ws, row, 1, 9, chinese_amount, FONT_TOTAL, FILL_NONE, ALIGN_RIGHT)
+    # Chinese uppercase
+    _merge_and_style(ws, row, 1, merge_end_col, chinese_amount, FONT_TOTAL, FILL_NONE, ALIGN_RIGHT)
     # SUM formula
     cell = ws.cell(row=row, column=col_idx, value=formula)
     cell.font = FONT_TOTAL
@@ -128,29 +132,29 @@ def apply_total_row(ws, row, chinese_amount, col_letter="J", data_start_row=4):
     cell.alignment = ALIGN_CENTER
     cell.border = BORDER_THIN
     cell.number_format = NUM_FMT_CURRENCY
-    # Remaining cols to M: border only
-    for c in range(col_idx + 1, MAX_COL + 1):
+    # Remaining cols: border only
+    for c in range(col_idx + 1, max_col + 1):
         bc = ws.cell(row=row, column=c)
         bc.border = BORDER_THIN
         bc.fill = FILL_NONE
     ws.row_dimensions[row].height = 22
 
 
-def apply_note_row(ws, row, text):
-    """Note row, merged A-L, left align, regular font."""
-    _merge_and_style(ws, row, 1, MAX_COL, text, FONT_NOTE, FILL_NONE, ALIGN_LEFT)
+def apply_note_row(ws, row, text, max_col: int = MAX_COL):
+    """Note row, merged A-<max_col>, left align, regular font."""
+    _merge_and_style(ws, row, 1, max_col, text, FONT_NOTE, FILL_NONE, ALIGN_LEFT)
     ws.row_dimensions[row].height = 18
 
 
-def apply_footer_row(ws, row, text):
-    """Footer row, merged A-L, gray font, no bottom border."""
+def apply_footer_row(ws, row, text, max_col: int = MAX_COL):
+    """Footer row, merged A-<max_col>, gray font, no bottom border."""
     cell = ws.cell(row=row, column=1, value=text)
     cell.font = FONT_FOOTER
     cell.fill = FILL_NONE
     cell.alignment = ALIGN_LEFT
     # Top-only thin border (no bottom)
     cell.border = Border(top=SIDE_THIN)
-    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=MAX_COL)
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=max_col)
     ws.row_dimensions[row].height = 30
 
 

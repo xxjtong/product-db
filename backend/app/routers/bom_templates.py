@@ -439,32 +439,45 @@ def _write_snapshot_to_xlsx(ws, snapshot: dict, show_cost: bool = True):
         )
 
 
+# BOM 清单的列定义 —— 与 BOM 编辑器保存的快照（solution_bom_snapshots）的 A..J 完全一致，
+# 成本固定在 J 列。**不能复用报价单那套 12 列**：两边的列语义不同（报价单是
+# 规格型号/型号/合计/成交价/图片，BOM 是 型号-SKU/数量/折扣%/小计/备注），
+# 历史上兜底分支硬套 12 列导致同一份 BOM 出现两种列布局（见 R45）。
+_BOM_HEADERS = ["#", "产品名称", "型号/SKU", "功能描述", "数量", "单价", "折扣%", "小计", "备注"]
+_BOM_COST_HEADER = "成本"
+BOM_MAX_COL = 10
+_BOM_COLUMN_WIDTHS = {"A": 6.0, "B": 26.0, "C": 20.0, "D": 56.0, "E": 8.0,
+                      "F": 12.0, "G": 8.0, "H": 12.0, "I": 16.0, "J": 12.0}
+
+
 def _write_basic_bom(ws, sol, solution_id: int, db: Session, username: str = "", show_cost: bool = True):
-    """Fallback: generate a BOM sheet from solution_items with unified style."""
+    """兜底分支：方案还没有在 BOM 编辑器里保存过快照时，按 solution_items 自动生成。
+
+    列结构、成本列位置都与编辑器快照一致（`_BOM_HEADERS` + J 列成本），
+    这样「有没有编辑过」导出的是同一种表。
+    `show_cost=False` 时成本列**整列不输出**（连表头也不写），与快照分支的剥离口径一致。
+    """
     from app.utils.excel_style import (
         apply_info_row, apply_title_row, apply_header_row, apply_data_row,
-        apply_total_row, apply_note_row, apply_footer_row, apply_column_widths,
-        num_to_chinese_uppercase, NUM_FMT_CURRENCY, NUM_FMT_NUMBER, NUM_FMT_PERCENT,
-        embed_image,
+        apply_total_row, apply_note_row, apply_footer_row,
+        num_to_chinese_uppercase, NUM_FMT_CURRENCY, NUM_FMT_NUMBER,
     )
     from datetime import date
 
     ws.title = "BOM清单"
-    apply_column_widths(ws)
+    for col_letter, width in _BOM_COLUMN_WIDTHS.items():
+        ws.column_dimensions[col_letter].width = width
 
-    # Row 1: info
+    # Row 1: info（合并到 J 为止，与 10 列的数据区同宽）
     today = date.today().isoformat()
     info_text = f"客户：{sol.client_name or ''}  |  项目：{sol.project_name or ''}  |  日期：{today}"
-    apply_info_row(ws, 1, info_text)
+    apply_info_row(ws, 1, info_text, max_col=BOM_MAX_COL)
 
     # Row 2: title
-    apply_title_row(ws, 2, f"BOM清单 — {sol.name}")
+    apply_title_row(ws, 2, f"BOM清单 — {sol.name}", max_col=BOM_MAX_COL)
 
-    # Row 3: headers
-    headers = ["序号", "名称", "规格型号", "型号", "功能描述", "单价", "数量", "合计", "折扣率", "成交价", "备注", "图片"]
-    apply_header_row(ws, 3, headers)
-    # Cost header (M): plain text, no style — safe to delete column
-    ws.cell(row=3, column=13).value = "成本"
+    # Row 3: headers（看不到成本时成本列连表头都不写）
+    apply_header_row(ws, 3, _BOM_HEADERS + ([_BOM_COST_HEADER] if show_cost else []))
 
     # Data rows
     items = db.query(SolutionItem).filter_by(solution_id=solution_id)\
@@ -477,45 +490,38 @@ def _write_basic_bom(ws, sol, solution_id: int, db: Session, username: str = "",
         price = float(item.unit_price or 0)
         discount = float(item.discount_rate or 100)
         row = 3 + idx
-        formats = {6: NUM_FMT_CURRENCY, 7: NUM_FMT_NUMBER, 8: NUM_FMT_CURRENCY,
-                   9: NUM_FMT_PERCENT, 10: NUM_FMT_CURRENCY}
-        apply_data_row(ws, row, [
-            idx,
-            p.name if p else "",
-            (p.model or "") if p else "",
-            (p.model or "") if p else "",
-            format_description_with_specs(p.description or "", p.specs or {}) if p else "",
-            price,
-            qty,
-            price * qty,  # H placeholder
-            discount / 100,  # I: 折扣率(小数)
-            price * qty * (discount / 100),  # J placeholder
-            item.remark or "",
-            p.image_url or "" if p else "",
-        ], formats)
-        # Cost column (M): plain value — hidden if show_cost is False
-        ws.cell(row=row, column=13).value = (float(p.cost_price or 0) if p else 0) if show_cost else ''
-        # Replace H and J with formulas
-        ws.cell(row=row, column=8).value = f"=F{row}*G{row}"       # H: 合计
-        ws.cell(row=row, column=10).value = f"=H{row}*I{row}"       # J: 成交价
+        formats = {5: NUM_FMT_NUMBER, 6: NUM_FMT_CURRENCY,
+                   7: NUM_FMT_NUMBER, 8: NUM_FMT_CURRENCY}
+        values = [
+            idx,                                                            # A #
+            p.name if p else "",                                            # B 产品名称
+            ((p.model or p.sku or "") if p else ""),                        # C 型号/SKU
+            format_description_with_specs(p.description or "", p.specs or {}) if p else "",  # D 功能描述
+            qty,                                                            # E 数量
+            price,                                                          # F 单价
+            discount,                                                       # G 折扣%（百分数原值）
+            price * qty,                                                    # H 小计（下行改成公式）
+            item.remark or "",                                              # I 备注
+        ]
+        if show_cost:
+            values.append(float(p.cost_price or 0) if p else 0)             # J 成本
+            formats[10] = NUM_FMT_CURRENCY
+        apply_data_row(ws, row, values, formats)
+        # H 小计改成公式，改数量或单价时能自动重算
+        ws.cell(row=row, column=8).value = f"=E{row}*F{row}"
 
-        # Embed product image in column L
-        if p and p.image_url:
-            import os
-            from app.services.storage import UPLOAD_DIR
-            if not embed_image(ws, row, 12, p.image_url, str(UPLOAD_DIR)):
-                import logging; logging.getLogger("uvicorn").warning(f"Failed to embed image for product {p.id} at row {row}")
-
-    # Total row
+    # Total row：大写金额合并到 G，SUM 落在"小计"列（H）—— 成本列（J）不参与合计
     total_row = 3 + len(items) + 1
     total = float(sol.total_price or 0)
-    apply_total_row(ws, total_row, f"合计（大写）：{num_to_chinese_uppercase(total)}", col_letter="J")
+    apply_total_row(ws, total_row, f"合计（大写）：{num_to_chinese_uppercase(total)}",
+                    col_letter="H", merge_end_col=7, max_col=BOM_MAX_COL)
 
     # Note row
-    apply_note_row(ws, total_row + 1, f"BOM清单 — {sol.name}  |  方案编号：{solution_id}")
+    apply_note_row(ws, total_row + 1, f"BOM清单 — {sol.name}  |  方案编号：{solution_id}",
+                   max_col=BOM_MAX_COL)
 
     # Footer
-    apply_footer_row(ws, total_row + 2, f"BOM清单 — {username}")
+    apply_footer_row(ws, total_row + 2, f"BOM清单 — {username}", max_col=BOM_MAX_COL)
 
 
 def _generate_snapshot(sol: Solution, template, db: Session) -> dict:

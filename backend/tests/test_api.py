@@ -2081,3 +2081,77 @@ class TestR41TokenRevocation:
         res = client.get("/product-db/api/auth/me", headers={"Authorization": f"Bearer {legacy}"})
         assert res.status_code == 200
         assert res.json()["user"]["username"] == u.username
+
+
+class TestBOMColumnLayout:
+    """BOM 导出的两种来源（编辑器快照 / 兜底生成）必须用同一套列布局，成本固定在 J（R45）。
+
+    历史上兜底分支硬套了报价单的 12 列（成本在 M），于是同一份 BOM「有没有在编辑器里
+    保存过」会导出两种列结构；而存储、`_keep_server_cost`、`_COST_COLUMN` 一律按 J 列
+    认定成本 —— 布局与判定口径不一致。
+    """
+
+    def _seed_solution(self, db):
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, name="雷达传感器", model="VS373",
+                          base_price=100, cost_price=66.6)
+        sol = Solution(name="某园区方案")
+        db.add(sol)
+        db.commit()
+        db.refresh(sol)
+        db.add(SolutionItem(solution_id=sol.id, product_id=p.id, quantity=2,
+                            unit_price=100, discount_rate=100))
+        db.commit()
+        return p, sol
+
+    def test_basic_export_uses_snapshot_column_layout(self, db):
+        """没有快照（走兜底生成）时，列头与成本列位置仍与编辑器快照一致"""
+        import openpyxl
+        from io import BytesIO
+
+        _, sol = self._seed_solution(db)
+        res = client.get(f"/product-db/api/solutions/{sol.id}/bom-snapshot/export-xlsx")
+        assert res.status_code == 200
+        ws = openpyxl.load_workbook(BytesIO(res.content)).active
+
+        headers = [ws.cell(row=3, column=c).value for c in range(1, 11)]
+        assert headers == ["#", "产品名称", "型号/SKU", "功能描述", "数量",
+                           "单价", "折扣%", "小计", "备注", "成本"]
+        assert ws.cell(row=4, column=1).value == 1              # A 序号
+        assert ws.cell(row=4, column=5).value == 2              # E 数量
+        assert ws.cell(row=4, column=6).value == 100            # F 单价
+        assert ws.cell(row=4, column=8).value == "=E4*F4"       # H 小计 = 数量 × 单价
+        assert ws.cell(row=4, column=10).value == 66.6          # J 成本
+        # 第 11 列不该再有任何内容 —— 旧的 12 列布局会在这里留「图片」列
+        assert ws.cell(row=3, column=11).value is None
+
+    def test_basic_export_hides_cost_column_entirely_for_user(self, db):
+        """看不到成本时整列不输出（连表头也不写），与快照分支的剥离口径一致"""
+        import openpyxl
+        from io import BytesIO
+        from app.models.field_setting import FieldSetting
+        from app.services.field_visibility import _cache
+
+        db.add(FieldSetting(field_name="cost_price", user_visible=False))
+        db.commit()
+        _cache["ts"] = 0
+        _cache["data"] = None
+
+        _, sol = self._seed_solution(db)
+        u = User(username="bomuser", password_hash=hash_password("test123"), role="user")
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        headers = {"Authorization": f"Bearer {create_token(u.id, u.username, u.token_version)}"}
+
+        res = client.get(f"/product-db/api/solutions/{sol.id}/bom-snapshot/export-xlsx",
+                         headers=headers)
+        assert res.status_code == 200
+        ws = openpyxl.load_workbook(BytesIO(res.content)).active
+        assert ws.cell(row=3, column=9).value == "备注"          # 第 9 列仍在
+        assert ws.cell(row=3, column=10).value is None           # 成本表头不写
+        assert ws.cell(row=4, column=10).value is None           # 成本值也不写
+
+        # 复位缓存，避免影响后续用例（FieldSetting 行会随每个用例的 drop_all 清掉）
+        _cache["ts"] = 0
+        _cache["data"] = None
