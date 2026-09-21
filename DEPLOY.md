@@ -14,6 +14,30 @@ ssh -p 28793 tong@124.221.178.161 'sudo apt-get install -y --no-install-recommen
 
 > 2026-09-16 已安装 `3.2.7-1+deb12u5`（bookworm-security，含 CVE-2024-12084 系列修复）。rsync 仅装客户端二进制，默认 `rsync.service` 为 disabled，不监听端口。
 
+服务器还**需要中文字体**（生成产品规格书 PDF 用）：
+
+```bash
+# 无需 root：下载 deb → 解包 → 装到用户字体目录（服务以 tong 用户运行，能读到）
+ssh -p 28793 tong@124.221.178.161 '
+  cd /tmp && mkdir -p noto && cd noto &&
+  apt-get download fonts-noto-cjk &&
+  dpkg-deb -x *.deb ./x && mkdir -p ~/.fonts &&
+  cp ./x/usr/share/fonts/opentype/noto/*.ttc ~/.fonts/ &&
+  fc-cache -f && rm -rf /tmp/noto &&
+  fc-list :lang=zh | wc -l'
+```
+
+> 2026-09-21 已安装 Noto Sans/Serif CJK（4 个 `.ttc` 共 89MB，位于 `/home/tong/.fonts/`，
+> 中文字体数 0 → 30）。服务的 systemd 单元是 `User=tong`，所以用户级字体就够用 ——
+> 这台机器的免密 sudo 白名单不含 apt，无需也不应为此提权。
+>
+> ⚠️ **缺字体的后果是「静默丢字」**：weasyprint 找不到汉字字形时不会报错，渲染出的 PDF
+> 只剩英文与数字 —— 表现就是「规格书内容不完整，而且每份都长得一样」。
+> 排查：`fc-list :lang=zh | wc -l` 为 0 即未安装；修好后 PDF 体积会明显变大
+> （内嵌 CJK 字体子集，实测 37KB → 258KB）。
+>
+> 装完**不需要重启服务**：weasyprint 是每次导出时新起的子进程。
+
 ## 环境拓扑
 
 | 角色 | 位置 | 职责 |

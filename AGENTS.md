@@ -2,7 +2,51 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-21, R46)
+## 最新变更 (2026-09-21, R47)
+
+### R47: 修复规格书 PDF「中文丢失」——根因是服务器没有中文字体 (2026-09-21)
+
+**现象**：导出的产品规格书「内容不完整」，而且**每份都长一样**。用户提供的
+`产品规格书_RA02A_LoRaWAN烟雾感应器.pdf` 只有 1 页，用 PyPDF2 提取出的文本仅 **196 字符**：
+
+```
+LoRaWAN
+Netvox ( ) | /  | : RA02A      ← 括号里、冒号前的汉字全没了
+ Ethernet —
+MQTT
+ /
+DC — —
+```
+
+**根因**：生产服务器上**没有任何中文字体**（`fc-list :lang=zh` 实测 0 个，全系统仅 6 个字体）。
+weasyprint 找不到汉字字形时会**静默丢字**（不报错、不告警），于是 PDF 里只剩英文与数字 ——
+所以每份规格书都残缺且彼此相似。
+
+**修复（纯运维，未改一行代码）**：把 Noto Sans/Serif CJK 装进**用户字体目录**，无需 root ——
+服务的 systemd 单元是 `User=tong`（`systemctl show product-db -p User`），`~/.fonts/` 即可生效：
+
+```bash
+cd /tmp && mkdir -p noto && cd noto && apt-get download fonts-noto-cjk \
+  && dpkg-deb -x *.deb ./x && mkdir -p ~/.fonts \
+  && cp ./x/usr/share/fonts/opentype/noto/*.ttc ~/.fonts/ \
+  && fc-cache -f && rm -rf /tmp/noto && fc-list :lang=zh | wc -l
+```
+
+- 不走 `sudo apt-get install`：该机免密 sudo 白名单只有 nginx / `systemctl restart product-db`
+  等少数命令，不含 apt；用户级安装完全等价且无需提权。
+- **不需要重启服务**：weasyprint 是每次导出时新起的子进程，装完立刻可用。
+
+**验证（生产实测）**：中文字体数 **0 → 30**；导出 RA02A（产品 485）规格书耗时 7.8s，
+PDF **37KB → 258KB**（内嵌 CJK 字体子集），提取文本 **196 → 309 字符且中文完整**
+（`Netvox (奈伯思)`、`通讯方式`、`供电方式`、`描述`…）。
+命令与排查方法已记入 [DEPLOY.md](DEPLOY.md) 的「服务器」一节。
+
+> 教训：这类问题的排查顺序是「先看字体（`fc-list :lang=zh`），再看 PDF 体积」，
+> 不要从「weasyprint 没装」猜起 —— R40 就在这条弯路上绕过一次。
+
+**测试:** 无代码改动；backend **482 passed** / vitest **78 passed**（复核未受影响）。
+
+## 历史变更 (2026-09-21, R46)
 
 ### R46: 无成本权限时导出表格不再出现「成本」字样 (2026-09-21)
 
