@@ -20,28 +20,21 @@ from app.models.category import Category
 from app.models.dictionary import Manufacturer, DictCommMethod
 from app.models.mapping import ProductCommMethod
 from app.auth import hash_password, create_token
+from tests.conftest import create_test_schema, drop_test_schema
 
 client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
 def setup_db():
-    Base.metadata.create_all(bind=engine)
-    from sqlalchemy import text
-    with engine.connect() as conn:
-        conn.execute(text('''CREATE TABLE IF NOT EXISTS product_categories (
-            product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-            category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
-            PRIMARY KEY (product_id, category_id)
-        )'''))
-        conn.commit()
+    create_test_schema()
     db = SessionLocal()
     if not db.query(User).filter_by(username="admin").first():
         db.add(User(username="admin", password_hash=hash_password("admin"), role="admin"))
         db.commit()
     db.close()
     yield
-    Base.metadata.drop_all(bind=engine)
+    drop_test_schema()
 
 
 @pytest.fixture

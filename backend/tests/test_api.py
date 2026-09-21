@@ -23,6 +23,7 @@ from app.models.solution import Solution, SolutionItem
 from app.models.quotation import Quotation, QuotationItem
 from app.models.bom_template import BOMTemplate, SolutionBOMSnapshot
 from app.auth import hash_password, create_token
+from tests.conftest import create_test_schema, drop_test_schema
 
 client = TestClient(app)
 
@@ -30,26 +31,14 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def setup_db():
     """Create all tables and seed admin user before each test."""
-    Base.metadata.create_all(bind=engine)
-    # Create product_categories junction table (raw SQL, not in ORM metadata)
-    from sqlalchemy import text
-    with engine.connect() as conn:
-        conn.execute(text('''
-            CREATE TABLE IF NOT EXISTS product_categories (
-                product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-                category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
-                PRIMARY KEY (product_id, category_id)
-            )
-        '''))
-        conn.commit()
+    create_test_schema()
     db = SessionLocal()
     if not db.query(User).filter_by(username="admin").first():
         db.add(User(username="admin", password_hash=hash_password("admin"), role="admin"))
         db.commit()
     db.close()
     yield
-    # Cleanup: drop and recreate for isolation
-    Base.metadata.drop_all(bind=engine)
+    drop_test_schema()
 
 
 @pytest.fixture
@@ -2599,3 +2588,177 @@ class TestR56Consistency:
             _num_or_400("面议", "价格", 2)
         assert "2 个数据行" in exc.value.detail
         assert "面议" in exc.value.detail
+
+
+class TestR57ForeignKeys:
+    """R57：外键强制开启（PRAGMA foreign_keys=ON）+ 迁移补的 ON DELETE 语义。
+
+    以前 SQLite 默认不校验外键，模型里写的 ondelete 全是摆设：删父行只会静默留孤儿
+    （生产实测 787 行违规）。开启强制的前提是存量违规已清、缺失的 ON DELETE 已补齐
+    （迁移 e0f1a2b3c4d5），否则「删用户」会从留孤儿变成直接 500。
+    """
+
+    def test_foreign_keys_pragma_is_on(self, db):
+        """守卫：database.py 的连接事件必须真的把 PRAGMA 打开了"""
+        from sqlalchemy import text
+
+        assert db.execute(text("PRAGMA foreign_keys")).scalar() == 1
+
+    def test_product_with_unknown_category_is_rejected(self, db):
+        """行为守卫：引用不存在的品类要立刻报错（不再静默写入孤儿）"""
+        from sqlalchemy.exc import IntegrityError
+
+        db.add(Product(name="R57 孤儿品类", category_id=999999))
+        with pytest.raises(IntegrityError):
+            db.commit()
+        db.rollback()
+
+    def test_deleting_user_nulls_ownership_and_keeps_records(self, db):
+        """删用户：归属列 SET NULL 保留业务记录，而不是报错或留孤儿"""
+        owner = User(username="r57-owner", password_hash=hash_password("x"), role="user")
+        db.add(owner)
+        db.commit()
+        db.refresh(owner)
+
+        sol = Solution(name="R57 方案", created_by=owner.id)
+        db.add(sol)
+        db.commit()
+        db.refresh(sol)
+        sol_id = sol.id
+
+        db.delete(owner)
+        db.commit()
+        db.expire_all()
+
+        kept = db.get(Solution, sol_id)
+        assert kept is not None, "删用户不该连带删掉方案"
+        assert kept.created_by is None
+
+    def test_deleting_bom_template_cascades_snapshot(self, db):
+        """删模板：快照随之级联删除（快照脱离模板没有意义）"""
+        tmpl = BOMTemplate(name="R57 模板", snapshot="{}")
+        db.add(tmpl)
+        db.commit()
+        db.refresh(tmpl)
+
+        sol = Solution(name="R57 模板方案")
+        db.add(sol)
+        db.commit()
+        db.refresh(sol)
+
+        snap = SolutionBOMSnapshot(solution_id=sol.id, template_id=tmpl.id, snapshot="{}")
+        db.add(snap)
+        db.commit()
+        snap_id = snap.id
+
+        db.delete(tmpl)
+        db.commit()
+        db.expire_all()
+
+        assert db.get(SolutionBOMSnapshot, snap_id) is None
+
+    def test_deleting_solution_cascades_children(self, db):
+        """删方案：条目与快照级联清掉，不留孤儿"""
+        sol = Solution(name="R57 级联方案")
+        db.add(sol)
+        db.commit()
+        db.refresh(sol)
+
+        cat = _seed_category(db, name="R57 品类", slug="r57-cat")
+        prod = Product(name="R57 产品", category_id=cat.id)
+        db.add(prod)
+        db.commit()
+        db.refresh(prod)
+
+        db.add(SolutionItem(solution_id=sol.id, product_id=prod.id, quantity=2))
+        db.add(SolutionBOMSnapshot(solution_id=sol.id, template_id=None, snapshot="{}"))
+        db.commit()
+        sol_id = sol.id
+
+        db.delete(sol)
+        db.commit()
+        db.expire_all()
+
+        assert db.query(SolutionItem).filter_by(solution_id=sol_id).count() == 0
+        assert db.query(SolutionBOMSnapshot).filter_by(solution_id=sol_id).count() == 0
+        assert db.get(Product, prod.id) is not None, "产品不该被连带删除"
+
+    def test_create_product_with_unknown_category_returns_400(self, auth_headers):
+        """表单里选的品类已被删：给 400 说明，不再撞外键报 500"""
+        r = client.post("/product-db/api/products",
+                        json={"name": "R57 无效品类", "category_id": 999999},
+                        headers=auth_headers)
+        assert r.status_code == 400
+        assert "品类不存在" in str(r.json()["detail"])
+
+    def test_update_product_with_deleted_manufacturer_returns_400(self, db, auth_headers):
+        """下拉框打开期间制造商被删掉：保存要提示刷新，不能 500"""
+        from app.models.dictionary import Manufacturer
+
+        cat = _seed_category(db, name="R57 厂商品类", slug="r57-mfg-cat")
+        mfg = Manufacturer(name="R57 厂商")
+        db.add(mfg)
+        db.commit()
+        db.refresh(mfg)
+        mfg_id = mfg.id
+
+        prod = Product(name="R57 厂商产品", category_id=cat.id, manufacturer_id=mfg_id)
+        db.add(prod)
+        db.commit()
+        db.refresh(prod)
+        prod_id = prod.id
+
+        db.delete(mfg)   # 模拟管理员删掉该制造商（产品会被 SET NULL）
+        db.commit()
+
+        r = client.put(f"/product-db/api/products/{prod_id}",
+                       json={"manufacturer_id": mfg_id}, headers=auth_headers)
+        assert r.status_code == 400
+        assert "已被删除" in r.json()["detail"]
+
+    def test_product_used_by_solution_returns_409_not_500(self, db, auth_headers):
+        """产品被方案引用时 RESTRICT 已生效：接口要给 409 说清楚，不能抛 500"""
+        cat = _seed_category(db, name="R57 引用品类", slug="r57-ref-cat")
+        prod = Product(name="R57 被引用产品", category_id=cat.id)
+        db.add(prod)
+        db.commit()
+        db.refresh(prod)
+
+        sol = Solution(name="R57 引用方案")
+        db.add(sol)
+        db.commit()
+        db.refresh(sol)
+        db.add(SolutionItem(solution_id=sol.id, product_id=prod.id, quantity=1))
+        db.commit()
+
+        r = client.delete(f"/product-db/api/products/{prod.id}", headers=auth_headers)
+        assert r.status_code == 409
+        assert "1 个方案条目" in r.json()["detail"]
+        assert db.get(Product, prod.id) is not None, "被引用的产品不该被删掉"
+
+        # 移除引用后要能正常删
+        db.query(SolutionItem).filter_by(product_id=prod.id).delete()
+        db.commit()
+        r = client.delete(f"/product-db/api/products/{prod.id}", headers=auth_headers)
+        assert r.status_code == 200
+
+    def test_deleting_last_category_in_use_returns_400(self, db, auth_headers):
+        """最后一个品类还有产品归属时：不能删（原来会把 category_id 改成不存在的 1）"""
+        cat = _seed_category(db, name="R57 唯一品类", slug="r57-only-cat")
+        cat_id = cat.id
+        prod = Product(name="R57 归属产品", category_id=cat_id)
+        db.add(prod)
+        db.commit()
+
+        r = client.delete(f"/product-db/api/categories/{cat_id}", headers=auth_headers)
+        assert r.status_code == 400
+        assert db.get(Category, cat_id) is not None
+
+        # 没产品归属时（或新建了接手品类后）仍可删
+        db.delete(prod)
+        db.commit()
+        r = client.delete(f"/product-db/api/categories/{cat_id}", headers=auth_headers)
+        assert r.status_code == 200
+        db.expire_all()
+        assert db.get(Category, cat_id) is None
+

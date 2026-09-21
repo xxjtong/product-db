@@ -8,7 +8,8 @@ class DownloadLog(Base):
     __tablename__ = "download_logs"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    # 可空 + SET NULL：下载审计要跟着记录走，用户删了也要留痕
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     file_type = Column(String(50), nullable=False)  # quotation, spec-sheet, bom, export
     entity_id = Column(Integer, nullable=True)
     ip_address = Column(String(50), nullable=True)

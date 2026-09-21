@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse, HTMLResponse, Response
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import select, case, table, column
 from sqlalchemy import func, or_, update
+from sqlalchemy.exc import IntegrityError
 from app.database import get_db
 from app.utils.helpers import get_or_404, apply_partial_update, format_description_with_specs
 from app.models.product import Product
@@ -383,6 +384,34 @@ def get_product(product_id: int, db: Session = Depends(get_db), user=Depends(get
     return {"product": result}
 
 
+def _validate_category_ids(db: Session, ids) -> None:
+    """品类必须真实存在。
+
+    R57 起 products.category_id / product_categories 的外键是强制的：表单打开后品类被
+    管理员删掉再保存，会直接撞约束报 500。这里先给一句能懂的 400。
+    """
+    wanted = {int(i) for i in (ids or []) if i}
+    if not wanted:
+        return
+    found = {row[0] for row in db.query(Category.id).filter(Category.id.in_(wanted)).all()}
+    missing = sorted(wanted - found)
+    if missing:
+        raise HTTPException(400, f"品类不存在（可能已被删除）：{missing}，请刷新页面后重新选择")
+
+
+def _commit_or_400(db: Session) -> None:
+    """提交时撞外键约束 → 400 而不是 500。
+
+    制造商/供应商/父产品这类引用同样可能在下拉框打开期间被删掉。
+    """
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(400, "保存失败：引用了已被删除的数据（品类/制造商/供应商/父产品），"
+                                 "请刷新页面后重试")
+
+
 @router.post("/products", status_code=201)
 def create_product(data: ProductCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     # Validate specs if category has definitions
@@ -392,6 +421,9 @@ def create_product(data: ProductCreate, db: Session = Depends(get_db), user=Depe
         errors = validate_specs(specs, spec_defs)
         if errors:
             raise HTTPException(400, detail={"errors": errors})
+
+    cat_ids = data.category_ids or [data.category_id]
+    _validate_category_ids(db, cat_ids)
 
     p = Product(
         model=data.model,
@@ -422,12 +454,12 @@ def create_product(data: ProductCreate, db: Session = Depends(get_db), user=Depe
 
     # Write multi-category relationships
     from app.services.product_category_helper import add_product_categories
-    add_product_categories(db, p.id, data.category_ids or [data.category_id])
+    add_product_categories(db, p.id, cat_ids)
 
     # Write mapping tables
     write_mappings(p.id, data.model_dump(exclude_none=True), db)
 
-    db.commit()
+    _commit_or_400(db)
     db.refresh(p)
     cats, mfgs, sups = get_name_maps(db)
     result = p.to_dict(cats, sups, mfgs)
@@ -440,6 +472,9 @@ def create_product(data: ProductCreate, db: Session = Depends(get_db), user=Depe
 def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     p = get_or_404(db, Product, product_id)
     check_ownership(p, user, strict=True)
+
+    if data.category_id is not None:
+        _validate_category_ids(db, [data.category_id])
 
     from app.utils.helpers import apply_partial_update
     apply_partial_update(p, data, ["model", "name", "sku", "category_id", "manufacturer_id",
@@ -460,6 +495,7 @@ def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(g
     if data.category_ids is not None:
         if not data.category_ids or not any(data.category_ids):
             raise HTTPException(400, '品类不能为空')
+        _validate_category_ids(db, data.category_ids)
         from app.services.product_category_helper import add_product_categories
         add_product_categories(db, product_id, data.category_ids)
         p.category_id = data.category_ids[0]
@@ -468,7 +504,7 @@ def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(g
     payload = data.model_dump(exclude_none=True)
     rewrite_mappings(product_id, payload, db)
 
-    db.commit()
+    _commit_or_400(db)
     cats, mfgs, sups = get_name_maps(db)
     result = p.to_dict(cats, sups, mfgs)
     from app.services.field_visibility import apply_field_visibility
@@ -480,10 +516,22 @@ def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(g
 def delete_product(product_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     p = get_or_404(db, Product, product_id)
     check_ownership(p, user, strict=True)
+
+    # R57 起 solution_items / quotation_items 对 products 是 ON DELETE RESTRICT：
+    # 直接删会撞外键约束报 500。先查引用，给一句能懂的话。
+    #（历史数据里这些引用元素原本会被静默留下，指向一个不存在的产品。）
+    from app.models.solution import SolutionItem
+    from app.models.quotation import QuotationItem
+    sol_refs = db.query(SolutionItem).filter(SolutionItem.product_id == product_id).count()
+    qt_refs = db.query(QuotationItem).filter(QuotationItem.product_id == product_id).count()
+    if sol_refs or qt_refs:
+        raise HTTPException(409, f"该产品已被 {sol_refs} 个方案条目、{qt_refs} 个报价条目引用，"
+                                 f"请先从对应方案/报价中移除，再删除产品")
+
     # Delete local image files before removing DB rows
     from app.services.product_helpers import _cleanup_image_files
     _cleanup_image_files(product_id, db)
-    # Delete dependencies before product (SQLite FK cascade not enabled)
+    # 依赖行外键已声明 ON DELETE CASCADE，这里显式删一次以不依赖 PRAGMA 设置
     from app.models.dependency import ProductDependency
     db.query(ProductDependency).filter(
         (ProductDependency.product_id == product_id) | (ProductDependency.depends_on_product_id == product_id)

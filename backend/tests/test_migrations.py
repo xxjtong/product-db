@@ -10,6 +10,7 @@
 - 模型 `index=True` 声明的一批索引（含 11 个 created_by）两边都缺
 """
 import os
+import re
 import sqlite3
 import tempfile
 
@@ -23,7 +24,7 @@ from alembic.config import Config  # noqa: E402
 from app.config import settings  # noqa: E402
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HEAD_REVISION = "c8d9e0f1a2b3"
+HEAD_REVISION = "e0f1a2b3c4d5"
 
 
 def _build_fresh_db() -> str:
@@ -71,6 +72,34 @@ class TestFreshDatabaseBuild:
                          "ix_manufacturers_created_by", "ix_login_logs_user_id",
                          "idx_pc_category"):
                 assert name in idx, f"{name} 缺失"
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
+
+    def test_foreign_keys_have_on_delete_actions(self):
+        """R57：外键必须带 ON DELETE。
+
+        SQLite 默认不校验外键，缺 ON DELETE 只是「静默留孤儿」；一旦开启强制
+        （database.py 的 PRAGMA foreign_keys=ON），缺 ON DELETE 的外键会让删父行直接报错。
+        生产库旧 DDL 有 21 个外键缺 ON DELETE，由 e0f1a2b3c4d5 重建补齐；
+        全新库走 fix_create_all_to_explicit_ddl，两边必须一致，否则新库上线就炸。
+        """
+        path = _build_fresh_db()
+        try:
+            con = sqlite3.connect(path)
+            assert list(con.execute("PRAGMA foreign_key_check")) == []
+
+            missing = []
+            for name, ddl in con.execute(
+                    "SELECT name, sql FROM sqlite_master WHERE type='table'"):
+                for m in re.finditer(
+                        r"REFERENCES\s+\w+\s*\(\s*\w+\s*\)(?!\s+ON DELETE)", ddl or "", re.I):
+                    missing.append(f"{name}: {m.group(0)}")
+            assert missing == [], f"以下外键缺 ON DELETE：{missing}"
+
+            # 删用户要靠 SET NULL 保留审计，列必须可空
+            cols = {c[1]: c[3] for c in con.execute("PRAGMA table_info('ai_usage_logs')")}
+            assert cols["user_id"] == 0, "ai_usage_logs.user_id 必须可空（删除用户时置 NULL 保留审计）"
         finally:
             if os.path.exists(path):
                 os.unlink(path)

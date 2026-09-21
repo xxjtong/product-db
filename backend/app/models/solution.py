@@ -17,7 +17,7 @@ class Solution(Base):
     total_cost = Column(Numeric(14, 2), default=0)
     total_price = Column(Numeric(14, 2), default=0)
     notes = Column(Text, nullable=True)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

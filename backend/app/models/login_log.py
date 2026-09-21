@@ -7,7 +7,7 @@ class LoginLog(Base):
     __tablename__ = "login_logs"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     ip_address = Column(String(50), nullable=True)
     user_agent = Column(String(500), nullable=True)
     region = Column(String(100), nullable=True)  # IP geolocation

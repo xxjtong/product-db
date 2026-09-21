@@ -16,7 +16,7 @@ class Supplier(Base):
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     def to_dict(self):
         return {

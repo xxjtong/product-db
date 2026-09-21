@@ -22,31 +22,21 @@ from app.models.solution import Solution, SolutionItem
 from app.models.bom_template import BOMTemplate, SolutionBOMSnapshot
 from app.models.ai_models import AIConversation, AIMessage
 from app.auth import hash_password, create_token
+from tests.conftest import create_test_schema, drop_test_schema
 
 client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
 def setup_db():
-    Base.metadata.create_all(bind=engine)
-    from sqlalchemy import text
-    with engine.connect() as conn:
-        for tbl in ['product_categories', 'product_comm_methods', 'product_comm_protocols',
-                     'product_power_supplies', 'product_hardware_interfaces',
-                     'product_sensor_capabilities', 'product_images']:
-            conn.execute(text(f'''CREATE TABLE IF NOT EXISTS {tbl} (
-                product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-                category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
-                PRIMARY KEY (product_id, category_id)
-            )'''))
-        conn.commit()
+    create_test_schema()
     db = SessionLocal()
     if not db.query(User).filter_by(username="admin").first():
         db.add(User(username="admin", password_hash=hash_password("admin"), role="admin"))
         db.commit()
     db.close()
     yield
-    Base.metadata.drop_all(bind=engine)
+    drop_test_schema()
 
 
 @pytest.fixture

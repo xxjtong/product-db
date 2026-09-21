@@ -13,7 +13,7 @@ class Manufacturer(Base):
     sort_order = Column(Integer, default=0)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     def to_dict(self):
         return {
@@ -32,7 +32,7 @@ class DictCommMethod(Base):
     method_type = Column(String(20), nullable=False)  # "wired" / "wireless"
     name = Column(String(50), nullable=False, unique=True)
     description = Column(Text, default="")
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     def to_dict(self):
         return {
@@ -49,7 +49,7 @@ class DictCommProtocol(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(50), nullable=False, unique=True)
     description = Column(Text, default="")
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     def to_dict(self):
         return {
@@ -66,7 +66,7 @@ class DictPowerSupply(Base):
     supply_category = Column(String(50), nullable=False)  # e.g. "内置电池", "外接电源", "PoE"
     name = Column(String(50), nullable=False, unique=True)
     description = Column(Text, default="")
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     def to_dict(self):
         return {
@@ -86,7 +86,7 @@ class DictSensorMetric(Base):
     accuracy = Column(Text, default="")
     resolution = Column(Text, default="")
     description = Column(Text, default="")
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     def to_dict(self):
         return {

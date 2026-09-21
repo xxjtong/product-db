@@ -290,9 +290,27 @@ ai_messages.tool_calls
   [{"id": "call_xxx", "function": {"name": "search_products", "arguments": "..."}}]
 ```
 
+## 外键与级联 (R57 起强制生效)
+
+SQLite 默认**不校验**外键，且 `PRAGMA foreign_keys` 是**逐连接**的 —— `app/database.py`
+在 engine `connect` 事件里显式打开，模型/迁移里写的 `ondelete` 才真正起作用。
+
+| ON DELETE | 用在哪 | 语义 |
+|-----------|--------|------|
+| `CASCADE` | 产品→6 张映射表/图片/文件/依赖、方案→条目/快照、会话→消息、模板→快照、报价单→条目、多对多中间表 | 子行脱离父行没有意义，跟着删 |
+| `SET NULL` | 各类 `created_by`、`login_logs/ai_usage_logs/download_logs.user_id`、`products.manufacturer_id/supplier_id/parent_id`、`device_categories.parent_id`、`quotations.solution_id` | 审计/归属信息，**保留记录本身** |
+| `RESTRICT` | `products.category_id`、`solution_items.product_id`、`quotation_items.product_id` | 有引用就不许删父行 |
+
+- 迁移 `e0f1a2b3c4d5` 之前，生产库 42 个外键里 **21 个没有 `ON DELETE`**（缺省 NO ACTION）
+  且存量违规 **787 行**；该迁移重建 17 张表补齐并清理干净
+- ⚠️ SQLite **不能修改外键**，改 `ON DELETE` 只能重建表（建新表 → `INSERT ... SELECT` →
+  换名 → 恢复索引），见迁移里的 `_rebuild()`
+- 业务侧配套：删产品被引用 → **409**、删最后一个在用品类 → **400**、
+  建/改产品时品类不存在 → **400**（否则这些操作会直接撞约束报 500）
+
 ## 索引
 
-**27 个索引**, 覆盖:
+**47 个显式索引**（`sqlite_master` 中 `sql IS NOT NULL`，含模型 `index=True` 声明的 15 个）, 覆盖:
 
 ```
 查询加速:

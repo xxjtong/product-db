@@ -110,6 +110,16 @@ def delete_category(cat_id: int, db: Session = Depends(get_db), user=Depends(req
     cat = get_or_404(db, Category, cat_id, "Category not found")
     check_ownership(cat, user)
 
+    # 有没有别的品类能接手这个品类下的产品？（products.category_id 是 NOT NULL + RESTRICT）
+    # 先校验再动手：R57 起没有接手方又还有产品的话，后面的 UPDATE 会撞外键报 500。
+    fallback = db.query(Category).filter(Category.id != cat_id, Category.is_active == True).first()
+    if fallback is None:
+        still_used = db.execute(text('SELECT COUNT(*) FROM products WHERE category_id = :cid'),
+                                {'cid': cat_id}).scalar() or 0
+        if still_used:
+            raise HTTPException(400, f"这是最后一个可用品类，仍有 {still_used} 个产品归属它，"
+                                     f"请先新建品类或调整这些产品的归属")
+
     # Cascade-delete child records to avoid FK violations
     from app.models.product import Product
     from app.models.mapping import ProductCommMethod, ProductCommProtocol, ProductPowerSupply
@@ -122,10 +132,9 @@ def delete_category(cat_id: int, db: Session = Depends(get_db), user=Depends(req
     delete_category_cascade(db, cat_id)
     db.execute(text('DELETE FROM product_dependencies WHERE depends_on_category_id = :cid'), {'cid': cat_id})
     # Update products using old single-category column (NOT NULL, fallback to first category)
-    fallback = db.query(Category).filter(Category.id != cat_id, Category.is_active == True).first()
-    fallback_id = fallback.id if fallback else 1
-    db.execute(text('UPDATE products SET category_id = :fid WHERE category_id = :cid'),
-               {'cid': cat_id, 'fid': fallback_id})
+    if fallback is not None:
+        db.execute(text('UPDATE products SET category_id = :fid WHERE category_id = :cid'),
+                   {'cid': cat_id, 'fid': fallback.id})
     db.execute(text('UPDATE device_categories SET parent_id = NULL WHERE parent_id = :cid'), {'cid': cat_id})
 
     db.delete(cat)

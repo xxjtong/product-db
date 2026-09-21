@@ -8,13 +8,13 @@ class Category(Base):
     __tablename__ = "device_categories"
 
     id = Column(Integer, primary_key=True)
-    parent_id = Column(Integer, ForeignKey("device_categories.id"), nullable=True, index=True)
+    parent_id = Column(Integer, ForeignKey("device_categories.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String(100), nullable=False)
     slug = Column(String(100), unique=True, nullable=True, index=True)
     level = Column(Integer, default=1)  # 1=大类, 2=子类, 3=孙子类
     sort_order = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     parent = relationship("Category", remote_side=[id], backref="children")
     spec_definitions = relationship(

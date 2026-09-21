@@ -20,20 +20,21 @@ from app.auth import hash_password, create_token, verify_password, _get_admin_id
 from app.models.product import Product
 from app.models.category import Category
 from app.config import settings as app_settings
+from tests.conftest import create_test_schema, drop_test_schema
 
 client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
 def setup_db():
-    Base.metadata.create_all(bind=engine)
+    create_test_schema()
     db = SessionLocal()
     if not db.query(User).filter_by(username="admin").first():
         db.add(User(username="admin", password_hash=hash_password("admin"), role="admin"))
         db.commit()
     db.close()
     yield
-    Base.metadata.drop_all(bind=engine)
+    drop_test_schema()
 
 
 @pytest.fixture
@@ -579,7 +580,24 @@ class TestIpRegionLookup:
 # IP 地区查询 —— ip2region 离线库优先（2026-09 改造）
 # ============================================================
 _XDB_PATH = app_settings.IP2REGION_XDB
-_xdb_available = os.path.exists(_XDB_PATH)
+
+
+def _xdb_usable() -> bool:
+    """离线库可用 = 数据文件在 + ip2region 模块装好。
+
+    只判文件存在不够：本机 .venv 没装 ip2region，离线查询必然失败并回落在线，
+    用例会假失败（生产装了模块，故只在本地出现）。
+    """
+    if not os.path.exists(_XDB_PATH):
+        return False
+    try:
+        import ip2region.searcher  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+_xdb_available = _xdb_usable()
 
 
 class TestIpRegionOffline:

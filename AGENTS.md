@@ -2,7 +2,67 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-21, R56)
+## 最新变更 (2026-09-21, R57)
+
+### R57: 外键治理 —— 先补齐 ON DELETE，再开启强制 (2026-09-21)
+
+**病根**：SQLite 默认**不校验**外键，且必须逐连接 `PRAGMA foreign_keys=ON`。此前两头都缺 ——
+模型里写的 `ondelete` 全是摆设，删父行只会静默留孤儿。实测生产库 **42 个外键里 21 个没有
+ON DELETE**（迁移文件 `fix_create_all_to_explicit_ddl.py` 里写了，但实际表是更早的 DDL 建的，
+两边漂移了），存量违规 **787 行**。
+
+**顺序不能反**：直接开 `PRAGMA foreign_keys=ON` 会让「删用户 / 删模板」从留孤儿变成直接 500。
+所以先补 ON DELETE，再开强制。
+
+**迁移 `e0f1a2b3c4d5`**（读现有 DDL 文本再正则修补，不从模型重建 —— 保证列/类型/默认值/顺序一字不差）：
+- **重建 17 张表**补 ON DELETE（SQLite 不能改外键，只能重建；索引重建后原样恢复，47 个索引零丢失）
+- **清理存量违规**：删孤儿 763 行（`ai_messages` 702 / `product_categories` 56 /
+  `product_comm_methods` 4 / `category_spec_definitions` 1）；审计类**置 NULL 保留记录**
+  24 行（`login_logs` 20 / `ai_usage_logs` 3 / `dict_comm_protocols` 1 / `download_logs` 1）
+- `ai_usage_logs.user_id`、`download_logs.user_id` 原来是 NOT NULL，**必须先重建去掉 NOT NULL**
+  才能 SET NULL 保留审计 —— 这也是「重建要在清理之前」的原因（第一版顺序写反，在副本上直接
+  报 `NOT NULL constraint failed`）
+- 顺带补齐两处「生产压根没有外键」的漂移：`download_logs.user_id`、`product_dependencies` 的三个外键
+- 末尾硬校验 `PRAGMA foreign_key_check`，非 0 就 `raise`（不让半成品进生产）
+
+**应用层开启强制**：`database.py` 加 engine `connect` 事件执行 `PRAGMA foreign_keys=ON`。
+
+**模型对齐**（关键）：`create_all` 建库（本地/测试）走 ORM 模型，生产走迁移链 —— 模型里 12 处
+外键没写 `ondelete`，两边行为不一致。已全部补齐，并把 `ai_usage_logs`/`download_logs.user_id`
+改为可空。用脚本比对「模型建库 vs 迁移后的生产副本」的 `PRAGMA foreign_key_list`：
+**外键动作不一致的表 0 个**。
+
+**给 RESTRICT 加业务护栏**（否则从「静默留孤儿」退化成 500）：
+- 删产品：被方案/报价条目引用时（生产 396 个产品里有 39 个）→ **409** + 具体条数
+- 删品类：`fallback_id = 1` 的旧兜底在「最后一个品种且仍有产品」时会写进不存在的品类 →
+  改为先校验 → **400**
+- 建/改产品：品类必须在库（表单打开期间品类被删是真实场景）→ **400**；
+  提交撞外键统一 `_commit_or_400` 兜底（制造商/供应商/父产品同理）
+
+**测试**：backend **513 passed**（+8）：
+- `tests/conftest.py`（新建）：统一建/删测试库。**两个坑**：① 夹具原来用裸 SQL 建的
+  `product_categories` 写的是 `REFERENCES categories(id)` —— 那是不存在的表（真名
+  `device_categories`），外键不强制时无人察觉，开了强制后所有涉及该表的增删都报
+  `no such table: main.categories`；② `drop_all` 会先删 `categories` 再删 `products`，
+  而编外的 `product_categories` 还在，隐式 DELETE 会回查已删的对端表 → 必须先删它
+- `TestR57ForeignKeys`（8 条）：PRAGMA 真的开了 / 非法品类被拒 / 删用户只置 NULL 保留记录 /
+  删模板级联快照 / 删方案级联条目 / 409 / 400 / 400
+- `test_migrations.py`：头部版本号 `c8d9e0f1a2b3` → `e0f1a2b3c4d5`；新增「全库外键必须带
+  ON DELETE + `foreign_key_check` 为空 + `ai_usage_logs.user_id` 可空」（防止全新库与生产再次漂移）
+- `_xdb_available` 原来只判 ip2region 数据文件存在，本机 `.venv` 没装模块 → 用例假失败。
+  改为「文件 + 模块」都齐才算可用
+
+**生产副本实测**（`sqlite3 .backup` 拉回本地跑迁移）：`foreign_key_check` 787 → 0；
+缺 ON DELETE 21 → 0；表 33、索引 47 均无变化；行数变化只有上面列出的清理项。
+
+> **坑**：本机有两个 venv —— `venv`（3.9，装了 alembic/ip2region，**这个才是对的**）和
+> `.venv`（3.14，缺 alembic，`import alembic` 会命中仓库里的 `backend/alembic/` 目录变成
+> 命名空间包）。跑测试/迁移认准 `venv/bin/python`。
+
+> **教训**：开启约束前，先把「约束生效后会变成报错的那些路径」找出来。RESTRICT 让「删产品」
+> 从留孤儿变成 500，而生产里 10% 的产品被方案引用 —— 这类改动必须连同业务护栏一起上。
+
+## 历史变更 (2026-09-21, R56)
 
 ### R56: 数据一致性四项（D1–D4）+ 项目文档补全 (2026-09-21)
 
@@ -561,7 +621,12 @@ R40 定的顺序是「客户_项目_编号」，实际用起来**看着像重复
 | `dict_comm_protocols → users`、`category_spec_definitions → device_categories` | 各 1 | 遗留引用 |
 
 结论：外键约束要打开，得先给每一类定策略（删 / 置 NULL / 保留），属独立事项；
-在此之前**批量删除已自行级联**，孤儿不会继续增长。这条留给后续（记在「遗留」里）。
+在此之前**批量删除已自行级联**，孤儿不会继续增长。
+
+> ✅ **已在 R57 闭环**（2026-09-21）：迁移 `e0f1a2b3c4d5` 按上表的分类逐类处置
+> （清理类删除 763 行、审计类置 NULL 保留 24 行），补齐 21 个缺失的 `ON DELETE`，
+> 再由 `database.py` 开启 `PRAGMA foreign_keys=ON`。
+> 违规行数：R37 审计时 978 → 本次迁移前 **787**（R37 的 `b7c8d9e0f1a2` 已清掉一批）→ 迁移后 **0**。
 
 **C) 审计中"看着严重、实测不可达"的项（勿重复误报）**
 
@@ -1778,7 +1843,7 @@ E2E 新增 17 测试 (`error-scenarios.spec.ts`):
 | XSS | DOMPurify (所有 v-html 已清洗) |
 | SSRF | validate_url() + 手动重定向验证 |
 | Logging | loguru (structured + rotation) |
-| Testing | pytest 440 collected（439 passed + 1 skipped）+ vitest 69 tests + Playwright 96 tests |
+| Testing | pytest 514 collected（513 passed + 1 skipped）+ vitest 78 tests + Playwright 96 tests |
 | Deployment | systemd + nginx + rsync（`deploy/` 下备份/探针/就绪门控脚本；`docker-compose.yml` 是早期实验、**非生产路径**） |
 
 ## 开发命令

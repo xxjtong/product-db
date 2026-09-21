@@ -8,7 +8,8 @@ class AIUsageLog(Base):
     __tablename__ = "ai_usage_logs"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    # user_id 可空：删用户时置 NULL 以保留用量审计（迁移 e0f1a2b3c4d5 去掉的 NOT NULL）
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     operation = Column(String(50), nullable=False)
     model = Column(String(50), nullable=True)
     tokens_in = Column(Integer, default=0)
@@ -24,7 +25,7 @@ class AIUsageLog(Base):
         return {
             "id": self.id,
             "user_id": self.user_id,
-            "username": self.user.username if self.user else str(self.user_id),
+            "username": self.user.username if self.user else (str(self.user_id) if self.user_id else "已删除用户"),
             "operation": self.operation,
             "model": self.model or "",
             "tokens_in": self.tokens_in or 0,

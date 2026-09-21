@@ -18,6 +18,7 @@ from app.models.product import Product
 from app.models.category import Category
 from app.models.product_file import ProductFile
 from app.auth import hash_password, create_token
+from tests.conftest import create_test_schema, drop_test_schema
 
 client = TestClient(app)
 
@@ -29,24 +30,14 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def setup_db():
     """Create all tables and seed admin user before each test."""
-    Base.metadata.create_all(bind=engine)
-    from sqlalchemy import text
-    with engine.connect() as conn:
-        conn.execute(text('''
-            CREATE TABLE IF NOT EXISTS product_categories (
-                product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-                category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
-                PRIMARY KEY (product_id, category_id)
-            )
-        '''))
-        conn.commit()
+    create_test_schema()
     db = SessionLocal()
     if not db.query(User).filter_by(username="admin").first():
         db.add(User(username="admin", password_hash=hash_password("admin"), role="admin"))
         db.commit()
     db.close()
     yield
-    Base.metadata.drop_all(bind=engine)
+    drop_test_schema()
 
 
 @pytest.fixture
@@ -152,24 +143,31 @@ class TestAgentCleanup:
         monkeypatch.setattr("app.routers.agent.UPLOAD_DIR", tmp_path)
         old = _time.time() - 8 * 86400  # older than the 7-day cutoff
 
+        # 产品与文件行都要有真实父行：R57 起外键强制，写死 id=1 会直接 FK 报错
+        cat = Category(name="清理测试品类", slug="cleanup-cat", level=1, sort_order=0)
+        db.add(cat)
+        db.flush()
+        product = Product(name="P", category_id=cat.id)
+        db.add(product)
+        db.flush()
+
         ref_doc = tmp_path / "ref_doc_uuid.pdf"
         ref_doc.write_bytes(b"referenced doc")
         os.utime(ref_doc, (old, old))
         db.add(ProductFile(
-            product_id=1, filename="doc.pdf",
+            product_id=product.id, filename="doc.pdf",
             file_url="/product-db/api/uploads/ref_doc_uuid.pdf", file_size=14,
         ))
 
         ref_img = tmp_path / "ref_img.png"
         ref_img.write_bytes(b"referenced image")
         os.utime(ref_img, (old, old))
-        db.add(Product(name="P", category_id=1, image_url="/product-db/api/uploads/ref_img.png"))
-        db.flush()
+        product.image_url = "/product-db/api/uploads/ref_img.png"
 
         ref_secondary = tmp_path / "ref_secondary.png"
         ref_secondary.write_bytes(b"secondary")
         os.utime(ref_secondary, (old, old))
-        db.add(ProductImage(product_id=1, url="/product-db/api/uploads/ref_secondary.png"))
+        db.add(ProductImage(product_id=product.id, url="/product-db/api/uploads/ref_secondary.png"))
         db.commit()
 
         orphan = tmp_path / "orphan_old.bin"
