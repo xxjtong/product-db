@@ -2,7 +2,33 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-21, R39)
+## 最新变更 (2026-09-21, R40)
+
+### R40: 导出文件名带客户与项目名 + 修掉中文文件名的编码缺陷 (2026-09-21)
+
+**文件名方案**（便于在下载目录里区分）：
+
+| 导出 | 文件名 |
+|---|---|
+| 报价单 | `报价单_{客户}_{项目标题}_{编号}.xlsx` → 例：`报价单_SMC_SMC-会议室环境检测_QT-20260918-001.xlsx` |
+| 方案 BOM | `BOM_{客户}_{方案名}_id{方案ID}.xlsx` → 例：`BOM_麦当劳（广州）_麦当劳广州-空调集控_id30.xlsx` |
+| 产品清单 | `产品清单_{YYYYMMDD}.xlsx`（全库导出、无客户/项目维度，用日期区分） |
+| 产品规格书 | `产品规格书_{产品名}_{型号}.pdf` |
+
+**新增 `app/utils/helpers.py` 两个工具**：
+- `safe_filename_part()` —— 清理客户名/项目名里的 `/ \ : * ? " < > |` 与控制字符、压缩空白、按 40 字截断。客户名是自由输入，直接拼进文件名可能带出目录，或把 `Content-Disposition` 截断。
+- `attachment_disposition()` —— 双写 `filename="<ASCII 回退>"` + `filename*=UTF-8''<百分号编码>`。HTTP header 只能放 latin-1，中文名必须走 `filename*`，同时保留 ASCII 回退兼容不支持它的老客户端。
+
+**顺带修掉一个隐藏很深的缺陷（原以为是 weasyprint 没装，其实是编码异常）**：规格书原来的 header 是 `filename={中文产品名}-spec-sheet.pdf`，而 Starlette 在构造响应时就按 latin-1 编码 header → **抛 UnicodeEncodeError，被 `except` 吞掉，于是永远走 HTML 兜底**。全库 348 个中文名产品点「下载规格书」拿到的都是一个没有文件名的 HTML 页面，而不是 PDF。改成 `attachment_disposition()` 后 PDF 分支才真正可达。
+> 排查弯路：一开始从「生产返回 text/html」推断 `shutil.which("weasyprint")` 为空，实际 `systemctl cat product-db` 显示 `Environment=PATH=/opt/product-db/backend/venv/bin:...`，weasyprint 一直在 PATH 里 —— 是 header 编码异常把它打回了兜底。教训：**先看日志里的 warning，再猜环境**。
+> 另把 `spec_sheet` 的 `finally` 加了空值保护（临时文件创建失败时不会再 NameError）。
+
+**生产验证**：四类导出实测响应头（`filename*` 解码后）分别为
+`报价单_SMC_SMC-会议室环境检测_QT-20260918-001.xlsx`、`BOM_麦当劳（广州）_麦当劳广州-空调集控_id30.xlsx`、`产品清单_20260921.xlsx`、`产品规格书_智能电流互感器_CT303 CT305 CT310.pdf`；规格书实测为真 PDF（37926 字节、`%PDF-` 魔数）。四者均带 ASCII 回退名。
+
+**测试:** backend **469 passed** (1 skipped, +5) —— 文件名清理、四类导出的 Content-Disposition；既有 spec-sheet 用例改为显式关掉 weasyprint 来覆盖兜底分支
+
+## 历史变更 (2026-09-21, R39)
 
 ### R39: 报价单税率统一 13% (2026-09-21)
 
