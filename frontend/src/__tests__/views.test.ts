@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { shallowMount, config, flushPromises } from '@vue/test-utils'
 import { ref } from 'vue'
 
@@ -309,6 +309,60 @@ describe('AdminView', () => {
     // Note: mockFetch was set in beforeEach and may have been called from previous test
     // Just verify the component mounted without throwing
     expect(true).toBe(true)
+  })
+})
+
+// 管理后台的写操作曾经直接 `await fetch(...)` 而不看 res.ok：4xx/5xx 不会 reject，
+// catch 永不触发 → 界面照样弹「已保存/已对普通用户隐藏」，本地状态也不回滚
+describe('AdminView 写操作失败不谎报成功', () => {
+  const mockOk = (body: unknown) => ({ ok: true, json: async () => body, text: async () => '' })
+
+  // 按 URL 分流：读接口一律成功，写接口（非 GET）返回 writeResponse
+  const mountAdmin = async (writeResponse: unknown) => {
+    const fetchMock = vi.fn(async (url: string, opts: any = {}) => {
+      if ((opts.method || 'GET') !== 'GET') return writeResponse
+      if (url.includes('/admin/users')) return mockOk({ users: [] })
+      if (url.includes('logs')) return mockOk({ logs: [], total: 0 })
+      return mockOk({})
+    })
+    global.fetch = fetchMock as any
+    const AdminView = (await import('../views/AdminView.vue')).default
+    const toast = vi.fn()
+    const wrapper = shallowMount(AdminView, { global: { provide: { toast } } })
+    await flushPromises()
+    return { wrapper, toast, fetchMock }
+  }
+
+  afterEach(() => { global.fetch = mockFetch as any })
+
+  it('字段可见性保存成功时提示成功', async () => {
+    const { wrapper, toast } = await mountAdmin(mockOk({ ok: true }))
+    const box = wrapper.findAll('input[type="checkbox"]')[0]
+    expect((box.element as HTMLInputElement).checked).toBe(true)
+
+    await box.trigger('change')
+    await flushPromises()
+
+    expect((box.element as HTMLInputElement).checked).toBe(false)
+    expect(toast).toHaveBeenCalledWith('「成本价」已对普通用户隐藏', 'success')
+  })
+
+  it('字段可见性保存失败时回滚状态且不提示成功', async () => {
+    const { wrapper, toast, fetchMock } = await mountAdmin({
+      ok: false, status: 403, statusText: 'Forbidden',
+      json: async () => ({ detail: 'Admin only' }), text: async () => '',
+    })
+    const box = wrapper.findAll('input[type="checkbox"]')[0]
+    expect((box.element as HTMLInputElement).checked).toBe(true)
+
+    await box.trigger('change')
+    await flushPromises()
+
+    // 请求确实发出去了，但返回 403：勾选状态必须回滚，不能留下「成本价已隐藏」的假象
+    expect(fetchMock).toHaveBeenCalledWith('/product-db/api/admin/fields', expect.objectContaining({ method: 'PUT' }))
+    expect((box.element as HTMLInputElement).checked).toBe(true)
+    expect(toast).toHaveBeenCalledWith('Admin only', 'error')
+    expect(toast).not.toHaveBeenCalledWith(expect.stringContaining('已对普通用户隐藏'), 'success')
   })
 })
 

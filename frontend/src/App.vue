@@ -98,6 +98,7 @@ import { ref, provide, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { PackageIcon, BookIcon, ClipboardListIcon, FileTextIcon, ShieldIcon, UserIcon, UserCircleIcon, LogOutIcon, BotIcon } from 'lucide-vue-next'
 import AiChat from './components/AiChat.vue'
+import { logout as apiLogout, clearAuthStorage, setUnauthorizedHandler } from './api'
 
 const router = useRouter()
 const route = useRoute()
@@ -154,6 +155,13 @@ const aiStats = ref<{ total: number; user_count: number; total_tokens_in: number
 provide('currentUser', currentUser)
 provide('canViewCost', canViewCost)
 
+// api() 收到 401 时只清本地凭据，跳转在这里注入（避免 api 直接 import router 造成循环依赖）
+setUnauthorizedHandler(() => {
+  currentUser.value = null
+  canViewCost.value = false
+  if (route.path !== '/login') router.push('/login')
+})
+
 
 async function loadAiStats() {
   try {
@@ -176,8 +184,7 @@ async function loadSession() {
     })
     if (!res.ok) {
       if (res.status === 401) {
-        localStorage.removeItem('token')
-        localStorage.removeItem('user')
+        clearAuthStorage()
         router.push('/login')
       }
       return
@@ -196,10 +203,11 @@ function openProfile() {
   showProfile.value = true
 }
 
-function logout() {
+async function logout() {
   showLogout.value = false
-  localStorage.removeItem('token')
-  localStorage.removeItem('user')
+  // 先让服务端作废该用户所有 token；网络异常也不阻塞本地登出
+  try { await apiLogout() } catch { /* 失败也要退出 */ }
+  clearAuthStorage()
   currentUser.value = null
   canViewCost.value = false
   router.push('/login')
@@ -229,6 +237,16 @@ async function saveProfile() {
     })
     if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '保存失败') }
     const data = await res.json()
+    if (body.password) {
+      // 后端改密后该用户所有已签发 token 立即失效，手上这个也已被作废 → 直接回登录页
+      clearAuthStorage()
+      currentUser.value = null
+      canViewCost.value = false
+      showProfile.value = false
+      showToast('密码已修改，请重新登录', 'success')
+      router.push('/login')
+      return
+    }
     currentUser.value = data.user
     showToast('已保存', 'success')
     showProfile.value = false

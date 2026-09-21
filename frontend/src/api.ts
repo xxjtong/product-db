@@ -22,6 +22,20 @@ export async function readErrorDetail(res: Response): Promise<string> {
   }
 }
 
+/** 清理本地凭据（token / user）。登出与 401 统一处理都走这里，避免两处逻辑漂移。 */
+export function clearAuthStorage() {
+  localStorage.removeItem('token')
+  localStorage.removeItem('user')
+}
+
+// 401 统一处理回调：由 App 层注册（跳转要用 router，这里直接 import 会和
+// router → views → api 形成循环依赖，所以只在 api 里做「清理 + 通知」）
+let onUnauthorized: (() => void) | null = null
+
+export function setUnauthorizedHandler(handler: () => void) {
+  onUnauthorized = handler
+}
+
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem('token')
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -38,11 +52,20 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
     } catch {
       message = await res.text().catch(() => '') || res.statusText
     }
+    if (res.status === 401) {
+      // token 过期或被作废：清掉本地凭据并回登录页，避免用户卡在报错页面
+      clearAuthStorage()
+      onUnauthorized?.()
+    }
     throw new ApiError(res.status, message)
   }
   if (res.status === 204) return {} as T
   return res.json()
 }
+
+// --- Auth ---
+/** 登出：让服务端立刻作废该用户所有已签发的 token */
+export const logout = () => api<{ ok: boolean }>('/auth/logout', { method: 'POST' })
 
 // --- Dictionaries ---
 export const fetchCommMethods = (page = 1, perPage = 500) => api<{ comm_methods: { id: number; name: string; method_type?: string; description?: string }[]; total: number }>(`/dicts/comm-methods?page=${page}&per_page=${perPage}`)

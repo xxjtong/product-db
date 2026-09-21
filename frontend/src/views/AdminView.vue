@@ -324,21 +324,21 @@ async function toggleField(key: string) {
   if (!fv) return; fv.visible = !fv.visible
   const label = fv.label
   try {
-    await fetch('/product-db/api/admin/fields', { method: 'PUT', headers: h(), body: JSON.stringify({ [key]: fv.visible }) })
+    await adminApi('/product-db/api/admin/fields', { method: 'PUT', body: JSON.stringify({ [key]: fv.visible }) })
     showToast(fv.visible ? `「${label}」已对普通用户可见` : `「${label}」已对普通用户隐藏`, 'success')
-  } catch { fv.visible = !fv.visible; showToast('保存失败', 'error') }
+  } catch (e: any) { fv.visible = !fv.visible; showToast(e.message || '保存失败', 'error') }
 }
 
 // AI prompt
 async function saveAiSettings() {
   aiSaving.value = true
   try {
-    await fetch('/product-db/api/admin/ai-settings', {
-      method: 'PUT', headers: h(),
+    await adminApi('/product-db/api/admin/ai-settings', {
+      method: 'PUT',
       body: JSON.stringify({ prompts: aiPrompts.value, models: aiModels.value }),
     })
     showToast('已保存', 'success')
-  } catch (e: any) { showToast(e.message, 'error') }
+  } catch (e: any) { showToast(e.message || '保存失败', 'error') }
   aiSaving.value = false
 }
 
@@ -346,9 +346,9 @@ async function saveAiSettings() {
 async function toggleReg() {
   regOpen.value = !regOpen.value
   try {
-    await fetch('/product-db/api/settings/registration_open', { method: 'PUT', headers: h(), body: JSON.stringify({ value: regOpen.value ? 'true' : 'false' }) })
+    await adminApi('/product-db/api/settings/registration_open', { method: 'PUT', body: JSON.stringify({ value: regOpen.value ? 'true' : 'false' }) })
     showToast(regOpen.value ? '注册已开放' : '注册已关闭', 'success')
-  } catch { regOpen.value = !regOpen.value; showToast('保存失败', 'error') }
+  } catch (e: any) { regOpen.value = !regOpen.value; showToast(e.message || '保存失败', 'error') }
 }
 
 // Users
@@ -375,9 +375,10 @@ async function saveUser() {
     // 所以它单独处理这个字段，不能省略
     const payload = { ...rest, can_view_cost: cost_perm === '' ? null : cost_perm === 'true' }
     const url = editing.value ? `/product-db/api/admin/users/${editing.value.id}` : '/product-db/api/admin/users'
-    await fetch(url, { method: editing.value ? 'PUT' : 'POST', headers: h(), body: JSON.stringify(payload) })
+    await adminApi(url, { method: editing.value ? 'PUT' : 'POST', body: JSON.stringify(payload) })
+    // 成功才关弹窗；失败时保留弹窗，管理员填的内容不会丢
     modalVisible.value = false; showToast('已保存', 'success'); load()
-  } catch (e: any) { showToast(e.message, 'error') }
+  } catch (e: any) { showToast(e.message || '保存失败', 'error') }
 }
 
 function resetPwd(u: any) { pwdTarget.value = u; newPwd.value = ''; pwdModalVisible.value = true }
@@ -386,17 +387,17 @@ async function doResetPwd() {
   if (!newPwd.value || newPwd.value.length < 8) { showToast('密码至少8位', 'error'); return }
   if (!pwdTarget.value) return
   try {
-    await fetch(`/product-db/api/admin/users/${pwdTarget.value.id}/password`, { method: 'PUT', headers: h(), body: JSON.stringify({ password: newPwd.value }) })
+    await adminApi(`/product-db/api/admin/users/${pwdTarget.value.id}/password`, { method: 'PUT', body: JSON.stringify({ password: newPwd.value }) })
     pwdModalVisible.value = false; showToast('密码已重置', 'success')
-  } catch (e: any) { showToast('重置失败', 'error') }
+  } catch (e: any) { showToast(e.message || '重置失败', 'error') }
 }
 
 async function doDelete(u: any) {
   showConfirm('删除用户', `确定删除用户「${u.username}」？`, async () => {
     try {
-      await fetch(`/product-db/api/admin/users/${u.id}`, { method: 'DELETE', headers: h() })
+      await adminApi(`/product-db/api/admin/users/${u.id}`, { method: 'DELETE' })
       showToast('已删除', 'success'); load()
-    } catch (e: any) { showToast('删除失败', 'error') }
+    } catch (e: any) { showToast(e.message || '删除失败', 'error') }
   })
 }
 

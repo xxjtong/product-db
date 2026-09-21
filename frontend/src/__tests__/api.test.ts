@@ -67,3 +67,28 @@ describe('localStorage mock', () => {
     expect(localStorage.getItem('token')).toBeNull()
   })
 })
+
+// token 过期/被作废后各页面会陆续收到 401：api() 统一清凭据并通知 App 层跳登录页，
+// 避免用户卡在一堆报错提示里
+describe('api() 401 统一处理', () => {
+  beforeEach(() => storage.clear())
+
+  it('清理本地凭据并触发注入的处理回调', async () => {
+    const mod = await import('../api')
+    const handler = vi.fn()
+    mod.setUnauthorizedHandler(handler)
+    storage.set('token', 'expired-token')
+    storage.set('user', '{"id":1}')
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false, status: 401, statusText: 'Unauthorized',
+      json: async () => ({ detail: 'token 已失效' }),
+      text: async () => '',
+    }) as any
+
+    await expect(mod.api('/products')).rejects.toThrow('token 已失效')
+
+    expect(storage.has('token')).toBe(false)
+    expect(storage.has('user')).toBe(false)
+    expect(handler).toHaveBeenCalled()
+  })
+})
