@@ -2,7 +2,64 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-17, R36)
+## 最新变更 (2026-09-21, R37)
+
+### R37: 成本价可见性 —— 统一判定 + 补漏 + 按用户三态覆盖 (2026-09-21)
+
+起因是「给每个用户单独设置成本价显示权限」。评估阶段先发现：**现有的「成本价对非管理员隐藏」本身就是漏的**，所以本次分三步做——统一判定、补漏、再加按用户覆盖。
+
+**A) 泄漏面（评估时实测确认，共 4 类）**
+| 位置 | 问题 |
+|------|------|
+| `GET /solutions`、`/solutions/{id}` | 直接返回 `Solution.to_dict()`（含 `total_cost`）与 `SolutionItem.to_dict()`（含 `product_cost_price`），**方案路径从未接过字段可见性** |
+| `GET/POST/PUT /solutions/{id}/items` | 三个条目接口同样带成本 |
+| `PUT /solutions/{id}/bom-snapshot` | 直接返回落库快照，J 列成本原样回传 |
+| `GET /products/export` | 只读全局开关、不看用户 |
+
+根因：字段可见性只认 `cost_price` 这一个键名，而方案用的是 `total_cost` / `product_cost_price`，两个键名都不在覆盖范围内。
+
+**B) 统一判定入口（`app/services/field_visibility.py`）**
+- `cost_visible(user, db)` —— 唯一判定：admin 恒可见 → 按用户覆盖 → 全局开关
+- `hide_cost_in(data, user, db)` —— 统一裁掉 `cost_price` / `product_cost_price` / `total_cost`（含一层 `items`）
+- `apply_field_visibility(data, user, db)` —— 产品序列化入口：成本走 `cost_visible`（支持覆盖），其余字段仍只看全局
+- 删掉三套各自实现（products 内联读全局、quotations `_should_hide_cost`、bom_templates `_cost_visible`）
+
+> 教训：删 `_cost_visible` 时**漏了一个调用点**（`get_bom_snapshot`），是靠测试 `NameError` 才发现的。删符号前先 grep 全量引用。
+
+**C) 「保存即归零」数据丢失（读侧过滤的写侧后果）**
+成本对非管理员隐藏后，BOM 编辑器保存时仍会把成本列原样回传（值来自被裁掉的读结果 → 0/None），而后端是整份替换/重建 → **一次保存就把库里的成本抹掉**。
+- 方案：看不到成本时丢弃客户端提交的所有 J 单元格，再补回服务端已有的 J（`_keep_server_cost`）
+- 报价单：看不到成本时不采信客户端 `cost`，沿用旧快照的 `cost_price`（旧快照没有该键则不写入，而不是写 0）
+- 附带修掉让上面两处失效的匹配缺陷：旧行原来只按 `sort_order` 匹配（假定等于行号），而条目不一定有 sort_order → 匹配不到，`specs/image_url/厂商` 与成本全保不下来。改为 **SKU 优先、位置兜底**
+- 前端也一并收紧：无权限时不上报 `cost` / `J` 单元格
+
+**D) 按用户三态覆盖（本次需求本体）**
+- `users.can_view_cost`：`NULL`=跟随全局（默认，存量用户行为不变）/ `true`=允许 / `false`=禁止；admin 恒可见不受影响
+- 迁移 `e5f6a7b8c9d0`（可空、**不给 server_default**——给了等于把存量用户一次性改权）
+- `PUT /admin/users/{uid}`：该字段**不能交给 `apply_partial_update`**（它跳过 `None`），否则「改回跟随全局」永远存不下去 → 按 `model_fields_set` 单独处理
+- `GET /auth/session` 增加生效后的 `can_view_cost`；前端 `App.vue` provide 后，方案/报价单/产品详情/产品表单/BOM 表格无权限时不渲染成本列（默认 false，避免加载前闪出成本）
+- 管理页用户弹窗加三态下拉（仅对非 admin 显示），用户表加「成本价」列
+
+**E) 生产验证（真实数据、非模拟）**
+| 场景 | 结果 |
+|------|------|
+| 全局关 + 覆盖 NULL | 看不到（`cost_price=None`，`session.can_view_cost=False`） |
+| 覆盖 true（全局仍关） | 看得到 `525.0` —— 覆盖优先于全局 |
+| 全局开 + 覆盖 false | 仍看不到 —— 反向覆盖生效 |
+| 全局开 + 覆盖 NULL | 看得到 —— 跟随全局（两个用户交叉验证） |
+| 方案泄漏封堵 | 非管理员读自己的方案 30：`total_cost`/`product_cost_price` 均无；单独开放后 `total_cost=2415.0` 可见；复原后再次隐藏 |
+| 产品导出 | 非管理员导出 xlsx 的 M 列全空 |
+| 现场复原 | `can_view_cost` 全部回 NULL、全局开关回关 |
+
+> 验证方式说明：为免在生产建账号，用服务器上的 SECRET_KEY 临时自签 5 分钟时效的 token 以真实非管理员身份只读验证，事后无残留（用户权限值、全局开关均已复原）。
+
+**F) 顺带取证：历史数据是否已被清零** —— 方案快照 3 条中 0 条「全为 0」；报价单 174 条中 8 条成本=0，与产品当前成本对照有 3 条「疑似」，但**同一张报价单内其它条目保留了成本**（与「整单保存被清零」的机制不符），更可能是建单时产品尚无成本（快照本就是历史值）。结论：**不做数据回填**（拿今天的成本改历史报价等于篡改历史）。
+
+**测试:** backend **458 passed** (1 skipped, +10) / vitest 69 passed / vue-tsc 0
+
+**变更统计:** 19 文件（4 个提交：`b34492d` 统一判定与补漏 → `a1756b1` 修归零 → `2637e61` 按用户覆盖 → 文档）
+
+## 历史变更 (2026-09-17, R36)
 
 ### R36: 日报加入整体运行情况 + 修 v1 三处数据错误 (2026-09-17)
 
