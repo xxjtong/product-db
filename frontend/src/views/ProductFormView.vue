@@ -311,6 +311,9 @@ function onAiFill(p: Record<string, any>) {
     const cat = flatCategories.value.find((c: any) => c.slug === p.category_slug)
     if (cat) {
       form.value.category_id = cat.id
+      // 品类是多选（category_ids 才是真正提交的字段），只设 category_id 会让
+      // 列表里勾选状态与品类显示不一致（R55）
+      form.value.category_ids = [cat.id]
       onCategoryChange()
     }
   }
@@ -542,41 +545,47 @@ async function save() {
 }
 
 onMounted(async () => {
-  const [catRes, supRes, mfgRes, cmRes, cpRes, psRes, smRes] = await Promise.all([
-    fetchCategories(), fetchSuppliers('', true), fetchManufacturers(1, 200),
-    fetchCommMethods(1, 100), fetchCommProtocols(1, 100), fetchPowerSupplies(1, 100), fetchSensorMetrics(1, 100),
-  ])
-  categories.value = catRes.categories
-  flatCategories.value = flattenTree(categories.value)
-  suppliers.value = supRes.suppliers
-  manufacturers.value = mfgRes.manufacturers
-  commMethods.value = cmRes.comm_methods
-  commProtocols.value = cpRes.comm_protocols
-  powerSupplies.value = psRes.power_supplies
-  sensorMetrics.value = smRes.sensor_metrics
+  try {
+    const [catRes, supRes, mfgRes, cmRes, cpRes, psRes, smRes] = await Promise.all([
+      fetchCategories(), fetchSuppliers('', true), fetchManufacturers(1, 200),
+      fetchCommMethods(1, 100), fetchCommProtocols(1, 100), fetchPowerSupplies(1, 100), fetchSensorMetrics(1, 100),
+    ])
+    categories.value = catRes.categories
+    flatCategories.value = flattenTree(categories.value)
+    suppliers.value = supRes.suppliers
+    manufacturers.value = mfgRes.manufacturers
+    commMethods.value = cmRes.comm_methods
+    commProtocols.value = cpRes.comm_protocols
+    powerSupplies.value = psRes.power_supplies
+    sensorMetrics.value = smRes.sensor_metrics
 
-  if (isEdit.value) {
-    const res = await fetchProduct(Number(route.params.id))
-    const p = res.product
-    form.value = {
-      name: p.name, model: p.model, sku: p.sku, category_id: p.category_id, category_ids: p.category_ids || [p.category_id],
-      manufacturer_id: p.manufacturer_id, supplier_id: p.supplier_id,
-      base_price: p.base_price, cost_price: p.cost_price,
-      description: p.description, status: p.status, parent_id: p.parent_id,
-      comm_methods: p.comm_methods || [],
-      comm_protocols: p.comm_protocols || [],
-      power_supplies: p.power_supplies || [],
-      hardware_interfaces: p.hardware_interfaces || [],
-      sensor_capabilities: p.sensor_capabilities || [],
-      images: p.images?.length ? p.images : (p.image_url ? [{url: p.image_url, is_primary: true, sort_order: 0}] : []),
-      image_url: '',
-      product_url: p.product_url || '',
-      remark: (p.custom_fields && p.custom_fields.remark) || '',
-      specs: { ...(p.specs || {}) },
+    if (isEdit.value) {
+      const res = await fetchProduct(Number(route.params.id))
+      const p = res.product
+      form.value = {
+        name: p.name, model: p.model, sku: p.sku, category_id: p.category_id, category_ids: p.category_ids || [p.category_id],
+        manufacturer_id: p.manufacturer_id, supplier_id: p.supplier_id,
+        base_price: p.base_price, cost_price: p.cost_price,
+        description: p.description, status: p.status, parent_id: p.parent_id,
+        comm_methods: p.comm_methods || [],
+        comm_protocols: p.comm_protocols || [],
+        power_supplies: p.power_supplies || [],
+        hardware_interfaces: p.hardware_interfaces || [],
+        sensor_capabilities: p.sensor_capabilities || [],
+        images: p.images?.length ? p.images : (p.image_url ? [{url: p.image_url, is_primary: true, sort_order: 0}] : []),
+        image_url: '',
+        product_url: p.product_url || '',
+        remark: (p.custom_fields && p.custom_fields.remark) || '',
+        specs: { ...(p.specs || {}) },
+      }
+      if (p.category_id) await onCategoryChange()
     }
-    if (p.category_id) await onCategoryChange()
+  } catch (e: any) {
+    // 以前没有 catch：Promise.all 里任一请求失败都会跳过 loaded=true，页面永久「加载中」（R55）
+    showToast(e?.detail || e?.message || '加载失败，请刷新重试', 'error')
+  } finally {
+    loaded.value = true
   }
-  loaded.value = true
 })
 </script>
 

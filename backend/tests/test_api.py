@@ -2418,3 +2418,87 @@ class TestConfigConsistency:
         from app.config import DB_FILESYSTEM_PATH, settings
 
         assert DB_FILESYSTEM_PATH == settings.DATABASE_URL.replace("sqlite:///", "", 1)
+
+
+class TestR55Security:
+    """R55：agent 审批接口越权（S1/S2）+ 用户可控 URL 的协议白名单（S3）。"""
+
+    def _make_user(self, db, username, role="user"):
+        u = User(username=username, password_hash=hash_password("test123"), role=role)
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        return u
+
+    @staticmethod
+    def _auth(u):
+        return {"Authorization": f"Bearer {create_token(u.id, u.username, u.token_version)}"}
+
+    def test_approvals_are_scoped_to_owner(self, db, auth_headers):
+        """S1：普通用户只能看到自己的待审批任务，管理员看全部"""
+        from app.services.approval_manager import approval_manager
+
+        owner = self._make_user(db, "r55_owner")
+        other = self._make_user(db, "r55_other")
+        task = approval_manager.create(
+            tool_name="create_quotation", tool_label="创建报价单",
+            tool_input={"customer": "owner 的客户"}, summary="s", details={}, user_id=owner.id)
+        try:
+            tasks = client.get("/product-db/api/agent/approvals", headers=auth_headers).json()["tasks"]
+            assert any(t["task_id"] == task.task_id for t in tasks), "管理员应能看到全部"
+
+            tasks = client.get("/product-db/api/agent/approvals", headers=self._auth(owner)).json()["tasks"]
+            assert any(t["task_id"] == task.task_id for t in tasks), "所有者应能看到自己的"
+
+            tasks = client.get("/product-db/api/agent/approvals", headers=self._auth(other)).json()["tasks"]
+            assert all(t["task_id"] != task.task_id for t in tasks), "他人任务（含 tool_input 明细）不得可见"
+        finally:
+            approval_manager._tasks.pop(task.task_id, None)
+
+    def test_test_approval_requires_admin(self, db, auth_headers):
+        """S2：test-approval 只允许管理员（会往审批队列里塞假任务）"""
+        from app.services.approval_manager import approval_manager
+
+        normal = self._make_user(db, "r55_normal")
+        assert client.post("/product-db/api/agent/test-approval",
+                           headers=self._auth(normal)).status_code == 403
+
+        res = client.post("/product-db/api/agent/test-approval", headers=auth_headers)
+        assert res.status_code == 200
+        approval_manager._tasks.pop(res.json()["task_id"], None)
+
+    def test_is_safe_user_url(self):
+        """S3：用户填写的链接只允许 http/https（防 javascript:/data: 变成 XSS 跳板）"""
+        from app.utils.security import is_safe_user_url
+
+        assert is_safe_user_url("https://example.com/a?b=1")
+        assert is_safe_user_url("http://192.168.1.10:8080/portal")   # 内网链接是正常需求，不拦
+        assert not is_safe_user_url("javascript:alert(1)")
+        assert not is_safe_user_url("data:text/html,<script>alert(1)</script>")
+        assert not is_safe_user_url("ftp://example.com/x")
+        assert not is_safe_user_url("example.com")                    # 无协议
+        assert not is_safe_user_url("https://")                       # 无主机
+        assert not is_safe_user_url("")
+
+    def test_product_url_schema_rejects_executable_scheme(self):
+        """S3：product_url 在 schema 层就拦掉可执行协议（前端会直接 window.open 它）"""
+        from app.schemas.product import ProductCreate
+
+        ok = ProductCreate(name="x", category_id=1, product_url="https://example.com/p")
+        assert ok.product_url == "https://example.com/p"
+        with pytest.raises(Exception):
+            ProductCreate(name="x", category_id=1, product_url="javascript:alert(1)")
+
+    def test_file_link_rejects_executable_scheme(self, db, auth_headers):
+        """S3：附件外链同样只允许 http/https"""
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id)
+
+        res = client.post(f"/product-db/api/products/{p.id}/links",
+                          json={"link_url": "javascript:alert(1)", "label": "x"}, headers=auth_headers)
+        assert res.status_code == 400
+        assert "http" in res.json()["detail"]
+
+        res = client.post(f"/product-db/api/products/{p.id}/links",
+                          json={"link_url": "https://example.com/doc", "label": "手册"}, headers=auth_headers)
+        assert res.status_code in (200, 201)

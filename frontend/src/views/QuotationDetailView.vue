@@ -76,7 +76,7 @@ function getDesc(item: { product_snapshot?: { description?: string; specs?: Reco
   return formatDescriptionWithSpecs(snap.description || '', snap.specs || {}) || '—'
 }
 
-function openExport() { if (quotation.value) window.open(quotationExportUrl(quotation.value.id), '_blank') }
+function openExport() { if (quotation.value) window.open(quotationExportUrl(quotation.value.id), '_blank', 'noopener') }
 
 // 税率展示：与导出 xlsx 的 _fmt_rate 一致，13.0 显示为 13（不要出现「13.0%」）
 function fmtRate(rate: unknown): string {

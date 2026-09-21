@@ -15,7 +15,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from app.auth import get_current_user
+from app.auth import get_current_user, require_admin
 from app.config import settings, DB_FILESYSTEM_PATH
 from app.models.ai_usage_log import AIUsageLog
 from app.schemas.ai import AgentChatRequest, AgentApprovalRequest
@@ -215,8 +215,12 @@ async def agent_approval(
 
 @router.get("/agent/approvals")
 async def agent_approvals(user=Depends(get_current_user)):
-    """List pending approval tasks."""
-    pending = approval_manager.get_pending()
+    """List pending approval tasks.
+
+    普通用户只能看到**自己**的待审批任务（tool_input 含业务明细，跨用户可见属越权）；
+    管理员看全部，与 `decide` 的权限判断保持一致（R55）。
+    """
+    pending = approval_manager.get_pending(None if user.role == "admin" else user.id)
     return {
         "tasks": [
             {
@@ -233,8 +237,8 @@ async def agent_approvals(user=Depends(get_current_user)):
 
 
 @router.post("/agent/test-approval")
-async def agent_test_approval(user=Depends(get_current_user)):
-    """Create a test approval task for UI testing."""
+async def agent_test_approval(user=Depends(require_admin)):
+    """Create a test approval task for UI testing. 仅管理员（会往审批队列里塞假任务）。"""
     task = approval_manager.create(
         tool_name="create_quotation",
         tool_label="创建报价单",

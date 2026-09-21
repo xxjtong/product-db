@@ -1,6 +1,8 @@
 """Product Pydantic schemas."""
 from typing import Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.utils.security import is_safe_user_url
 
 
 class ProductCreate(BaseModel):
@@ -29,6 +31,14 @@ class ProductCreate(BaseModel):
     sensor_capabilities: list[dict] = []
     images: list[dict] = []
 
+    @field_validator("product_url")
+    @classmethod
+    def _check_product_url(cls, v: str) -> str:
+        """产品链接只允许 http/https —— 前端会直接打开它，可执行协议就是 XSS 跳板（R55）"""
+        if v and not is_safe_user_url(v):
+            raise ValueError("产品链接只允许 http:// 或 https:// 开头")
+        return v
+
 
 class ProductUpdate(BaseModel):
     """Partial update schema — all fields optional for PUT."""
@@ -56,6 +66,14 @@ class ProductUpdate(BaseModel):
     hardware_interfaces: Optional[list[dict]] = None
     sensor_capabilities: Optional[list[dict]] = None
     images: Optional[list[dict]] = None
+
+    @field_validator("product_url")
+    @classmethod
+    def _check_product_url(cls, v: Optional[str]) -> Optional[str]:
+        """同 ProductCreate：只允许 http/https（R55）"""
+        if v and not is_safe_user_url(v):
+            raise ValueError("产品链接只允许 http:// 或 https:// 开头")
+        return v
 
 
 class ProductResponse(BaseModel):

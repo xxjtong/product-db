@@ -96,6 +96,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, inject } from 'vue'
 import { Trash2Icon, UploadIcon, EyeIcon, DownloadIcon, LinkIcon, ExternalLinkIcon, PencilIcon } from 'lucide-vue-next'
+import { handleUnauthorized } from '../api'
 
 const props = defineProps<{ productId: number; hideEmpty?: boolean }>()
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
@@ -136,6 +137,7 @@ async function preview(f: FileItem) {
   if (f.file_type === 'txt' || f.file_type === 'csv') {
     try {
       const resp = await fetch(previewUrl(f.id))
+      if (handleUnauthorized(resp)) { previewText.value = '登录已过期，请重新登录'; return }
       previewText.value = await resp.text()
     } catch { previewText.value = '加载失败' }
   }
@@ -165,6 +167,7 @@ async function loadFiles() {
     const res = await fetch(`${API_BASE_URL}/products/${props.productId}/files`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
+    if (handleUnauthorized(res)) return
     const data = await res.json()
     files.value = data.files || []
   } catch { /* ignore */ }
@@ -201,7 +204,7 @@ async function onFileSelect(e: Event) {
 // --- Link operations ---
 
 function openLink(f: FileItem) {
-  if (f.link_url) window.open(f.link_url, '_blank')
+  if (f.link_url) window.open(f.link_url, '_blank', 'noopener')
 }
 
 function editLink(f: FileItem) {
@@ -250,10 +253,13 @@ async function doDelete(fileId: number) {
   if (!confirm('确定删除？')) return
   try {
     const token = localStorage.getItem('token')
-    await fetch(`${API_BASE_URL}/products/files/${fileId}`, {
+    const res = await fetch(`${API_BASE_URL}/products/files/${fileId}`, {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${token}` }
     })
+    if (handleUnauthorized(res)) return
+    // 以前不看响应就弹「已删除」：删除失败（如被引用、无权限）也会显示成功（R55）
+    if (!res.ok) { showToast('删除失败', 'error'); return }
     await loadFiles()
     showToast('已删除', 'success')
   } catch { showToast('删除失败', 'error') }

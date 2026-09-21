@@ -92,9 +92,16 @@ class ApprovalManager:
         logger.info("ApprovalTask %s: %s (reason: %s)", task_id, "approved" if approved else "rejected", reason)
         return True
 
-    def get_pending(self) -> list[ApprovalTask]:
-        """List all pending tasks (for status polling)."""
-        return [t for t in self._tasks.values() if not t.event.is_set()]
+    def get_pending(self, user_id: Optional[int] = None) -> list[ApprovalTask]:
+        """List pending tasks (for status polling).
+
+        传 user_id 时只返回该用户的任务 —— 普通用户不应看到他人的待审批内容
+        （task.tool_input 里含业务明细），管理员传 None 看全部（R55）。
+        """
+        tasks = [t for t in self._tasks.values() if not t.event.is_set()]
+        if user_id is not None:
+            tasks = [t for t in tasks if t.user_id == user_id]
+        return tasks
 
     def get(self, task_id: str) -> Optional[ApprovalTask]:
         """Get a task by id (without removing it)."""

@@ -76,7 +76,7 @@
         <tr v-for="m in manufacturers" :key="m.id">
           <td>{{ m.id }}</td>
           <td>{{ m.name }}</td>
-          <td><a v-if="m.website" :href="m.website" target="_blank" class="text-sm">{{ m.website }}</a><span v-else class="text-muted">—</span></td>
+          <td><a v-if="m.website" :href="m.website" target="_blank" rel="noopener" class="text-sm">{{ m.website }}</a><span v-else class="text-muted">—</span></td>
           <td class="font-mono text-sm">{{ m.sort_order ?? 100 }}</td>
           <td style="white-space:nowrap">
             <button v-if="isAdmin" class="btn-icon btn-sm" @click="openEditMfg(m)"><PencilIcon style="width:14px;height:14px" /></button>
@@ -126,7 +126,7 @@
     <Modal :title="editingSup ? '编辑供应商' : '新增供应商'" :visible="supModalVisible" @close="supModalVisible = false">
       <div class="form-grid">
         <div class="form-group"><label>名称 *</label><input v-model="supForm.name" /></div>
-        <div class="form-group"><label>联系人</label><input v-model="supForm.contact" /></div>
+        <div class="form-group"><label>联系人</label><input v-model="supForm.contact_person" /></div>
         <div class="form-group"><label>电话</label><input v-model="supForm.phone" /></div>
         <div class="form-group"><label>邮箱</label><input v-model="supForm.email" /></div>
         <div class="form-group full"><label>备注</label><input v-model="supForm.notes" /></div>
@@ -290,14 +290,14 @@ const supTotal = ref(0)
 const supPage = ref(1)
 const supModalVisible = ref(false)
 const editingSup = ref<Supplier | null>(null)
-const supForm = ref({ name: '', contact: '', phone: '', email: '', notes: '' })
+const supForm = ref({ name: '', contact_person: '', phone: '', email: '', notes: '' })
 
 async function loadSuppliers() {
   const res = await fetchSuppliersPaginated(`page=${supPage.value}&per_page=${perPage.value}`) as any
   suppliers.value = res.suppliers; supTotal.value = res.total
 }
-function openAddSup() { editingSup.value = null; supForm.value = { name: '', contact: '', phone: '', email: '', notes: '' }; supModalVisible.value = true }
-function openEditSup(s: Supplier) { editingSup.value = s; supForm.value = { name: s.name, contact: s.contact_person || '', phone: s.phone || '', email: s.email || '', notes: s.notes || '' }; supModalVisible.value = true }
+function openAddSup() { editingSup.value = null; supForm.value = { name: '', contact_person: '', phone: '', email: '', notes: '' }; supModalVisible.value = true }
+function openEditSup(s: Supplier) { editingSup.value = s; supForm.value = { name: s.name, contact_person: s.contact_person || '', phone: s.phone || '', email: s.email || '', notes: s.notes || '' }; supModalVisible.value = true }
 async function saveSup() {
   try { editingSup.value ? await updateSupplier(editingSup.value.id, supForm.value) : await createSupplier(supForm.value); supModalVisible.value = false; await loadSuppliers(); showToast('已保存', 'success') }
   catch (e: any) { showToast(e.detail || e.message, 'error') }

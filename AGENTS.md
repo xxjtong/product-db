@@ -2,7 +2,52 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-21, R54)
+## 最新变更 (2026-09-21, R55)
+
+### R55: 安全批次 S1–S4 + 前端功能性 Bug F1/F2 (2026-09-21)
+
+**S1 审批列表越权**：`GET /agent/approvals` 返回**全部**待审批任务，普通用户能看到他人的
+`tool_input`（含客户、金额等业务明细）。`approval_manager.get_pending(user_id=None)` 现支持按
+用户过滤；端点按角色取值 —— 管理员看全部（与 `decide` 的权限判断一致），普通用户只看自己的。
+
+**S2 测试审批接口未限权**：`POST /agent/test-approval` 会往审批队列塞假任务，普通用户也能调
+→ 改 `require_admin`。
+
+**S3 用户可控 URL 无协议白名单**：
+- 新增 `utils.security.is_safe_user_url()`：只允许 http/https 且必须带主机。与 `validate_url`
+  （SSRF 防护、还会拦内网 IP）**分工不同** —— 这里防的是 `javascript:`/`data:` 这类可执行协议经
+  `window.open` / `<a href>` 变成 XSS 跳板，而**不拦内网地址**（用户填内网系统链接是正常需求）。
+- 落地点：`product_url`（Pydantic validator，覆盖 create/update）、附件外链
+  `POST /products/{id}/links` 与 `PATCH /products/files/{id}`。
+- 前端 8 处补 `noopener`：`window.open(..., '_blank', 'noopener')` ×4（含用户可控的 `product_url`、
+  附件外链、导出链接）与 `target="_blank"` 加 `rel="noopener"` ×4（Agent 消息里的文件链接、
+  AI 回复自动转链接、厂商官网）。
+
+**S4 401 处理只覆盖 `api()`**：抽出 `api.ts` 的 `handleUnauthorized(res)`（清凭据 + 通知 App 跳登录），
+接到全部原生 fetch 通道：`uploadProductImage`、`streamAiChat`、AdminView 的 `adminApi`、
+ProductFiles 三处、AgentView 的审批提交。此前 token 过期/被作废时这些通道只报错不跳登录，
+用户卡在报错页（R48 的 H2 就是其中一例）。
+
+**F1 供应商联系人保存被静默丢弃**：`DictionariesView` 表单用 `supForm.contact`，后端只认
+`contact_person` → 联系人永远存不进去（模板 + 3 处赋值改齐）。
+
+**F2 两处**：
+- `ProductFormView.onMounted` 的 `Promise.all` 无 try/catch → 任一请求失败就跳过 `loaded = true`，
+  页面**永久「加载中」**；现在 catch 提示错误、finally 结束加载态。
+- 同文件「按 slug 填品类」只设 `category_id`、没同步 `category_ids`（多选实际提交后者）→ 勾选
+  状态与实际品类不一致。
+
+**顺带修掉两处「谎报成功」**：`ProductFiles.doDelete` 不看响应就弹「已删除」；
+`AgentView.approveDecision` 无条件置为已审批（提交失败也显示已通过）—— 均改为按响应判定。
+
+**测试**：backend +5（审批列表三种视角、test-approval 权限、`is_safe_user_url` 边界、
+product_url schema 拒绝 `javascript:`、附件外链拒绝）；前端 mock 补 `handleUnauthorized`
+（缺了它，「失败不谎报成功」用例会因 TypeError 拿到错误信息而不是真实错误）。
+
+**本轮自查出的两处失误**（已修）：`security.py` 改 `validate_url` 时误删 `parsed = urlparse(url)`
+（立即改回）；`AgentView` 里用了未定义的 `showToast`（该文件此前没有 toast，改为 inject）。
+
+## 历史变更 (2026-09-21, R54)
 
 ### R54: 清理历史遗留的空库文件 `frontend/product_db.db` (2026-09-21)
 

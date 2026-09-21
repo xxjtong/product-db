@@ -5,6 +5,12 @@ from urllib.parse import urlparse
 
 _ALLOWED_SCHEMES = {"http", "https"}
 
+# 用户填写的链接（产品链接、附件外链）：只允许 http/https。
+# 这些链接会被前端直接 window.open / <a href> 打开，`javascript:`、`data:` 之类
+# 可执行协议就成了 XSS 跳板 —— 和 validate_url（服务端抓取用的 SSRF 防护）关注点不同，
+# 所以单独一个函数，不拦内网 IP（用户填内网链接是正常需求）。
+_USER_URL_SCHEMES = {"http", "https"}
+
 _BLOCKED_HOSTNAMES = {
     "169.254.169.254",
     "metadata.google.internal",
@@ -77,4 +83,17 @@ def validate_url(url: str) -> bool:
         return False
     return all(_is_ip_allowed(ip) for ip in resolved)
 
-    return True
+
+def is_safe_user_url(url: str) -> bool:
+    """用户填写的链接是否安全（只允许 http/https 且必须带主机）。
+
+    与 `validate_url` 的分工：那个用于「服务端按用户给的 URL 去抓取」的场景（SSRF 防护，
+    还会拦内网 IP）；这个用于「用户存一个链接、前端打开它」的场景 —— 要防的是
+    `javascript:`/`data:` 这类可执行协议（配合 window.open / <a href> 就是 XSS 跳板），
+    而不能拦内网地址（用户填内网系统链接是正常需求）。
+    """
+    try:
+        parsed = urlparse(str(url or "").strip())
+    except ValueError:
+        return False
+    return parsed.scheme.lower() in _USER_URL_SCHEMES and bool(parsed.netloc)

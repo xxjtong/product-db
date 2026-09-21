@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.config import settings
 from app.utils.helpers import get_or_404
+from app.utils.security import is_safe_user_url
 from app.auth import get_current_user, filter_by_ownership, check_ownership
 from app.models.product_file import ProductFile
 from app.models.product import Product
@@ -83,6 +84,8 @@ def create_link(
     url = body.link_url.strip()
     if not url:
         raise HTTPException(400, "URL不能为空")
+    if not is_safe_user_url(url):
+        raise HTTPException(400, "链接只允许 http:// 或 https:// 开头")
     pf = ProductFile(
         product_id=product_id,
         filename=body.label or url,
@@ -117,6 +120,8 @@ def update_file_link(
         url = body.link_url.strip()
         if not url:
             raise HTTPException(400, "URL不能为空")
+        if not is_safe_user_url(url):
+            raise HTTPException(400, "链接只允许 http:// 或 https:// 开头")
         pf.link_url = url
         if not pf.label:
             pf.filename = url

@@ -231,7 +231,7 @@ const unmatchedSpecs = computed(() => {
 })
 
 function openUrl(url: string) {
-  window.open(url, '_blank')
+  window.open(url, '_blank', 'noopener')
 }
 
 function catColor(name: string): string {

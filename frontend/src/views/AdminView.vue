@@ -185,6 +185,7 @@ import ConfirmDialog from '../components/ConfirmDialog.vue'
 import AsyncContainer from '../components/AsyncContainer.vue'
 import Pagination from '../components/Pagination.vue'
 import AiUsageStats from '../components/AiUsageStats.vue'
+import { handleUnauthorized } from '../api'
 
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 const token = () => localStorage.getItem('token') || ''
@@ -277,7 +278,12 @@ const aiUsage = ref<any>(null)
 
 async function adminApi(url: string, opts?: any) {
   const res = await fetch(url, { headers: h(), ...opts })
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || '请求失败')
+  if (!res.ok) {
+    // 401（token 过期/被作废）也要走统一处理：这里用的是原生 fetch，
+    // 不接的话管理页会一直报错却不跳登录（R55）
+    handleUnauthorized(res)
+    throw new Error((await res.json().catch(() => ({}))).detail || '请求失败')
+  }
   return res.json()
 }
 

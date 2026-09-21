@@ -36,6 +36,19 @@ export function setUnauthorizedHandler(handler: () => void) {
   onUnauthorized = handler
 }
 
+/**
+ * 401 的统一处理：清掉本地凭据并通知 App 跳登录页。
+ *
+ * 组件里用原生 fetch 的地方（上传、AI 流、管理页等）也要调用它 —— 只用 api() 覆盖不到，
+ * 那些通道会一直失败却不跳登录，用户卡在报错页面（R55）。
+ */
+export function handleUnauthorized(res: Response): boolean {
+  if (res.status !== 401) return false
+  clearAuthStorage()
+  onUnauthorized?.()
+  return true
+}
+
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem('token')
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -54,8 +67,7 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
     }
     if (res.status === 401) {
       // token 过期或被作废：清掉本地凭据并回登录页，避免用户卡在报错页面
-      clearAuthStorage()
-      onUnauthorized?.()
+      handleUnauthorized(res)
     }
     throw new ApiError(res.status, message)
   }
@@ -138,6 +150,7 @@ export const uploadProductImage = async (formData: FormData) => {
     headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
     body: formData,
   })
+  if (handleUnauthorized(res)) throw new ApiError(401, '登录已过期，请重新登录')
   const data = await res.json()
   if (!res.ok) throw new Error(data.detail || '上传失败')
   return data
@@ -217,6 +230,7 @@ export async function* streamAiChat(input: string, conversationId?: number | nul
   if (!res.ok) {
     // Non-SSE error response (e.g. 422 validation) — surface it instead of
     // silently ending the generator with no output.
+    handleUnauthorized(res)
     throw new ApiError(res.status, await readErrorDetail(res))
   }
   if (!res.body) throw new ApiError(res.status, 'Response body is empty')

@@ -33,6 +33,9 @@ vi.mock('vue-router', () => ({
 
 // Mock api module
 vi.mock('../api', () => ({
+  // 原生 fetch 通道的 401 统一处理（R55 新增导出）：未提供时调用会抛 TypeError，
+  // 会让「失败不谎报成功」这类用例拿不到真实错误信息
+  handleUnauthorized: () => false,
   // ImportView 用它把非 2xx 响应体转成可读错误
   readErrorDetail: async (res: any) => {
     try {

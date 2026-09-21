@@ -53,7 +53,7 @@
               </template>
               <template v-else><span v-html="renderMd(m.content as string)"></span></template>
               <div v-if="m.fileUrls?.length" class="agent-msg-files">
-                <a v-for="(fu, fi) in m.fileUrls" :key="fi" :href="fu.url" target="_blank" class="agent-file-link" :class="{ dead: !fu.url }">
+                <a v-for="(fu, fi) in m.fileUrls" :key="fi" :href="fu.url" target="_blank" rel="noopener" class="agent-file-link" :class="{ dead: !fu.url }">
                   <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
                   {{ fu.name }}
                 </a>
@@ -143,6 +143,9 @@ import { useFileDrop } from '../composables/useFileDrop'
 import { BotIcon, PlusIcon, HistoryIcon } from 'lucide-vue-next'
 import DOMPurify from 'dompurify'
 import { formatTime } from '../utils/time'
+import { handleUnauthorized } from '../api'
+
+const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
 // ── Types ──────────────────────────────────────────────
 interface Message {
@@ -343,7 +346,7 @@ function renderMd(text: string): string {
     .replace(RE_NUM_LIST, '<div class="md-li">$1. $2</div>')
     .replace(RE_BULLET, '<div class="md-li">• $1</div>')
     .replace(RE_BLOCKQUOTE, '<blockquote>$1</blockquote>')
-    .replace(RE_URL, '<a href="$1" target="_blank">$1</a>')
+    .replace(RE_URL, '<a href="$1" target="_blank" rel="noopener">$1</a>')
 
   html = renderTable(html)
   html = html.replace(RE_NL, '<br>')
@@ -358,14 +361,19 @@ async function approveDecision(m: Message, approved: boolean) {
   const taskId = m._approval.task_id
   try {
     const token = localStorage.getItem('token')
-    await fetch(`/product-db/api/agent/approval/${taskId}`, {
+    const res = await fetch(`/product-db/api/agent/approval/${taskId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ approved, reason: approved ? '' : '用户拒绝' }),
     })
+    // 401 走统一处理；其余失败不能装作审批成功（此前无条件置 approved，R55）
+    if (handleUnauthorized(res) || !res.ok) {
+      showToast('审批提交失败，请刷新后重试', 'error')
+      return
+    }
     m._approval.status = approved ? 'approved' : 'rejected'
     saveMessages()
-  } catch { /* ignore */ }
+  } catch { showToast('审批提交失败', 'error') }
 }
 
 // ── SSE Streaming ──────────────────────────────────────
