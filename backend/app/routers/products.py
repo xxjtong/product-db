@@ -302,10 +302,14 @@ def export_products(
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
+    # 产品清单是全库导出、没有客户/项目维度，用日期区分（带客户与项目名的是
+    # 报价单、方案 BOM 这类有归属的导出）
+    from app.utils.helpers import attachment_disposition
+    stamp = datetime.now().strftime("%Y%m%d")
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename*=UTF-8''products.xlsx"},
+        headers={"Content-Disposition": attachment_disposition(f"产品清单_{stamp}.xlsx", f"products_{stamp}.xlsx")},
     )
 
 
@@ -724,11 +728,19 @@ def spec_sheet(product_id: int, db: Session = Depends(get_db), user=Depends(get_
         raise HTTPException(404, "Product not found")
 
     html = build_spec_html(p, db)
-    filename = re.sub(r'[^\w\-_.]', '_', p.name or 'product')
+    # 文件名带产品名与型号：产品规格书_名称_型号.pdf（PDF 分支才会用到；生成失败时
+    # 走下面的 HTML 内联展示，那时没有下载文件名）
+    from app.utils.helpers import attachment_disposition, safe_filename_part
+    filename = "_".join(x for x in [
+        "产品规格书",
+        safe_filename_part(p.name, f"product{product_id}"),
+        safe_filename_part(p.model),
+    ] if x) + ".pdf"
 
     # Try CLI weasyprint for PDF
     import shutil
     wp = settings.WEASYPRINT_PATH or shutil.which("weasyprint")
+    html_path = pdf_path = None      # 供 finally 兜底：临时文件创建失败时也要能清理
     if wp:
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as html_f:
@@ -754,14 +766,15 @@ def spec_sheet(product_id: int, db: Session = Depends(get_db), user=Depends(get_
                 return StreamingResponse(
                     BytesIO(pdf_bytes),
                     media_type="application/pdf",
-                    headers={"Content-Disposition": f"attachment; filename={filename}-spec-sheet.pdf"},
+                    headers={"Content-Disposition": attachment_disposition(filename, f"spec-sheet-{product_id}.pdf")},
                 )
         except Exception as e:
             logging.getLogger("uvicorn").warning(f"PDF generation failed for product {product_id}: {e}")
         finally:
+            # html_path/pdf_path 可能还没赋值（临时文件创建就失败）
             for path in [html_path, pdf_path]:
                 try:
-                    if os.path.exists(path): os.unlink(path)
+                    if path and os.path.exists(path): os.unlink(path)
                 except OSError:
                     pass
 

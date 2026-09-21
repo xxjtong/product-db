@@ -319,11 +319,18 @@ def export_bom_xlsx(solution_id: int, db: Session = Depends(get_db), user=Depend
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
-    filename = f"bom_solution_{solution_id}.xlsx"
+    # 文件名带客户与方案名，便于区分：BOM_客户_方案名_方案ID.xlsx
+    from app.utils.helpers import attachment_disposition, safe_filename_part
+    filename = "_".join(p for p in [
+        "BOM",
+        safe_filename_part(sol.client_name),
+        safe_filename_part(sol.name),
+        f"id{solution_id}",
+    ] if p) + ".xlsx"
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+        headers={"Content-Disposition": attachment_disposition(filename, f"bom_solution_{solution_id}.xlsx")},
     )
 
 

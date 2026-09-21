@@ -1735,3 +1735,85 @@ class TestMasterDataAdminOnly:
 
         res = client.post("/product-db/api/quotations", json={"title": "普通用户报价"}, headers=headers)
         assert res.status_code == 201, res.text
+
+
+class TestExportFilenames:
+    """导出文件名要带客户与项目名（便于区分），且中文名必须正确编码。
+
+    Content-Disposition 双写：`filename=<ASCII 回退>` 兼容老客户端，
+    `filename*=UTF-8''<百分号编码>` 才是真正展示给用户的名字 —— HTTP header 只能放
+    latin-1，中文直接塞进去在部分客户端会乱码甚至报错。
+    """
+
+    def test_safe_filename_part_cleans_input(self):
+        from app.utils.helpers import safe_filename_part
+
+        assert safe_filename_part("SMC/华东") == "SMC 华东"        # 路径符号不落地
+        assert safe_filename_part('a:b*c?d"e<f>g|h\\i') == "a b c d e f g h i"
+        assert safe_filename_part("  ..  ") == ""
+        assert safe_filename_part(None, "fallback") == "fallback"
+        assert len(safe_filename_part("长" * 100)) == 40            # 超长截断
+
+    def test_quotation_export_filename_has_client_and_title(self, db):
+        from urllib.parse import quote
+
+        qt = client.post("/product-db/api/quotations",
+                         json={"title": "星纵物联网方案", "client_name": "SMC/华东"}).json()["quotation"]
+        cd = client.get(f"/product-db/api/quotations/{qt['id']}/export-xlsx").headers["content-disposition"]
+        assert cd.startswith("attachment;")
+        assert f'filename="quotation_{qt["id"]}.xlsx"' in cd                      # ASCII 回退
+        assert quote("报价单_SMC 华东_星纵物联网方案", safe="") in cd               # 客户 + 项目名
+        assert quote(qt["quote_number"], safe="") in cd                           # 编号保证唯一
+
+    def test_bom_export_filename_has_client_and_name(self, db):
+        from urllib.parse import quote
+
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id)
+        sol = Solution(name="某园区方案", client_name="华润")
+        db.add(sol)
+        db.commit()
+        db.refresh(sol)
+        db.add(SolutionItem(solution_id=sol.id, product_id=p.id, quantity=1,
+                            unit_price=100, discount_rate=100))
+        db.commit()
+
+        res = client.get(f"/product-db/api/solutions/{sol.id}/bom-snapshot/export-xlsx")
+        assert res.status_code == 200
+        cd = res.headers["content-disposition"]
+        assert quote("BOM_华润_某园区方案", safe="") in cd
+        assert f'filename="bom_solution_{sol.id}.xlsx"' in cd
+
+    def test_product_export_filename_has_date(self, db):
+        """产品清单是全库导出、没有客户/项目维度，用日期区分"""
+        from datetime import datetime
+        from urllib.parse import quote
+
+        cd = client.get("/product-db/api/products/export").headers["content-disposition"]
+        stamp = datetime.now().strftime("%Y%m%d")
+        assert f'filename="products_{stamp}.xlsx"' in cd
+        assert quote(f"产品清单_{stamp}", safe="") in cd
+
+    def test_spec_sheet_pdf_filename(self, db, monkeypatch):
+        """PDF 分支的文件名要带产品名与型号；顺带证明中文不会让 header 编码报错"""
+        import subprocess
+        from urllib.parse import quote
+
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, name="雷达传感器/室外", model="VS373-470M")
+
+        def fake_run(cmd, **kwargs):
+            with open(cmd[2], "wb") as f:      # argv: [wp, html, pdf, -e, utf-8]
+                f.write(b"%PDF-1.4" + b"0" * 200)
+            return type("R", (), {"returncode": 0})()
+
+        # 直接给 weasyprint 路径，绕开 shutil.which（该 import 在函数内部，无法按模块属性 patch）
+        monkeypatch.setattr("app.config.settings.WEASYPRINT_PATH", "/usr/bin/weasyprint")
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        res = client.get(f"/product-db/api/products/{p.id}/spec-sheet")
+        assert res.status_code == 200
+        assert res.headers["content-type"] == "application/pdf"
+        cd = res.headers["content-disposition"]
+        assert quote("产品规格书_雷达传感器 室外_VS373-470M", safe="") in cd
+        assert f'filename="spec-sheet-{p.id}.pdf"' in cd

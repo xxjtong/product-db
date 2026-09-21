@@ -436,11 +436,18 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
-    filename = f"quotation_{qt.quote_number or quotation_id}.xlsx"
+    # 文件名带客户与项目名，便于区分：报价单_客户_项目_编号.xlsx
+    from app.utils.helpers import attachment_disposition, safe_filename_part
+    filename = "_".join(p for p in [
+        "报价单",
+        safe_filename_part(qt.client_name),
+        safe_filename_part(qt.title),
+        safe_filename_part(qt.quote_number, f"id{quotation_id}"),
+    ] if p) + ".xlsx"
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+        headers={"Content-Disposition": attachment_disposition(filename, f"quotation_{quotation_id}.xlsx")},
     )
 
 

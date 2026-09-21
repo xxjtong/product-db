@@ -597,13 +597,24 @@ class TestProductsMissingRoutes:
                           headers=auth_headers)
         assert resp.status_code == 200
 
-    def test_spec_sheet_endpoint(self, db, auth_headers):
+    def test_spec_sheet_falls_back_to_html_without_weasyprint(self, db, auth_headers, monkeypatch):
+        """没有 weasyprint 时退回内联 HTML 展示。
+
+        注意历史：修掉文件名编码问题之前，中文产品名会让 Content-Disposition 编码
+        报错（被 except 吞掉），所以**永远**走这个兜底分支（R40）。现在只有真的
+        没有 weasyprint 时才走，所以要显式把 weasyprint 关掉来测这个分支。
+        """
+        import shutil
+        monkeypatch.setattr("app.config.settings.WEASYPRINT_PATH", "")
+        monkeypatch.setattr(shutil, "which", lambda name: None)
+
         cat = _seed_category(db)
         p = _seed_product(db, category_id=cat.id, specs={"ip": "IP67"})
         resp = client.get(f"/product-db/api/products/{p.id}/spec-sheet",
                           headers=auth_headers)
         assert resp.status_code == 200
         assert "text/html" in resp.headers["content-type"]
+        assert "<html" in resp.text.lower()
 
     def test_product_with_parent(self, db, auth_headers):
         cat = _seed_category(db)
