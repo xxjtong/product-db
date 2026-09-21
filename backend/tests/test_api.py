@@ -1191,6 +1191,68 @@ class TestFieldVisibility:
         assert not [k for k in cells if k.startswith("J")], "保存响应不得回传成本列"
         assert cells.get("B1", {}).get("v") == "产品名称", "其它列必须保留"
 
+    def test_bom_save_keeps_server_cost_for_user(self, db):
+        """回归：非管理员保存 BOM 不得把库里的成本列抹成 0。
+
+        前端保存时会无条件回传 J 列，而它来自被裁掉成本列的读取结果（值为 0），
+        保存又是整份快照替换 —— 历史上一次保存就把成本清零，之后管理员看到全 0。
+        """
+        self._clear_field_settings(db)
+        self._seed_field_setting(db, "cost_price", False)
+        user = self._make_user(db)
+        admin = db.query(User).filter_by(username="admin").first()
+        sid, _item = self._seed_solution_with_cost(db, user)
+
+        # admin 触发生成快照（落库 J3 = 66.6）
+        res = client.get(f"/product-db/api/solutions/{sid}/bom-snapshot",
+                         headers=self._auth_for(admin))
+        assert res.status_code == 200
+        assert res.json()["bom_snapshot"]["snapshot"]["cells"]["J3"]["v"] == 66.6
+
+        # 非管理员按前端行为提交：J3 是 0，同时改了其它列
+        payload = {"cells": {
+            "B3": {"v": "改名后的产品"}, "E3": {"v": 3}, "F3": {"v": 50},
+            "G3": {"v": 100}, "I3": {"v": "改备注"}, "J3": {"v": 0},
+        }, "sheet_name": "BOM"}
+        res = client.put(f"/product-db/api/solutions/{sid}/bom-snapshot",
+                         json={"snapshot": payload}, headers=self._auth_for(user))
+        assert res.status_code == 200
+
+        # 库里成本必须还是服务端原值，其它列按客户端提交保存
+        cells = client.get(f"/product-db/api/solutions/{sid}/bom-snapshot",
+                           headers=self._auth_for(admin)).json()["bom_snapshot"]["snapshot"]["cells"]
+        assert cells["J3"]["v"] == 66.6, "保存不得抹掉成本列"
+        assert cells["B3"]["v"] == "改名后的产品"
+        assert cells["I3"]["v"] == "改备注"
+
+    def test_quotation_bom_save_keeps_server_cost_for_user(self, db):
+        """回归：非管理员保存报价单 BOM 不得把快照里的 cost_price 归零。"""
+        self._clear_field_settings(db)
+        self._seed_field_setting(db, "cost_price", False)
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, base_price=100, cost_price=66.6)
+        user = self._make_user(db)
+        admin = db.query(User).filter_by(username="admin").first()
+
+        qid = client.post("/product-db/api/quotations", json={"title": "T"},
+                          headers=self._auth_for(user)).json()["quotation"]["id"]
+        assert client.post(f"/product-db/api/quotations/{qid}/items",
+                           json={"product_id": p.id, "quantity": 1, "unit_price": 50},
+                           headers=self._auth_for(user)).status_code == 201
+
+        # 前端保存 BOM 的载荷：cost 来自读取结果（非管理员拿到的是 None）
+        res = client.put(f"/product-db/api/quotations/{qid}/bom",
+                         json={"rows": [{"name": p.name, "sku": p.sku or "SKU-1", "model": "",
+                                         "description": "", "qty": 2, "price": 50,
+                                         "discount": 100, "remark": "", "cost": None}]},
+                         headers=self._auth_for(user))
+        assert res.status_code == 200
+
+        snap = client.get(f"/product-db/api/quotations/{qid}",
+                          headers=self._auth_for(admin)).json()["quotation"]["items"][0]["product_snapshot"]
+        assert snap.get("cost_price") == 66.6, "保存不得把成本归零"
+        assert snap.get("name") == p.name, "其它字段仍按客户端提交保存"
+
     def test_product_export_hides_cost_column(self, db):
         """产品导出 xlsx 的 M 列（成本，第 13 列）对普通用户必须为空。"""
         import io

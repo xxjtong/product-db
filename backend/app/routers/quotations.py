@@ -459,17 +459,35 @@ def save_quotation_bom(quotation_id: int, data: dict, db: Session = Depends(get_
     qt = get_or_404(db, Quotation, quotation_id, "Quotation not found")
     check_ownership(qt, user, strict=True)
     rows = data.get("rows", [])
+    can_see_cost = cost_visible(user, db)
     # Preserve old data that BOM editor doesn't carry
-    old_items = {qi.sort_order: qi for qi in
-                 db.query(QuotationItem).filter_by(quotation_id=quotation_id).all()}
+    # 旧行按「SKU 优先、位置兜底」匹配：原来只用 sort_order（假定等于行号），
+    # 而条目不一定有 sort_order（直接调条目接口创建时为 NULL）→ 匹配不到，
+    # specs/image_url/厂商 与成本都保不下来。
+    old_items = (db.query(QuotationItem)
+                 .filter_by(quotation_id=quotation_id)
+                 .order_by(QuotationItem.sort_order, QuotationItem.id).all())
+    old_by_sku = {}
+    for qi in old_items:
+        sku = ((qi.product_snapshot or {}).get("sku") or "").strip()
+        if sku:
+            old_by_sku.setdefault(sku, qi)
     try:
         db.query(QuotationItem).filter_by(quotation_id=quotation_id).delete()
         for idx, row in enumerate(rows):
-            old_item = old_items.get(idx + 1)
+            sku = str(row.get("sku", "") or "").strip()
+            old_item = old_by_sku.get(sku) if sku else None
+            if old_item is None and idx < len(old_items):
+                old_item = old_items[idx]
             old_snap = (old_item.product_snapshot or {}) if old_item else {}
             snap = {"name": row.get("name", ""), "sku": row.get("sku", ""),
-                    "model": row.get("model", ""), "description": row.get("description", ""),
-                    "cost_price": float(row.get("cost", 0) or 0)}
+                    "model": row.get("model", ""), "description": row.get("description", "")}
+            if can_see_cost:
+                snap["cost_price"] = float(row.get("cost", 0) or 0)
+            elif "cost_price" in old_snap:
+                # 看不到成本的用户不得改写成本：前端读到的是被裁掉的 cost（None），
+                # 原样采信会把快照里的成本抹成 0 —— 成本以服务端已有值为准
+                snap["cost_price"] = old_snap["cost_price"]
             for key in ("specs", "image_url", "manufacturer_name", "category_name"):
                 if old_snap.get(key):
                     snap[key] = old_snap[key]

@@ -25,6 +25,31 @@ router = APIRouter()
 _COST_COLUMN = "J"
 
 
+def _is_cost_ref(ref: str) -> bool:
+    """单元格引用是否属于成本列（J）"""
+    return "".join(c for c in (ref or "") if c.isalpha()).upper() == _COST_COLUMN
+
+
+def _keep_server_cost(new_snapshot: dict, old_snapshot: dict) -> dict:
+    """把服务端已有快照的成本列合并进客户端提交的快照（成本以服务端为准）
+
+    看不到成本的用户，前端读到的 J 列是空的，而保存时会把 J 原样回传（值为 0/空），
+    保存又是**整份快照替换** —— 一次保存就把库里的成本抹成 0，之后管理员看到全是 0。
+    所以：丢弃客户端提交的所有 J 单元格，再补回服务端已有的 J。
+    """
+    if not isinstance(new_snapshot, dict):
+        return new_snapshot
+    cells = new_snapshot.get("cells")
+    if not isinstance(cells, dict):
+        return new_snapshot
+    old_cells = (old_snapshot or {}).get("cells") if isinstance(old_snapshot, dict) else None
+    merged = {ref: cell for ref, cell in cells.items() if not _is_cost_ref(ref)}
+    merged.update({ref: cell for ref, cell in (old_cells or {}).items() if _is_cost_ref(ref)})
+    result = dict(new_snapshot)
+    result["cells"] = merged
+    return result
+
+
 def _strip_cost_column(snapshot: dict) -> dict:
     """返回去掉成本列（J）的快照副本。
 
@@ -36,7 +61,7 @@ def _strip_cost_column(snapshot: dict) -> dict:
     clean = dict(snapshot)
     cells = dict(clean.get("cells") or {})
     for ref in list(cells):
-        if "".join(c for c in ref if c.isalpha()).upper() == _COST_COLUMN:
+        if _is_cost_ref(ref):
             cells.pop(ref)
     clean["cells"] = cells
     return clean
@@ -151,15 +176,20 @@ def save_bom_snapshot(solution_id: int, data: BOMSnapshotSave, db: Session = Dep
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
     check_ownership(sol, user, strict=True)
 
+    can_see_cost = cost_visible(user, db)
     existing = db.query(SolutionBOMSnapshot).filter_by(solution_id=solution_id).first()
     if existing:
-        existing.snapshot = data.snapshot if data.snapshot else existing.snapshot
+        if data.snapshot:
+            # 看不到成本时成本列一律以服务端为准，否则一次保存就把库里的成本抹成 0
+            existing.snapshot = (data.snapshot if can_see_cost
+                                 else _keep_server_cost(data.snapshot, existing.snapshot))
         existing.updated_at = datetime.now(timezone.utc)
     else:
         existing = SolutionBOMSnapshot(
             solution_id=solution_id,
             template_id=None,
-            snapshot=data.snapshot,
+            snapshot=(data.snapshot if can_see_cost
+                      else _keep_server_cost(data.snapshot, None)),
         )
         db.add(existing)
     db.commit()
@@ -169,7 +199,7 @@ def save_bom_snapshot(solution_id: int, data: BOMSnapshotSave, db: Session = Dep
     _sync_snapshot_to_items(solution_id, data.snapshot, db)
 
     result = existing.to_dict()
-    if not cost_visible(user, db):
+    if not can_see_cost:
         # 保存接口此前直接把落库后的快照原样返回，非管理员可从响应里读到 J 列成本
         result["snapshot"] = _strip_cost_column(result.get("snapshot") or {})
     return {"bom_snapshot": result}
