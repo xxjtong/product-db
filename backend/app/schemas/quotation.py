@@ -11,6 +11,7 @@ class QuotationCreate(BaseModel):
     valid_days: int = 15
     # 增值税一般税率（百分数，13 表示 13%）。前端没有设置入口（R21 移除了税率信息行），
     # 实际只在导出 xlsx 的备注行展示，所以统一按 13% 出。显式传入时仍以传入值为准。
+    # 注意：报价口径是**含税**（单价即含税单价），该字段不参与金额计算。
     tax_rate: float = 13
     status: str = "draft"
     notes: Optional[str] = None

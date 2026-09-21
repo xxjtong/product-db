@@ -573,6 +573,7 @@ class TestQuotations:
         assert qt["tax_rate"] == 6
 
     def test_export_note_shows_tax_rate(self, db):
+        """导出 xlsx 的备注行要写明含税口径与税率（口径：单价即含税价，不再二次计税）"""
         import io
         import openpyxl
 
@@ -581,7 +582,9 @@ class TestQuotations:
         assert res.status_code == 200
         ws = openpyxl.load_workbook(io.BytesIO(res.content)).active
         texts = [str(c.value) for row in ws.iter_rows() for c in row if c.value]
-        assert any("税率 13%" in t for t in texts), texts[-4:]
+        notes = [t for t in texts if t.startswith("注：")]
+        assert notes, texts[-4:]
+        assert "含税价" in notes[0] and "13% 增值税" in notes[0], notes[0]
 
     def test_update_quotation(self, db):
         resp = client.post("/product-db/api/quotations", json={"title": "原始报价"})

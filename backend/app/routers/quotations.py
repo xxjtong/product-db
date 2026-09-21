@@ -412,8 +412,12 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
     total_amount = float(qt.total_amount or 0)
     apply_total_row(ws, total_row, f"合计（大写）：{num_to_chinese_uppercase(total_amount)}", col_letter="J")
 
-    # Note row
-    apply_note_row(ws, total_row + 1, f"注：本报价单有效期 {qt.valid_days or 30} 天，税率 {_fmt_rate(qt.tax_rate)}%。")
+    # Note row —— 明确「含税」口径：报价单价、成本价都是含税价，合计就是各小计之和，
+    # **不要再乘税率**（历史口径即如此，13% 只是说明文字）
+    apply_note_row(
+        ws, total_row + 1,
+        f"注：本报价单有效期 {qt.valid_days or 30} 天；价格为含税价（含 {_fmt_rate(qt.tax_rate)}% 增值税）。",
+    )
 
     # Footer row
     apply_footer_row(ws, total_row + 2, f"报价单编号：{qt.quote_number or ''}  |  {user.username}")

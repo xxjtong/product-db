@@ -17,6 +17,9 @@ class Quotation(Base):
     valid_days = Column(Integer, default=15)
     tax_rate = Column(Numeric(5, 2), default=13)   # 增值税税率（百分数），统一 13%
     status = Column(String(20), default="draft")
+    # 含税口径：item 的 unit_price / amount 与这里的 total_amount 都是**含税价**，
+    # total_amount = Σ(数量 × 含税单价 × 折扣%)，不要再乘 tax_rate 二次计税。
+    # tax_rate 只用于导出文档上的说明文字。
     total_amount = Column(Numeric(14, 2), default=0)
     notes = Column(Text, nullable=True)
     download_count = Column(Integer, default=0)

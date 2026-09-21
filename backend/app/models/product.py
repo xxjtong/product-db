@@ -17,8 +17,10 @@ class Product(Base):
     supplier_id = Column(Integer, ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True)
 
     unit = Column(String(20), default="台")
+    # 价格口径：售价与成本价**均为含税价**（增值税已含在数字里），
+    # 报价单的合计 = Σ(数量 × 含税单价 × 折扣%)，不要再乘税率。
     base_price = Column(Numeric(10, 2), nullable=True)
-    cost_price = Column(Numeric(10, 2), nullable=True)
+    cost_price = Column(Numeric(10, 2), nullable=True)  # 成本价：含税；对非管理员隐藏（见 field_visibility）
     description = Column(Text, nullable=True)
     image_url = Column(String(500), nullable=True)  # 主图 URL (denormalized for list page)
     product_url = Column(String(500), nullable=True)  # 官方详情页链接
