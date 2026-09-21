@@ -2,7 +2,36 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-21, R52)
+## 最新变更 (2026-09-21, R53)
+
+### R53: 启用 ProtectHome —— R51 踩坑项的最终闭环 (2026-09-21)
+
+R51 首次尝试时，因库路径在 `/home` 下被隐藏导致「服务能起来但查库全 500」；R52 把默认库路径
+收敛到 `/opt/product-db/backend/`（不经 `/home`）后，本轮正式启用，并同时把服务 HOME 指到
+可写目录：`Environment=HOME=/opt/product-db/backend` —— fontconfig（weasyprint 渲染中文）需要
+写缓存，而 `ProtectHome` 之后 `/home/tong` 不可见。
+
+**当前 systemd 加固共 11 项**：`ProtectHome`、`ProtectSystem=full`、`PrivateTmp`、`PrivateDevices`、
+`NoNewPrivileges`、`ProtectKernelTunables`、`ProtectKernelModules`、`ProtectControlGroups`、
+`RestrictSUIDSGID`、`LockPersonality`、`RestrictAddressFamilies`；
+另有 `StartLimitIntervalSec=300`/`Burst=20`、`TimeoutStopSec=25`。
+
+**加固后复测（全部通过）**：
+
+| 验证 | 结果 |
+|---|---|
+| 服务进程 HOME | `/opt/product-db/backend`（`Environment=` 生效）、`NRestarts=0` |
+| 规格书 PDF | 200、346 KB、`%PDF-`、**含中文 True**、1 页 309 字符、10.2s ← fontconfig 写缓存没问题 |
+| 写库 / 读库 | 建临时报价单 → 删除，正常 |
+| AI 对话（DeepSeek） | SSE 正常返回「正常」→ 沙箱内 DNS 与 HTTPS 均通 |
+| `app/uploads` 可写 | ✓ |
+| 日志 | 近 3 分钟无 warn / error / denied / font 相关 |
+
+> **方法沉淀**：加固引入的约束必须先核对应用真实读写的路径（R51 的教训）→ 让路径不依赖运行
+> 环境（R52）→ 再启用依赖该前提的加固项（R53）。前两步的检查已固化进
+> `deploy/install-systemd-unit.sh`（安装前读服务用户的库路径、发现 `/home`×`ProtectHome` 冲突即中止）。
+
+## 历史变更 (2026-09-21, R52)
 
 ### R52: 库路径收敛为单一来源（拆掉 R51 事故的病根）(2026-09-21)
 
