@@ -8,7 +8,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, func, update
 from app.database import get_db
-from app.utils.helpers import get_or_404, apply_partial_update, format_description_with_specs, discount_percent
+from app.utils.helpers import (get_or_404, apply_partial_update, format_description_with_specs,
+                               discount_percent, number_or)
 from app.models.quotation import Quotation, QuotationItem
 from app.models.product import Product
 from app.models.solution import Solution, SolutionItem
@@ -521,13 +522,17 @@ def save_quotation_bom(quotation_id: int, data: dict, db: Session = Depends(get_
                 if old_snap.get(key):
                     snap[key] = old_snap[key]
             pid = old_item.product_id if old_item else None
+            # 数量 0 是合法值（本次不采购但保留该行），只有空/脏数据才回退默认值 ——
+            # 历史写法 `float(row.get("qty", 1) or 1)` 会把 0 悄悄改成 1（R50）
+            qty = number_or(row.get("qty"), 1)
+            price = number_or(row.get("price"), 0)
             qi = QuotationItem(
                 quotation_id=quotation_id,
                 product_id=pid,
                 product_snapshot=snap,
-                quantity=float(row.get("qty", 1) or 1),
-                unit_price=float(row.get("price", 0) or 0),
-                amount=float(row.get("qty", 1) or 1) * float(row.get("price", 0) or 0) * (discount_percent(row.get("discount")) / 100),
+                quantity=qty,
+                unit_price=price,
+                amount=qty * price * (discount_percent(row.get("discount")) / 100),
                 discount_rate=discount_percent(row.get("discount")),
                 remark=str(row.get("remark", "") or ""),
                 sort_order=idx + 1,

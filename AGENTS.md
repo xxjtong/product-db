@@ -2,7 +2,36 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-21, R49)
+## 最新变更 (2026-09-21, R50)
+
+### R50: 数量 0 定为合法值（「本次不采购但保留该行」），不再被悄悄改成 1 (2026-09-21)
+
+**问题**：数量 0 的语义各处不一致 —— 后端金额计算按 0 算（`quantity or 0`），
+但 BOM **保存/载入**路径写成 `or 1`，于是**填 0 保存后读回变成 1**；而 BOM 编辑器输入框
+明明是 `min="0"`（允许填 0），方案详情输入框却是 `min="1"`。同一系统里三种口径。
+
+**语义决策（与用户确认）**：数量 0 = **合法值**：该行保留、金额算 0、产品信息不丢 ——
+适用于「本次不采购但保留参考」的占位行，与 R49 的折扣 0（免费/赠品）同族。
+
+**修复**：新增 [helpers.number_or(value, default)](backend/app/utils/helpers.py)（0 保留，
+只有 `None`/空串/脏数据才回退），`discount_percent` 改为复用它 —— 两种语义不再各写一遍。
+
+| 位置 | 改动 |
+|---|---|
+| `routers/quotations.py` BOM 保存落库 | `float(row.get("qty", 1) or 1)` → `number_or(row.get("qty"), 1)`；amount 复用同一个 qty（原来把 qty 表达式算了两遍） |
+| `routers/bom_templates.py` 快照→条目同步 | E/F 列改走 `number_or`（原为 `or 0`，行为不变，统一入口） |
+| `components/BOMSpreadsheet.vue` | 新增 `numberOr(v, fallback)`；载入报价单行与快照的 E/F/J 列都改用它（原 `Number(v) \|\| 1` 会把 0 变 1） |
+| `views/SolutionDetailView.vue` | 数量输入框 `min="1"` → `min="0"`（界面此前不允许填 0，与后端行为矛盾） |
+
+**有意保留 `\|\| 1` 的场景**：加入方案 / AI 加购（`SolutionProductCard`、`AiChat`、
+`SolutionDetailView.onAddToBom`）的数量来自 `min="1"` 的输入框，0 在那里无意义，回退 1 是正确行为。
+
+**测试:** backend +2（helper 边界；BOM 保存数量 0 → 该行保留、quantity 落库为 0、合计只算其他行）
+
+> 数量 0 的行导出时：小计公式 `=E*F*G/100` 自然算出 0；需要的话可以在导出里给这类行
+> 加「本次不采购」标注。
+
+## 历史变更 (2026-09-21, R49)
 
 ### R49: 折扣率 0 不再被当成「未设置」（免费/赠品不再被按 100% 计价）(2026-09-21)
 

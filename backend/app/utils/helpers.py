@@ -58,11 +58,11 @@ def dedup_filename_part(part, container, fallback: str = "") -> str:
     return safe_filename_part(part, fallback)
 
 
-def discount_percent(value, default: float = 100.0) -> float:
-    """折扣率（百分数）标准化 —— 折扣率 0 是**合法值**（免费/赠品），只有 None/空才取默认值。
+def number_or(value, default: float = 0.0) -> float:
+    """数值标准化 —— 只有 None/空串/脏数据才取 default，**0 是合法值**。
 
-    历史缺陷：多处写成 `value or 100`，于是 0 被当成「未设置」按 100% 计算：
-    明细金额、方案合计、导出表格、AI 建单全都会算错。判定一律走这里。
+    Excel 导入、BOM 快照同步这些入口拿到的可能是字符串；历史写法 `value or default`
+    会把 0 当成「未填」（折扣率 0 被按 100% 算、数量 0 被改成 1）。所有这类判定都走这里。
     """
     if value is None or value == "":
         return float(default)
@@ -70,6 +70,15 @@ def discount_percent(value, default: float = 100.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return float(default)
+
+
+def discount_percent(value, default: float = 100.0) -> float:
+    """折扣率（百分数）标准化 —— 折扣率 0 是**合法值**（免费/赠品），只有 None/空才取默认值。
+
+    历史缺陷：多处写成 `value or 100`，于是 0 被当成「未设置」按 100% 计算：
+    明细金额、方案合计、导出表格、AI 建单全都会算错。判定一律走这里。
+    """
+    return number_or(value, default)
 
 
 def apply_partial_update(obj, data, fields: list[str]):

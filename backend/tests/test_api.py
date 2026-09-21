@@ -2339,3 +2339,49 @@ class TestDiscountZero:
         assert res.status_code == 200
         ws = openpyxl.load_workbook(BytesIO(res.content)).active
         assert ws.cell(row=4, column=9).value == 0
+
+
+class TestQuantityZero:
+    """数量 0 是合法值（本次不采购但保留该行），不能被 `or 1` 悄悄改成 1（R50）。
+
+    与折扣 0 同族：只有 None/空/脏数据才回退默认值，0 原样保留。
+    """
+
+    def test_number_or_helper_basics(self):
+        from app.utils.helpers import discount_percent, number_or
+
+        assert number_or(0, 1) == 0            # 0 必须保留 —— 核心回归点
+        assert number_or("0", 1) == 0          # BOM 表格读到的可能是字符串
+        assert number_or(None, 1) == 1         # 空才取默认
+        assert number_or("", 1) == 1
+        assert number_or("abc", 1) == 1        # 脏数据不抛异常
+        assert number_or(5, 1) == 5
+        # discount_percent 复用同一实现，语义不漂移
+        assert discount_percent(0) == 0
+        assert discount_percent(None) == 100
+
+    def test_bom_save_keeps_zero_quantity_row(self, db, auth_headers):
+        """BOM 编辑保存数量 0：该行保留、金额 0，且不影响其他行合计"""
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, base_price=1000)
+        qt = Quotation(title="BOM 数量0", client_name="客户B")
+        db.add(qt)
+        db.commit()
+        db.refresh(qt)
+
+        res = client.put(f"/product-db/api/quotations/{qt.id}/bom", json={"rows": [
+            {"name": p.name, "sku": "SKU-A", "model": p.model, "qty": 0,
+             "price": 1000, "discount": 100, "description": "", "remark": "本次不采购"},
+            {"name": p.name, "sku": "SKU-B", "model": p.model, "qty": 2,
+             "price": 1000, "discount": 100, "description": "", "remark": ""},
+        ]}, headers=auth_headers)
+        assert res.status_code == 200
+        assert res.json()["total"] == 2000
+
+        db.expire_all()
+        items = (db.query(QuotationItem).filter_by(quotation_id=qt.id)
+                 .order_by(QuotationItem.sort_order).all())
+        assert len(items) == 2, "数量 0 的行必须保留，不能被过滤掉"
+        assert float(items[0].quantity) == 0, "数量 0 不能落库成 1"
+        assert float(items[0].amount or 0) == 0
+        assert float(items[1].quantity) == 2

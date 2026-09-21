@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.utils.helpers import get_or_404, apply_partial_update, format_description_with_specs, discount_percent
+from app.utils.helpers import (get_or_404, apply_partial_update, format_description_with_specs,
+                               discount_percent, number_or)
 from app.models.bom_template import BOMTemplate, SolutionBOMSnapshot
 from app.models.solution import Solution, SolutionItem
 from app.models.product import Product
@@ -238,8 +239,9 @@ def _sync_snapshot_to_items(solution_id: int, snapshot: dict, db: Session):
         if not sku or not isinstance(sku, str) or not sku.strip():
             continue
         sku = sku.strip()
-        qty = float(rd.get("E", {}).get("v", 0) or 0)
-        price = float(rd.get("F", {}).get("v", 0) or 0)
+        # 数量/单价 0 都是合法值（只有空/脏数据才回退 0），统一走 number_or
+        qty = number_or(rd.get("E", {}).get("v"), 0)
+        price = number_or(rd.get("F", {}).get("v"), 0)
         discount = discount_percent(rd.get("G", {}).get("v"))
         remark = str(rd.get("I", {}).get("v", "") or "")
         sku_updates[sku] = {"quantity": qty, "unit_price": price, "discount_rate": discount, "remark": remark}
