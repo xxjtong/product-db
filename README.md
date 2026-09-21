@@ -7,10 +7,10 @@ IoT 产品选型对比、规格书生成、方案设计系统。
 | 层 | 技术 |
 |----|------|
 | 后端 | FastAPI + SQLAlchemy 2.0 |
-| 数据库 | SQLite（本地）/ PostgreSQL（生产） |
+| 数据库 | SQLite + WAL（本地与生产一致；不再使用 PostgreSQL） |
 | 前端 | Vue 3 + TypeScript + Vite |
 | UI | CSS Variables + Lucide Icons |
-| 部署 | Docker + Nginx |
+| 部署 | systemd（生产，含沙箱加固）+ nginx 反代；`docker-compose.yml` 仅作本地可选 |
 
 ## 快速启动
 
@@ -34,23 +34,31 @@ npx vite --host 0.0.0.0 --port 5173
 ## 测试
 
 ```bash
-# Backend
-cd backend && pytest tests/ -v                    # 372 单元测试
+# Backend（约 500 个用例，数量随迭代变化）
+cd backend && pytest tests/ -v
 
 # Frontend
-cd frontend && npx vitest run                     # 62 组件测试
+cd frontend && npx vitest run                     # 78 组件测试
 cd frontend && npx vue-tsc --noEmit               # 类型检查
 
 # E2E (需要先启动前后端服务)
-cd frontend && npx playwright test                # 96 tests (6 套件)
+cd frontend && npx playwright test                # 6 个 spec 套件（见 e2e/）
 ```
 
-## Docker 部署
+## 生产部署
+
+生产运行方式为 **systemd + nginx**（不是 Docker）：
 
 ```bash
-cp .env.example .env  # 编辑 SECRET_KEY 等配置
-docker compose up -d
+# 前端：构建后 rsync 到服务器
+cd frontend && npm run build && rsync -az --delete -e "ssh -p 28793" dist/ \
+  tong@<host>:/opt/product-db/frontend/dist/
+
+# 后端：推送后在服务器拉取并重启（带就绪门控）
+git push && ssh -p 28793 tong@<host> 'cd /opt/product-db && git pull && deploy/restart-ready.sh'
 ```
+
+详见 `DEPLOY.md`（含 systemd 单元、备份/健康检查 timer、加固项与回滚步骤）。
 
 ## 项目结构
 
@@ -62,20 +70,21 @@ product-db/
 │   │   ├── database.py          # SQLAlchemy + JSONBType
 │   │   ├── auth.py              # JWT 认证 (bcrypt) + DEV_MODE
 │   │   ├── config.py            # Pydantic Settings
-│   │   ├── models/              # 数据模型 (32 张表)
-│   │   ├── routers/             # API 路由 (14 个模块)
+│   │   ├── models/              # 数据模型 (32 张表 + 1 张裸关联表)
+│   │   ├── routers/             # API 路由 (14 个模块：含 agent / product_import / product_files)
 │   │   ├── services/            # 业务逻辑
 │   │   └── schemas/             # Pydantic 请求/响应模型
-│   ├── tests/                   # pytest 测试 (372 用例)
+│   ├── tests/                   # pytest 测试，约 500 用例
 │   └── alembic/                 # 数据库迁移
 ├── frontend/
 │   ├── src/
-│   │   ├── components/          # 通用组件 (16 个, 含 GenUI 2 个)
+│   │   ├── components/          # 通用组件 (14 个, 含 GenUI 2 个)
 │   │   └── views/               # 页面视图 (16 个)
-│   ├── src/__tests__/           # vitest 前端测试 (62 tests)
-│   └── e2e/                     # Playwright E2E + API + Perf (96 tests)
-├── docker-compose.yml
-└── .github/workflows/ci.yml     # CI/CD
+│   ├── src/__tests__/           # vitest 前端测试 (78 用例)
+│   └── e2e/                     # Playwright E2E (6 个 spec 套件)
+├── deploy/                      # systemd 单元 + 备份/健康检查/日报脚本
+├── docker-compose.yml           # 仅本地可选
+└── .github/workflows/ci.yml     # CI
 ```
 
 ## API 概览

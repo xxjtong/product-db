@@ -5,7 +5,7 @@ from app.database import get_db
 from app.utils.helpers import get_or_404
 from app.models.category import Category, CategorySpecDefinition
 from app.auth import get_current_user, filter_by_ownership, check_ownership, require_admin
-from app.services.product_category_helper import delete_category_cascade
+from app.services.product_category_helper import delete_category_cascade, would_create_category_cycle
 from app.schemas.category import CategoryCreate, CategoryUpdate, SpecDefinitionCreate, SpecDefinitionUpdate
 
 router = APIRouter()
@@ -22,12 +22,15 @@ def list_categories(
     cat_dicts = [c.to_dict() for c in all_cats]
 
     # Flatten tree: parent immediately followed by its children
-    def flatten(parent_id=None):
+    # seen 兼作环保护：父子成环时不会无限递归（R56）
+    def flatten(parent_id=None, seen=None):
+        seen = set() if seen is None else seen
         result = []
         for c in cat_dicts:
-            if c["parent_id"] == parent_id:
+            if c["parent_id"] == parent_id and c["id"] not in seen:
+                seen.add(c["id"])
                 result.append(c)
-                result.extend(flatten(c["id"]))
+                result.extend(flatten(c["id"], seen))
         return result
 
     flat = flatten(None)
@@ -47,12 +50,16 @@ def category_tree(db: Session = Depends(get_db), user=Depends(get_current_user))
     cats = db.query(Category).order_by(Category.sort_order, Category.id).all()
     cat_dicts = [c.to_dict() for c in cats]
 
-    def build_tree(parent_id=None):
-        return [
-            {**c, "children": build_tree(c["id"])}
-            for c in cat_dicts
-            if (c["parent_id"] is None and parent_id is None) or c["parent_id"] == parent_id
-        ]
+    def build_tree(parent_id=None, seen=None):
+        seen = set() if seen is None else seen
+        out = []
+        for c in cat_dicts:
+            if c["id"] in seen:
+                continue
+            if (c["parent_id"] is None and parent_id is None) or c["parent_id"] == parent_id:
+                seen.add(c["id"])
+                out.append({**c, "children": build_tree(c["id"], seen)})
+        return out
 
     return {"tree": build_tree(None)}
 
@@ -84,6 +91,9 @@ def create_category(data: CategoryCreate, db: Session = Depends(get_db), user=De
 def update_category(cat_id: int, data: CategoryUpdate, db: Session = Depends(get_db), user=Depends(require_admin)):
     cat = get_or_404(db, Category, cat_id, "Category not found")
     check_ownership(cat, user)
+    # 拒绝把自己挂到自己或自己的后代下面：成环后所有「取后代/建树」都会递归崩溃（R56）
+    if data.parent_id is not None and would_create_category_cycle(db, cat_id, data.parent_id):
+        raise HTTPException(400, "不能把品类挂到自身或其子品类下（会形成环）")
     # Convert empty slug to None to avoid UNIQUE constraint violations
     if data.slug is not None and data.slug.strip() == '':
         data.slug = None

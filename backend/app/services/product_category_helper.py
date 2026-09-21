@@ -58,16 +58,38 @@ def get_products_in_categories(db: Session, category_ids: list[int]) -> list[int
 
 
 def get_category_descendants(db: Session, parent_id: int) -> list[int]:
-    """Get all descendant category IDs (batch-loaded, no recursion N+1)."""
+    """Get all descendant category IDs (batch-loaded, no recursion N+1).
+
+    带 visited 兜底：若库中已存在父子成环（历史数据或并发写入造成），递归会无限下去
+    直到 RecursionError → 500。命中已访问节点就直接剪枝（R56）。
+    """
     from app.models.category import Category
     all_cats = db.query(Category).all()
     children_map: dict = {}
     for c in all_cats:
         children_map.setdefault(c.parent_id, []).append(c.id)
 
+    visited: set = set()
+
     def _walk(pid):
+        if pid in visited:
+            return []
+        visited.add(pid)
         ids = [pid]
         for child_id in children_map.get(pid, []):
             ids.extend(_walk(child_id))
         return ids
     return _walk(parent_id)
+
+
+def would_create_category_cycle(db: Session, category_id: int, new_parent_id: int | None) -> bool:
+    """把 category_id 的父级改成 new_parent_id 会不会成环。
+
+    成环的两种情况：父级设成自己，或父级落在自己的后代集合里（那样会形成闭环，
+    之后任何一次「取后代」都会递归到崩溃）。R56。
+    """
+    if new_parent_id is None:
+        return False
+    if new_parent_id == category_id:
+        return True
+    return new_parent_id in get_category_descendants(db, category_id)

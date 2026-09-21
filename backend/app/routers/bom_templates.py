@@ -5,6 +5,7 @@ import re
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.utils.helpers import (get_or_404, apply_partial_update, format_description_with_specs,
@@ -164,8 +165,17 @@ def get_bom_snapshot(solution_id: int, db: Session = Depends(get_db), user=Depen
         snapshot=snapshot_data,
     )
     db.add(new_snapshot)
-    db.commit()
-    db.refresh(new_snapshot)
+    try:
+        db.commit()
+    except IntegrityError:
+        # 并发首次访问：另一个请求刚插入了同一 solution_id（表上有唯一约束，本应 500）。
+        # 回滚后直接复用已存在的那条，请求仍然成功（R56）。
+        db.rollback()
+        new_snapshot = db.query(SolutionBOMSnapshot).filter_by(solution_id=solution_id).first()
+        if new_snapshot is None:
+            raise HTTPException(500, "快照生成失败，请重试")
+    else:
+        db.refresh(new_snapshot)
     data = new_snapshot.to_dict()
     if not allow_cost:
         data["snapshot"] = _strip_cost_column(data.get("snapshot") or {})
@@ -186,11 +196,20 @@ def save_bom_snapshot(solution_id: int, data: BOMSnapshotSave, db: Session = Dep
                                  else _keep_server_cost(data.snapshot, existing.snapshot))
         existing.updated_at = datetime.now(timezone.utc)
     else:
+        # 库里还没有快照：无成本权限的用户提交上来的快照，J 列在读取时就被裁掉了，
+        # 以它为准会把成本存成 0/缺失。所以这里由服务端按产品当前成本现生成一份作为真值。
+        # （早前这一步是靠「GET 会自动落库」顺带解决：GET 生成的是含成本的完整快照，
+        #   首次 PUT 时 existing 已存在。R56 把 GET 改成只读后必须在这里自己生成。）
+        server_snapshot = None
+        if not can_see_cost:
+            tmpl = (db.query(BOMTemplate).filter_by(is_default=True).first()
+                    or db.query(BOMTemplate).first())
+            server_snapshot = _generate_snapshot(sol, tmpl, db)
         existing = SolutionBOMSnapshot(
             solution_id=solution_id,
             template_id=None,
             snapshot=(data.snapshot if can_see_cost
-                      else _keep_server_cost(data.snapshot, None)),
+                      else _keep_server_cost(data.snapshot, server_snapshot)),
         )
         db.add(existing)
     db.commit()

@@ -58,7 +58,8 @@ def import_confirm(data: ProductImportConfirm, db: Session = Depends(get_db), us
     # 且因为只在最后 commit 一次，用户拿不到任何可操作的提示、也丢掉了整批数据。
     parsed = []
     unmatched = set()
-    for row in rows:
+    # row_no 是「数据行」序号（表头之外，从 1 起）：报错时用户能对上表格里第几行数据
+    for row_no, row in enumerate(rows, start=1):
         pdata = {}
         for col_idx, field in mapping.items():
             idx = int(col_idx)
@@ -83,7 +84,7 @@ def import_confirm(data: ProductImportConfirm, db: Session = Depends(get_db), us
         if not category_id:
             unmatched.add(cat_name or "（本行未填品类）")
             continue
-        parsed.append((pdata, category_id))
+        parsed.append((row_no, pdata, category_id))
 
     if unmatched:
         raise HTTPException(
@@ -95,7 +96,7 @@ def import_confirm(data: ProductImportConfirm, db: Session = Depends(get_db), us
         raise HTTPException(400, "没有可导入的行：每行至少需要「产品名称」或「型号」，且必须能匹配到已有品类")
 
     imported = 0
-    for pdata, category_id in parsed:
+    for row_no, pdata, category_id in parsed:
         mfg_name = pdata.get("manufacturer", "")
         manufacturer_id = None
         if mfg_name:
@@ -114,8 +115,8 @@ def import_confirm(data: ProductImportConfirm, db: Session = Depends(get_db), us
             sku=pdata.get("sku", ""),
             category_id=category_id,
             manufacturer_id=manufacturer_id,
-            base_price=float(pdata.get("price", 0) or 0),
-            cost_price=float(pdata.get("cost", 0) or 0),
+            base_price=_num_or_400(pdata.get("price"), "价格", row_no),
+            cost_price=_num_or_400(pdata.get("cost"), "成本", row_no),
             description=pdata.get("description", ""),
             product_url=pdata.get("product_url", ""),
             specs=spec_items,
@@ -125,3 +126,17 @@ def import_confirm(data: ProductImportConfirm, db: Session = Depends(get_db), us
 
     db.commit()
     return {"imported": imported}
+
+
+def _num_or_400(value, label: str, row_no: int) -> float:
+    """把表格里的价格/成本转成数字；无效值报错并指出行号（R56）。
+
+    早前是裸 `float(...)`：一格填成「1,200」「面议」「¥500」会让整批导入 500，
+    且看不出是哪一行。空值仍按 0 处理（不填=未定价）。
+    """
+    if value is None or value == "":
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise HTTPException(400, f"第 {row_no} 个数据行（表头之外）：{label}「{value}」不是有效数字")

@@ -57,18 +57,23 @@ def _fmt_rate(rate) -> str:
 
 
 def _generate_quote_number(db: Session) -> str:
-    """Generate quote number: QT-YYYYMMDD-NNN."""
+    """Generate quote number: QT-YYYYMMDD-NNN。
+
+    取当天**已用编号的最大序号 +1**。早前是按 id 倒序取最后一条再 +1 —— 只要当天编号
+    出现过乱序（手工改号、删单后重建），就会取到已存在的号並撞上唯一约束。取号本身
+    不带锁（SQLite 不支持 SELECT ... FOR UPDATE，`with_for_update()` 是空操作），
+    真正的并发冲突由 create_quotation 捕获唯一约束后回 409 兜底（R56）。
+    """
     today = datetime.now(timezone.utc).strftime("%Y%m%d")
     prefix = f"QT-{today}-"
-    last = db.query(Quotation).filter(Quotation.quote_number.like(f"{prefix}%"))\
-        .order_by(Quotation.id.desc()).with_for_update().first()
-    seq = 1
-    if last and last.quote_number:
+    max_seq = 0
+    rows = db.query(Quotation.quote_number).filter(Quotation.quote_number.like(f"{prefix}%")).all()
+    for (num,) in rows:
         try:
-            seq = int(last.quote_number.split("-")[-1]) + 1
+            max_seq = max(max_seq, int(str(num).split("-")[-1]))
         except (ValueError, IndexError):
-            seq = 1
-    return f"{prefix}{seq:03d}"
+            continue
+    return f"{prefix}{max_seq + 1:03d}"
 
 
 def _recalc_total(qt: Quotation, db: Session):
@@ -182,7 +187,13 @@ def create_quotation(data: QuotationCreate, db: Session = Depends(get_db), user=
                 db.add(qi)
 
     db.add(qt)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # 并发建单取到同一编号（SQLite 无 SELECT FOR UPDATE，取号无法加锁）：
+        # 与其抛 500，不如明确告诉调用方重试（R56）
+        db.rollback()
+        raise HTTPException(409, "报价单号生成冲突，请重试")
     db.refresh(qt)
     _recalc_total(qt, db)
     db.commit()

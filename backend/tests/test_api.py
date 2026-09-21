@@ -2502,3 +2502,100 @@ class TestR55Security:
         res = client.post(f"/product-db/api/products/{p.id}/links",
                           json={"link_url": "https://example.com/doc", "label": "手册"}, headers=auth_headers)
         assert res.status_code in (200, 201)
+
+
+class TestR56Consistency:
+    """R56：D1 品类防成环 · D2 报价单取号 · D3 GET 快照不写库 · D4 导入价格容错。"""
+
+    def test_category_cycle_guard(self, db, auth_headers):
+        """D1：不能把品类挂到自身或自己的后代下（成环后取后代/建树会递归崩溃）"""
+        from app.services.product_category_helper import (
+            get_category_descendants, would_create_category_cycle)
+
+        root = _seed_category(db, name="R56 根", slug="r56-root")
+        mid = Category(name="R56 中", slug="r56-mid", parent_id=root.id, level=1)
+        db.add(mid)
+        db.commit()
+        db.refresh(mid)
+        leaf = Category(name="R56 叶", slug="r56-leaf", parent_id=mid.id, level=2)
+        db.add(leaf)
+        db.commit()
+        db.refresh(leaf)
+
+        assert set(get_category_descendants(db, root.id)) == {root.id, mid.id, leaf.id}
+        assert would_create_category_cycle(db, root.id, root.id) is True
+        assert would_create_category_cycle(db, root.id, leaf.id) is True    # 挂到后代 → 成环
+        assert would_create_category_cycle(db, leaf.id, root.id) is False   # 挂到祖先 → 合法
+        assert would_create_category_cycle(db, root.id, None) is False
+
+        r = client.put(f"/product-db/api/categories/{root.id}",
+                       json={"parent_id": root.id}, headers=auth_headers)
+        assert r.status_code == 400
+        r = client.put(f"/product-db/api/categories/{root.id}",
+                       json={"parent_id": leaf.id}, headers=auth_headers)
+        assert r.status_code == 400
+        # 合法改动仍要能通过（别把功能一起拦掉）
+        r = client.put(f"/product-db/api/categories/{leaf.id}",
+                       json={"parent_id": root.id}, headers=auth_headers)
+        assert r.status_code == 200
+
+    def test_descendants_survive_existing_cycle(self, db):
+        """D1：库里已存在环（历史脏数据）时，取后代不能无限递归"""
+        from app.services.product_category_helper import get_category_descendants
+
+        a = Category(name="R56 环A", slug="r56-a")
+        b = Category(name="R56 环B", slug="r56-b")
+        db.add_all([a, b])
+        db.commit()
+        db.refresh(a)
+        db.refresh(b)
+        a.parent_id = b.id
+        b.parent_id = a.id
+        db.commit()
+
+        ids = get_category_descendants(db, a.id)    # 关键：不能 RecursionError
+        assert a.id in ids and b.id in ids
+
+    def test_quote_number_takes_max_sequence(self, db, auth_headers):
+        """D2：取号取当天最大序号+1（旧实现按 id 倒序，遇乱序就会重号撞唯一约束）"""
+        from datetime import datetime, timezone
+
+        today = datetime.now(timezone.utc).strftime("%Y%m%d")
+        for num in ("001", "003", "002"):
+            db.add(Quotation(quote_number=f"QT-{today}-{num}", title=f"R56 乱序 {num}"))
+        db.commit()
+
+        res = client.post("/product-db/api/quotations", json={"title": "R56 新单"}, headers=auth_headers)
+        assert res.status_code == 201
+        assert res.json()["quotation"]["quote_number"] == f"QT-{today}-004"
+
+    def test_get_bom_snapshot_does_not_duplicate(self, db, auth_headers):
+        """D3：多次 GET 只落一条快照（唯一约束冲突会兜底复用，不再 500）"""
+        from app.models.bom_template import SolutionBOMSnapshot
+
+        sol = Solution(name="R56 快照幂等")
+        db.add(sol)
+        db.commit()
+        db.refresh(sol)
+
+        for _ in range(3):
+            r = client.get(f"/product-db/api/solutions/{sol.id}/bom-snapshot", headers=auth_headers)
+            assert r.status_code == 200
+            assert r.json()["bom_snapshot"]["snapshot"] is not None
+
+        db.expire_all()
+        assert db.query(SolutionBOMSnapshot).filter_by(solution_id=sol.id).count() == 1
+
+    def test_num_or_400_reports_row_number(self):
+        """D4：非数字价格要报错并指出行号（原来整批 500 且不知哪一行）"""
+        from fastapi import HTTPException as FastApiHTTPException
+        from app.routers.product_import import _num_or_400
+
+        assert _num_or_400(100, "价格", 1) == 100
+        assert _num_or_400("1200.5", "价格", 1) == 1200.5
+        assert _num_or_400(None, "价格", 1) == 0.0          # 不填 = 未定价
+        assert _num_or_400("", "成本", 3) == 0.0
+        with pytest.raises(FastApiHTTPException) as exc:
+            _num_or_400("面议", "价格", 2)
+        assert "2 个数据行" in exc.value.detail
+        assert "面议" in exc.value.detail
