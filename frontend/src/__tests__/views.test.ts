@@ -26,7 +26,7 @@ config.global.stubs = {
 // Mock vue-router
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-  useRoute: () => ({ path: '/test', params: {}, query: {} }),
+  useRoute: vi.fn(() => ({ path: '/test', params: {}, query: {} })),
   createRouter: vi.fn(),
   createWebHistory: vi.fn(),
 }))
@@ -55,6 +55,8 @@ vi.mock('../api', () => ({
   deleteSolution: vi.fn().mockResolvedValue({}),
   batchDeleteSolutions: vi.fn().mockResolvedValue({}),
   fetchQuotations: vi.fn().mockResolvedValue({ quotations: [], total: 0 }),
+  fetchQuotation: vi.fn().mockResolvedValue({ quotation: null }),
+  quotationExportUrl: (id: number) => `/product-db/api/quotations/${id}/export-xlsx`,
   deleteQuotation: vi.fn().mockResolvedValue({}),
   batchDeleteQuotations: vi.fn().mockResolvedValue({}),
   updateQuotation: vi.fn().mockResolvedValue({}),
@@ -215,6 +217,45 @@ describe('QuotationsView', () => {
     expect(text).toContain('已发送')
     expect(text).toContain('已确认')
     expect(text).toContain('已完成')
+  })
+
+  it('marks the amount column as tax-inclusive', async () => {
+    // 口径：报价单价与成本价均为含税价，页面上要让用户一眼看出含税
+    const api = await import('../api')
+    ;(api.fetchQuotations as any).mockResolvedValueOnce({
+      quotations: [{
+        id: 1, quote_number: 'QT-1', title: 'T', client_name: 'C', status: 'draft',
+        total_amount: 1130, tax_rate: 13, download_count: 0, created_at: '',
+      }],
+      total: 1,
+    })
+    const QuotationsView = (await import('../views/QuotationsView.vue')).default
+    const wrapper = shallowMount(QuotationsView)
+    await flushPromises()
+    expect(wrapper.text()).toContain('金额（含税）')
+  })
+})
+
+describe('QuotationDetailView', () => {
+  it('shows the tax rate and marks the total as tax-inclusive', async () => {
+    const { useRoute } = await import('vue-router')
+    ;(useRoute as any).mockReturnValue({ path: '/quotations/1', params: { id: '1' }, query: {} })
+    const api = await import('../api')
+    ;(api.fetchQuotation as any).mockResolvedValueOnce({
+      quotation: {
+        id: 1, quote_number: 'QT-1', client_name: 'C', valid_days: 15, tax_rate: 13,
+        status: 'draft', items: [
+          { id: 1, quantity: 1, unit_price: 1130, discount_rate: 100, amount: 1130, product_snapshot: { name: 'P' } },
+        ],
+      },
+    })
+    const QuotationDetailView = (await import('../views/QuotationDetailView.vue')).default
+    const wrapper = shallowMount(QuotationDetailView)
+    await flushPromises()
+    const text = wrapper.text()
+    expect(text).toContain('税率（含税）')
+    expect(text).toContain('13%')            // 13.0 不能显示成「13.0%」
+    expect(text).toContain('合计（含税）')
   })
 })
 

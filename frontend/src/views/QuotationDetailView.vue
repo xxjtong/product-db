@@ -13,6 +13,7 @@
       <div><span class="text-muted text-sm">编号</span><br class="font-mono">{{ quotation!.quote_number }}</div>
       <div><span class="text-muted text-sm">客户</span><br>{{ quotation!.client_name || '—' }}</div>
       <div><span class="text-muted text-sm">有效期</span><br>{{ quotation!.valid_days }}天</div>
+      <div><span class="text-muted text-sm">税率（含税）</span><br>{{ fmtRate(quotation!.tax_rate) }}%</div>
       <div><span class="text-muted text-sm">状态</span><br>{{ quotation!.status }}</div>
     </div>
 
@@ -34,10 +35,10 @@
       </tbody>
       <tfoot>
         <tr>
-          <td colspan="7" style="text-align:right;font-weight:600">合计</td>
+          <td colspan="7" style="text-align:right;font-weight:600">合计（含税）</td>
           <td class="font-mono" style="font-weight:700">¥{{ quotation.items.reduce((s: number, i: any) => s + (i.amount || 0), 0).toLocaleString(undefined, {minimumFractionDigits:2}) }}</td>
           <td></td>
-          <td></td>
+          <td v-if="canViewCost"></td>
         </tr>
       </tfoot>
     </table>
@@ -76,6 +77,13 @@ function getDesc(item: { product_snapshot?: { description?: string; specs?: Reco
 }
 
 function openExport() { if (quotation.value) window.open(quotationExportUrl(quotation.value.id), '_blank') }
+
+// 税率展示：与导出 xlsx 的 _fmt_rate 一致，13.0 显示为 13（不要出现「13.0%」）
+function fmtRate(rate: unknown): string {
+  const value = Number(rate ?? 0)
+  if (!Number.isFinite(value)) return '0'
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)))
+}
 
 async function load() {
   loading.value = true
