@@ -30,11 +30,11 @@ TimeoutStopSec=25
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-# ⚠️ 不要加 ProtectHome=true：生产数据库的真实路径在 /home/tong/product-db/backend/
-# （config.py 的 DATABASE_URL 默认值；.env 里的 DATABASE_PATH=/opt/... 并未生效 —— 见 R51），
-# 启用后 /home 被隐藏 → SQLite 打不开库 → 所有查库接口 500。
-# 待数据库迁到 /opt 后再开（迁移需单独评估：停机 + 数据搬迁 + 改配置）。
-# ProtectHome=true
+# R52 起默认库路径落在 /opt/product-db/backend/（不再经过 /home），因此可以安全启用 ProtectHome。
+# 同时把 HOME 指到可写目录：fontconfig（weasyprint 渲染中文时用）需要写缓存，
+# 而 ProtectHome 之后 /home/tong 不可见 —— R51 正是因为库在 /home 下被隐藏而全站 500。
+ProtectHome=true
+Environment=HOME=/opt/product-db/backend
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
