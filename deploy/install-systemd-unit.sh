@@ -26,10 +26,15 @@ fi
 # 应用实际使用的数据库路径 —— 加固项（尤其 ProtectHome）必须与它兼容，否则会出现
 # 「服务起来了、/api/health 也 200，但所有查库接口 500」。R51 就踩过：库其实在 /home 下。
 if [ -x "${REPO_DIR}/backend/venv/bin/python" ]; then
-  db_url="$( cd "${REPO_DIR}/backend" && venv/bin/python -c \
+  # 必须用**服务用户的家目录**去读：DATABASE_URL 的默认值由 os.path.expanduser('~') 拼出，
+  # 直接在本脚本里跑（常以 sudo 执行）会算成 /root/... ，与实际运行环境不符（R51 实测）
+  svc_user="$(sed -n 's/^[[:space:]]*User[[:space:]]*=[[:space:]]*//p' "${SRC}" | head -1)"
+  svc_home="$(getent passwd "${svc_user:-root}" | cut -d: -f6)"
+  [ -n "${svc_home}" ] || svc_home="/root"
+  db_url="$( cd "${REPO_DIR}/backend" && HOME="${svc_home}" venv/bin/python -c \
     'from app.config import settings; print(settings.DATABASE_URL)' 2>/dev/null )" || db_url=""
   if [ -n "${db_url}" ]; then
-    log "应用实际使用的数据库：${db_url}"
+    log "服务用户 ${svc_user:-root}（HOME=${svc_home}）实际使用的数据库：${db_url}"
     case "${db_url}" in
       */home/*|*/root/*)
         if grep -qE '^[[:space:]]*ProtectHome[[:space:]]*=[[:space:]]*(true|yes)' "${SRC}"; then
