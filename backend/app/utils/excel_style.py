@@ -53,9 +53,15 @@ NUM_FMT_NUMBER = '0'            # 整数
 NUM_FMT_PERCENT = '0%'          # 百分比，0位小数
 
 
-def apply_column_widths(ws):
-    """Set standard 12-column widths on worksheet."""
+def apply_column_widths(ws, include_cost: bool = True):
+    """Set standard column widths.
+
+    成本列（M）默认包含。看不到成本时传 `include_cost=False`：该列不会有任何内容
+    （连表头都不写），保留宽度会在表格右侧多出一条空列。
+    """
     for col_letter, width in COLUMN_WIDTHS.items():
+        if not include_cost and col_letter == "M":
+            continue
         ws.column_dimensions[col_letter].width = width
 
 

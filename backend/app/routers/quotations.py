@@ -345,7 +345,7 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "报价单"
-    apply_column_widths(ws)
+    apply_column_widths(ws, include_cost=show_cost)
 
     # Row 1: info row
     today = date.today().isoformat()
@@ -364,8 +364,10 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
     # Row 3: headers
     headers = ["序号", "名称", "规格型号", "型号", "功能描述", "单价", "数量", "合计", "折扣率", "成交价", "备注", "图片"]
     apply_header_row(ws, 3, headers)
-    # Cost header (M): plain text, no style — safe to delete column
-    ws.cell(row=3, column=13).value = "成本"
+    # 成本表头（M）：看不到成本时连表头都不写 —— 否则表格里留一个「成本」
+    # 却整列空值，看起来像数据漏了
+    if show_cost:
+        ws.cell(row=3, column=13).value = "成本"
 
     # Data rows
     items = db.query(QuotationItem).filter_by(quotation_id=quotation_id)\
@@ -392,8 +394,9 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
             item.remark or "",
             "",
         ], formats)
-        # Cost column (M): plain value — hidden for non-admin if field setting disabled
-        ws.cell(row=row, column=13).value = float(snap.get("cost_price", 0) or 0) if show_cost else ''
+        # 成本列（M）：无权限时不创建该单元格
+        if show_cost:
+            ws.cell(row=row, column=13).value = float(snap.get("cost_price", 0) or 0)
         # Replace H and J with formulas
         ws.cell(row=row, column=8).value = f"=F{row}*G{row}"       # H: 合计 = 单价 × 数量
         ws.cell(row=row, column=10).value = f"=H{row}*I{row}"      # J: 成交价 = 合计 × 折扣率

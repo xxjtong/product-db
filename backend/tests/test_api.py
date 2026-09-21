@@ -1362,7 +1362,7 @@ class TestFieldVisibility:
         assert res.json()["user"]["can_view_cost"] is False, "未提及该字段时不应被重置"
 
     def test_product_export_hides_cost_column(self, db):
-        """产品导出 xlsx 的 M 列（成本，第 13 列）对普通用户必须为空。"""
+        """产品导出 xlsx 里，普通用户不该看到成本 —— 值不写、「成本」表头也不写（R46）。"""
         import io
         import openpyxl
 
@@ -1377,8 +1377,8 @@ class TestFieldVisibility:
         assert res.status_code == 200
         ws = openpyxl.load_workbook(io.BytesIO(res.content)).active
         # 第 3 行是表头，数据从第 4 行开始（enumerate(..., 1) → 3 + idx）
-        assert ws.cell(row=3, column=13).value == "成本"
-        assert ws.cell(row=4, column=13).value in (None, ""), "导出不得含成本值"
+        assert ws.cell(row=3, column=13).value is None, "「成本」表头也不该出现"
+        assert ws.cell(row=4, column=13).value is None, "导出不得含成本值"
         assert ws.cell(row=4, column=2).value, "导出仍需包含产品行"
 
         res = client.get("/product-db/api/products/export", headers=self._auth_for(admin))
@@ -1959,6 +1959,49 @@ class TestR41CostLeaks:
         # 全局打开 + 按用户禁止 → 必须看不到
         self._set_field(db, "cost_price", True)
         assert _cost_cell(denied) in (None, "")
+
+    def test_export_omits_cost_header_entirely_when_hidden(self, db):
+        """看不到成本时，导出的 xlsx 里不该出现「成本」两个字（R46）。
+
+        只留空值、却保留「成本」表头，会让表格看起来像「有这一列但数据漏了」。
+        报价单与产品清单统一为整列不输出（BOM 两个分支在 R45 已如此）。
+        """
+        import openpyxl
+        from io import BytesIO
+
+        self._set_field(db, "cost_price", False)
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, base_price=100, cost_price=66.6)
+        denied = self._make_user(db, "no-cost-user", can_view_cost=False)
+        admin = db.query(User).filter_by(username="admin").first()
+
+        def _all_cells(ws):
+            return [ws.cell(row=r, column=c).value
+                    for r in range(1, ws.max_row + 1) for c in range(1, ws.max_column + 1)]
+
+        # 报价单导出：表头、数据、列宽都不该有成本列
+        qid, _ = self._seed_quotation_with_item(db, denied, p)
+        ws = openpyxl.load_workbook(BytesIO(client.get(
+            f"/product-db/api/quotations/{qid}/export-xlsx",
+            headers=self._auth_for(denied)).content)).active
+        assert ws.cell(row=3, column=13).value is None
+        assert ws.cell(row=4, column=13).value is None
+        assert "成本" not in _all_cells(ws)
+        # 空列也不留成本列专用宽度（openpyxl 对未设置的列返回默认宽度，所以与常量比）
+        from app.utils.excel_style import COLUMN_WIDTHS
+        assert ws.column_dimensions["M"].width != COLUMN_WIDTHS["M"]
+
+        # 产品清单导出
+        ws = openpyxl.load_workbook(BytesIO(client.get(
+            "/product-db/api/products/export", headers=self._auth_for(denied)).content)).active
+        assert ws.cell(row=3, column=13).value is None
+        assert "成本" not in _all_cells(ws)
+
+        # 管理员仍应看到「成本」表头（不能过度裁剪）
+        ws = openpyxl.load_workbook(BytesIO(client.get(
+            f"/product-db/api/quotations/{qid}/export-xlsx",
+            headers=self._auth_for(admin)).content)).active
+        assert ws.cell(row=3, column=13).value == "成本"
 
 
 class TestR41BatchDeleteNoOrphans:

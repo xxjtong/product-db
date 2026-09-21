@@ -257,7 +257,7 @@ def export_products(
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "产品清单"
-    apply_column_widths(ws)
+    apply_column_widths(ws, include_cost=show_cost)
 
     # Row 1: info
     apply_info_row(ws, 1, f"导出人：{user.username}  |  日期：{date.today().isoformat()}  |  共 {len(products)} 条")
@@ -268,8 +268,9 @@ def export_products(
     # Row 3: headers
     headers = ["序号", "名称", "规格型号", "型号", "功能描述", "单价", "品类", "厂商", "通讯", "供电", "备注", "图片"]
     apply_header_row(ws, 3, headers)
-    # Cost header (M): plain text, no style — safe to delete column
-    ws.cell(row=3, column=13).value = "成本"
+    # 成本表头（M）：看不到成本时连表头都不写（与报价单/BOM 导出口径一致）
+    if show_cost:
+        ws.cell(row=3, column=13).value = "成本"
 
     # Data rows
     for idx, p in enumerate(products, 1):
@@ -292,8 +293,9 @@ def export_products(
             "",
             p.image_url or "",
         ])
-        # Cost column (M): plain value — hidden for non-admin per field visibility
-        ws.cell(row=3 + idx, column=13).value = float(p.cost_price or 0) if show_cost else ''
+        # 成本列（M）：无权限时不创建该单元格
+        if show_cost:
+            ws.cell(row=3 + idx, column=13).value = float(p.cost_price or 0)
 
     # Footer
     footer_row = 3 + len(products) + 1
