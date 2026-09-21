@@ -23,13 +23,11 @@ weasyprint 找不到汉字字形时会**静默丢字**（不报错、不告警�
 所以每份规格书都残缺且彼此相似。
 
 **修复（纯运维，未改一行代码）**：把 Noto Sans/Serif CJK 装进**用户字体目录**，无需 root ——
-服务的 systemd 单元是 `User=tong`（`systemctl show product-db -p User`），`~/.fonts/` 即可生效：
+服务的 systemd 单元是 `User=tong`（`systemctl show product-db -p User`），`~/.fonts/` 即可生效。
+已固化为脚本 `deploy/install-cjk-fonts.sh`（幂等；普通用户执行 = 用户级安装，`sudo` 执行 = 系统级）：
 
 ```bash
-cd /tmp && mkdir -p noto && cd noto && apt-get download fonts-noto-cjk \
-  && dpkg-deb -x *.deb ./x && mkdir -p ~/.fonts \
-  && cp ./x/usr/share/fonts/opentype/noto/*.ttc ~/.fonts/ \
-  && fc-cache -f && rm -rf /tmp/noto && fc-list :lang=zh | wc -l
+ssh -p 28793 tong@124.221.178.161 'bash /opt/product-db/deploy/install-cjk-fonts.sh'
 ```
 
 - 不走 `sudo apt-get install`：该机免密 sudo 白名单只有 nginx / `systemctl restart product-db`

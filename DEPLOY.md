@@ -14,17 +14,14 @@ ssh -p 28793 tong@124.221.178.161 'sudo apt-get install -y --no-install-recommen
 
 > 2026-09-16 已安装 `3.2.7-1+deb12u5`（bookworm-security，含 CVE-2024-12084 系列修复）。rsync 仅装客户端二进制，默认 `rsync.service` 为 disabled，不监听端口。
 
-服务器还**需要中文字体**（生成产品规格书 PDF 用）：
+服务器还**需要中文字体**（生成产品规格书 PDF 用）。用 `deploy/install-cjk-fonts.sh`（幂等，已装则直接跳过）：
 
 ```bash
-# 无需 root：下载 deb → 解包 → 装到用户字体目录（服务以 tong 用户运行，能读到）
-ssh -p 28793 tong@124.221.178.161 '
-  cd /tmp && mkdir -p noto && cd noto &&
-  apt-get download fonts-noto-cjk &&
-  dpkg-deb -x *.deb ./x && mkdir -p ~/.fonts &&
-  cp ./x/usr/share/fonts/opentype/noto/*.ttc ~/.fonts/ &&
-  fc-cache -f && rm -rf /tmp/noto &&
-  fc-list :lang=zh | wc -l'
+# 用户级安装（无需 sudo）—— 默认就够用：服务以 tong 用户运行，能读到 ~/.fonts
+ssh -p 28793 tong@124.221.178.161 'bash /opt/product-db/deploy/install-cjk-fonts.sh'
+
+# 系统级安装（全部用户可用）—— 仅当把服务改成以别的用户运行时才需要
+ssh -p 28793 tong@124.221.178.161 'sudo bash /opt/product-db/deploy/install-cjk-fonts.sh'
 ```
 
 > 2026-09-21 已安装 Noto Sans/Serif CJK（4 个 `.ttc` 共 89MB，位于 `/home/tong/.fonts/`，
