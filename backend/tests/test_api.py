@@ -1421,6 +1421,37 @@ class TestPerimeterHardening:
             assert res.json()["product"]["view_count"] == expected
 
 
+class TestRateLimitExemption:
+    """探针与静态资源不得被全局限流计数（R38）。
+
+    背景：slowapi 的中间件按「解析到的 handler 名字」匹配限流规则，而 SPA catch-all
+    `/product-db/{full_path:path}` 注册在最后、遮蔽了所有 handler → 函数级
+    `@limiter.exempt` / `@limiter.limit` 全部无效，只剩 default_limits 生效。
+    后果（2026-09 生产实测）：探针 2 请求/2 分钟 = 1440 次/天，3.3 小时打满
+    200/天配额，此后全天 429 —— 09-18~09-20 每天 380+ 次误报「服务不可用」，
+    还会污染探针状态机（真宕机时不再产生新告警）。
+    """
+
+    def test_exempt_paths(self):
+        from app.main import rate_limit_exempt
+        for p in ("/product-db/api/health", "/product-db", "/product-db/",
+                  "/product-db/assets/main.js", "/product-db/api/uploads",
+                  "/product-db/api/uploads/a.png", "/api/uploads/a.png"):
+            assert rate_limit_exempt(p), f"{p} 应豁免限流"
+
+    def test_api_paths_still_limited(self):
+        from app.main import rate_limit_exempt
+        for p in ("/product-db/api/products", "/product-db/api/auth/login",
+                  "/product-db/api/solutions/1/items", "/product-db/login",
+                  "/product-db/api/ai/chat"):
+            assert not rate_limit_exempt(p), f"{p} 不应豁免"
+
+    def test_health_survives_more_than_daily_quota(self):
+        """连打 250 次（超过旧默认 200/天）必须全部 200 —— 旧实现第 201 次起 429。"""
+        codes = {client.get("/product-db/api/health").status_code for _ in range(250)}
+        assert codes == {200}, f"健康接口被限流了: {sorted(codes)}"
+
+
 class TestImportConfirm:
     """补齐此前**零覆盖**的写路径：POST /products/import-confirm（批量导入落库）。
 

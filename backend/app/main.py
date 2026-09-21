@@ -53,7 +53,12 @@ if settings.DEV_MODE:
 
 app = FastAPI(title="物联网产品中心", version="2.0.0")
 
-# Global rate limiting — per IP, configurable via RATE_LIMIT_PER_DAY / RATE_LIMIT_PER_MINUTE
+# 全局限流 —— 按 IP 计。**只有 default_limits 生效**：slowapi 的 SlowAPIMiddleware
+# 一律按「解析到的 handler 名字」匹配限流规则，而 SPA catch-all
+# `/product-db/{full_path:path}` 注册在最后、匹配所有路径 → handler 恒为 serve_spa，
+# 于是函数级 `@limiter.exempt` / `@limiter.limit` 全部失效（R35 实测 exempt 无效）。
+# 需要针对单个端点限流时，请用**手写计数**（见 auth_routes 的 LOGIN_RATE_LIMIT），
+# 不要用 @limiter.limit。
 limiter = Limiter(
     key_func=client_ip,
     default_limits=[
@@ -66,7 +71,36 @@ app.add_exception_handler(RateLimitExceeded, lambda req, exc: JSONResponse(
     status_code=429,
     content={"detail": "Too many requests. Please try again later."},
 ))
-app.add_middleware(SlowAPIMiddleware)
+
+# 不计入限流配额的路径：
+#   · /product-db/api/health、/product-db/（可用性探针每 2 分钟打这两个）
+#   · /product-db/assets/、uploads（页面加载的静态资源与图片，逐个计入配额会
+#     让正常浏览产品页很快触顶）
+# 为什么要在中间件层豁免：见上面 limiter 的注释 —— 函数级豁免与限流都不生效，
+# 只能在这里按路径提前放行。
+# 不豁免的代价（2026-09 生产实测）：探针 2 请求/2 分钟 = 1440 次/天，3.3 小时
+# 就打满 200/天配额 → 此后全天 429，探针天天误报「服务不可用」，还会污染探针的
+# 状态机（真宕机时不再产生新告警）。
+_RATE_LIMIT_EXEMPT_EXACT = {"/product-db", "/product-db/api/health"}
+_RATE_LIMIT_EXEMPT_PREFIXES = ("/product-db/assets/", "/product-db/api/uploads", "/api/uploads")
+
+
+def rate_limit_exempt(path: str) -> bool:
+    """该路径是否不参与限流计数（探针健康检查、SPA 首页与静态资源）"""
+    path = path.rstrip("/") or "/"      # /product-db/ 与 /product-db 视为同一路径
+    return path in _RATE_LIMIT_EXEMPT_EXACT or path.startswith(_RATE_LIMIT_EXEMPT_PREFIXES)
+
+
+class RateLimitMiddleware(SlowAPIMiddleware):
+    """在 slowapi 之前按路径放行豁免清单（探针/静态资源不消耗也不被限流配额拦住）"""
+
+    async def dispatch(self, request, call_next):
+        if rate_limit_exempt(request.url.path):
+            return await call_next(request)
+        return await super().dispatch(request, call_next)
+
+
+app.add_middleware(RateLimitMiddleware)
 
 
 @app.middleware("http")
@@ -133,12 +167,10 @@ app.mount("/product-db/api/uploads", UploadsStaticFiles(directory=upload_dir), n
 
 @app.get("/product-db/api/health")
 def health():
-    # 注意：这里**不能**靠 `@limiter.exempt` 豁免限流 —— 实测无效。slowapi 的
-    # SlowAPIMiddleware 用 `_find_route_handler()` 取「最后一个 FULL 匹配的路由」
-    # 作为 handler，而 SPA catch-all `/product-db/{full_path:path}` 注册在本路由之后，
-    # 同样匹配 /product-db/api/health → 解析到的 handler 是 serve_spa，函数级豁免
-    # 永远匹配不上（实测：连续打 65 次仍会 429）。
-    # 因此可用性探针改为「本地接口每 2 分钟、公开接口每 30 分钟」双频（见 deploy/health-check.sh）。
+    # 本路由**不计入限流**（见 RateLimitMiddleware 的豁免清单）—— 中间件按路径
+    # 提前放行，因为 slowapi 的 SlowAPIMiddleware/`@limiter.exempt` 都按 handler
+    # 名字匹配，而 SPA catch-all 把 handler 名字遮蔽了（R35 实测：连打 65 次仍 429）。
+    # 历史代价：探针每 2 分钟 2 个请求会在 3.3 小时内打满 200/天配额，此后全天 429。
     return {"status": "ok"}
 
 

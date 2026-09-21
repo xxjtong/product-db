@@ -313,16 +313,19 @@ for ip, c in sqlite3.connect('product_db.db').execute('SELECT ip_address, COUNT(
 
 此前**没有任何服务可用性告警**：进程崩了只有 `Restart=always` 静默拉起，前端 dist 丢失会让 SPA 返回 503 —— 两者都只能靠用户反馈才知道。
 
-`deploy/health-check.sh` + 用户级 timer（与备份同样的模式）。**双频探测**：
+`deploy/health-check.sh` + 用户级 timer（与备份同样的模式）。**双频探测**（公开入口降频只为减少无谓的端到端请求，不再受配额约束）：
 
 | 频率 | 检查项 | 说明 |
 |------|--------|------|
 | 每 2 分钟 | `http://127.0.0.1:8000/product-db/api/health` | 绕开 nginx，判断应用本身是否活着 |
 | 每 2 分钟 | `http://127.0.0.1:8000/product-db/` | 前端首页（dist 丢失时应用自身返回 503） |
-| 每 30 分钟（或本地已异常时立即补测） | `https://product-db.cn/product-db/api/health`、`https://product-db.cn/product-db/` | 经 nginx 的端到端；**必须降频**，原因见下 |
+| 每 30 分钟（或本地已异常时立即补测） | `https://product-db.cn/product-db/api/health`、`https://product-db.cn/product-db/` | 经 nginx 的端到端 |
 
-> ⚠️ 公开入口为什么要降频：全局限流是 200/天 + 60/min，2 分钟一次 = **720 次/天**，探针会先把配额打满，然后持续把 429 误报成「服务不可用」。
-> 试图用 `@limiter.exempt` 豁免健康接口**实测无效**：slowapi 的 `SlowAPIMiddleware` 用 `_find_route_handler()` 取「最后一个 FULL 匹配的路由」作为 handler，而 SPA catch-all `/product-db/{full_path:path}` 注册在该路由之后、同样匹配 `/product-db/api/health` → 解析到的 handler 是 `serve_spa`，函数级豁免永远匹配不上（实测连续打 65 次仍出现 429）。根因注释留在 `backend/app/main.py` 的 `health()`。
+> ✅ **探针路径已豁免限流**（2026-09-21，R38）：`main.py` 的 `RateLimitMiddleware` 在进入 slowapi 之前按路径放行 `/product-db/api/health`、`/product-db`（首页）与静态资源（`/product-db/assets/`、uploads），所以探针既不消耗配额也不会被 429 拦住。
+>
+> ⚠️ **为什么必须在中间件层做**：slowapi 的限流规则一律按「解析到的 handler 名字」匹配，而 SPA catch-all `/product-db/{full_path:path}` 注册在最后、遮蔽了所有 handler（`health()` 的 handler 被解析成 `serve_spa`）→ **`@limiter.exempt` 与 `@limiter.limit` 全都无效**，只有 `default_limits` 生效。需要针对单个端点限流时请用**手写计数**（参考 `auth_routes` 的 `LOGIN_RATE_LIMIT`），不要用 `@limiter.limit`。
+>
+> 不豁免的代价（2026-09 实测）：探针 2 请求/2 分钟 = 1440 次/天，**3.3 小时就打满当时 200/天 的配额**，此后全天 429 —— 09-18~09-20 日报每天 380+ 次误报「服务不可用」，而且探针状态机被污染（持续 fail 期间真宕机不会再产生新告警）。
 
 只在**状态变化**时写一条显著日志（`OK 服务已恢复` / `FAIL ...`），持续故障只记一行「FAIL（持续）」，避免每 2 分钟刷屏。
 

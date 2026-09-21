@@ -26,10 +26,14 @@ class Settings(BaseSettings):
     # X-Real-IP。否则客户端自带一个 XFF 就能改变限流 key（绕过全局限流与登录
     # 爆破限流）并污染 login_logs 的 IP/地区审计。默认是本机 nginx。
     TRUSTED_PROXIES: str = "127.0.0.1,::1"
-    # 全局限流（每 IP）—— 可配置：回归测试期间需要临时放宽，
-    # 否则一次全量 E2E 就会撞上日配额。
-    RATE_LIMIT_PER_DAY: int = 200
-    RATE_LIMIT_PER_MINUTE: int = 60
+    # 全局限流（按 IP），可用环境变量覆盖（回归测试/E2E 期间需要临时放宽）。
+    # 健康检查与静态资源已在中间件层豁免，见 main.py 的 rate_limit_exempt ——
+    # 这里的额度是给 API 用的。
+    # 2026-09 前是 200/天，实测两个问题：单个 SPA 用户正常浏览就可能触顶（近 5 天
+    # 出现过 1 次真实用户 429），而探针与 Hermes agent 都从服务器本机 IP 出发、
+    # 共用同一份额度。调到 3000/天 + 120/分：既不影响正常使用，又能拦住明显滥用。
+    RATE_LIMIT_PER_DAY: int = 3000
+    RATE_LIMIT_PER_MINUTE: int = 120
     WEASYPRINT_PATH: str = ""  # custom weasyprint binary path, blank = auto-detect
     FRONTEND_DIST: str = "frontend/dist"  # relative to backend dir
     IMAGE_MAX_SIZE: int = 5 * 1024 * 1024  # 5MB
