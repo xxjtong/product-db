@@ -30,6 +30,34 @@ def attachment_disposition(filename: str, ascii_fallback: str = "download") -> s
     return f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{quote(filename, safe="")}'
 
 
+# 判断两个片段是否「重复」时要忽略的分隔符：空格、连字符、各类括号与标点。
+# 目的是让「CT303/CT305」与「CT303 CT305」这类写法差异不影响判重。
+_FILENAME_JOINERS = re.compile(r"[\s\-–—_()（）\[\]【】{},，、.。/\\]+")
+
+
+def _dedup_key(value) -> str:
+    return _FILENAME_JOINERS.sub("", str(value or "")).lower()
+
+
+def dedup_filename_part(part, container, fallback: str = "") -> str:
+    """清理 part；若它已经出现在 container 里则返回空串（不重复拼进文件名）。
+
+    型号常整段出现在产品名里（型号「WTS506」+ 名称「WTS506 气象站」），直接拼接会让
+    文件名出现重复内容。比较时忽略空格、连字符与括号，所以「CT303 CT305 CT310」
+    与「CT303/CT305/CT310」视为同一个型号。
+
+    只做单向判断（part 是否已被 container 覆盖）：反过来不处理，因为那种情况下
+    保留 part 反而更有信息量。
+
+    目前只有产品规格书用得到（报价单与方案 BOM 的文件名不含客户维度 ——
+    客户信息本来就在标题/方案名里，见 R43）。
+    """
+    key = _dedup_key(part)
+    if key and key in _dedup_key(container):
+        return ""
+    return safe_filename_part(part, fallback)
+
+
 def apply_partial_update(obj, data, fields: list[str]):
     """Apply non-None values from data (dict or Pydantic model) to obj for given fields."""
     for f in fields:

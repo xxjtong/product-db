@@ -319,12 +319,12 @@ def export_bom_xlsx(solution_id: int, db: Session = Depends(get_db), user=Depend
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
-    # 文件名：**标识在前、客户/方案名在后**（与报价单导出同一口径）
+    # 文件名只用「方案ID + 方案名」：方案名本身已含「客户-项目」（见方案列表），
+    # 再拼客户名就是「BOM_id30_麦当劳（广州）_麦当劳广州-空调集控.xlsx」这种重复
     from app.utils.helpers import attachment_disposition, safe_filename_part
     filename = "_".join(p for p in [
         "BOM",
         f"id{solution_id}",
-        safe_filename_part(sol.client_name),
         safe_filename_part(sol.name),
     ] if p) + ".xlsx"
     return StreamingResponse(

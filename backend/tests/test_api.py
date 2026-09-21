@@ -1754,24 +1754,30 @@ class TestExportFilenames:
         assert safe_filename_part(None, "fallback") == "fallback"
         assert len(safe_filename_part("长" * 100)) == 40            # 超长截断
 
-    def test_quotation_export_filename_has_client_and_title(self, db):
+    def test_quotation_export_filename_is_number_and_title(self, db):
+        """报价单文件名 = 编号 + 标题。
+
+        用真实数据形态断言：客户叫「SMC」、标题就叫「SMC-会议室环境检测」——
+        客户信息已经写在标题里，文件名不该再拼一遍客户名（R43）。
+        """
         from urllib.parse import quote
 
         qt = client.post("/product-db/api/quotations",
-                         json={"title": "星纵物联网方案", "client_name": "SMC/华东"}).json()["quotation"]
+                         json={"title": "SMC-会议室环境检测", "client_name": "SMC"}).json()["quotation"]
         cd = client.get(f"/product-db/api/quotations/{qt['id']}/export-xlsx").headers["content-disposition"]
         assert cd.startswith("attachment;")
         assert f'filename="quotation_{qt["id"]}.xlsx"' in cd                      # ASCII 回退
-        # 格式：报价单_编号_客户_项目标题.xlsx（标识在前、名称在后，避免看起来重复）
-        assert quote(f"报价单_{qt['quote_number']}_SMC 华东_星纵物联网方案", safe="") in cd
-        assert cd.index(quote(qt["quote_number"], safe="")) < cd.index(quote("SMC 华东", safe=""))
+        assert quote(f"报价单_{qt['quote_number']}_SMC-会议室环境检测", safe="") in cd
+        assert cd.count("SMC") == 1                                               # 客户名不得再拼一遍
+        assert cd.index(quote(qt["quote_number"], safe="")) < cd.index("SMC")     # 标识在前
 
-    def test_bom_export_filename_has_client_and_name(self, db):
+    def test_bom_export_filename_is_id_and_name(self, db):
+        """BOM 文件名 = id + 方案名（用真实数据形态：方案名已含「客户-项目」）"""
         from urllib.parse import quote
 
         cat = _seed_category(db)
         p = _seed_product(db, category_id=cat.id)
-        sol = Solution(name="某园区方案", client_name="华润")
+        sol = Solution(name="麦当劳广州-空调集控", client_name="麦当劳（广州）")
         db.add(sol)
         db.commit()
         db.refresh(sol)
@@ -1782,9 +1788,8 @@ class TestExportFilenames:
         res = client.get(f"/product-db/api/solutions/{sol.id}/bom-snapshot/export-xlsx")
         assert res.status_code == 200
         cd = res.headers["content-disposition"]
-        # 格式：BOM_id{方案ID}_客户_方案名.xlsx
-        assert quote(f"BOM_id{sol.id}_华润_某园区方案", safe="") in cd
-        assert cd.index(f"id{sol.id}") < cd.index(quote("华润", safe=""))
+        assert quote(f"BOM_id{sol.id}_麦当劳广州-空调集控", safe="") in cd
+        assert quote("麦当劳（广州）", safe="") not in cd        # 客户名不得再拼一遍
         assert f'filename="bom_solution_{sol.id}.xlsx"' in cd
 
     def test_product_export_filename_has_date(self, db):
@@ -1826,6 +1831,32 @@ class TestExportFilenames:
         res2 = client.get(f"/product-db/api/products/{p2.id}/spec-sheet")
         assert res2.status_code == 200
         assert quote(f"产品规格书_id{p2.id}_无型号产品", safe="") in res2.headers["content-disposition"]
+
+    def test_spec_sheet_model_skipped_when_already_in_name(self, db, monkeypatch):
+        """规格书：型号若已整段出现在产品名里，就不再单独拼一次。
+
+        产品侧这是常见形态（名称「WTS506 气象站」+ 型号「WTS506」）。规格书的标识
+        允许「藏在名称里」—— 名称本身已经带了这个标识，再拼就是重复。
+        """
+        import subprocess
+        from urllib.parse import quote
+
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, name="WTS506 气象站", model="WTS506")
+
+        def fake_run(cmd, **kwargs):
+            with open(cmd[2], "wb") as f:
+                f.write(b"%PDF-1.4" + b"0" * 200)
+            return type("R", (), {"returncode": 0})()
+
+        monkeypatch.setattr("app.config.settings.WEASYPRINT_PATH", "/usr/bin/weasyprint")
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        res = client.get(f"/product-db/api/products/{p.id}/spec-sheet")
+        assert res.status_code == 200
+        cd = res.headers["content-disposition"]
+        assert quote("产品规格书_WTS506 气象站", safe="") in cd
+        assert cd.count("WTS506") == 1        # 型号不得再拼一遍
 
 
 # ============================================================
