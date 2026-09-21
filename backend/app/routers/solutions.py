@@ -12,6 +12,7 @@ from app.models.product import Product
 from app.models.category import Category
 from app.models.dependency import ProductDependency
 from app.auth import get_current_user, filter_by_ownership, check_ownership
+from app.services.field_visibility import hide_cost_in
 from app.utils.escape import escape_like, LIKE_ESCAPE
 from app.models.user import User
 from app.schemas.solution import SolutionCreate, SolutionUpdate, SolutionItemCreate, SolutionItemUpdate, BatchDeleteRequest
@@ -61,7 +62,7 @@ def list_solutions(
     from app.utils.helpers import paginate
     solutions, total = paginate(q.order_by(Solution.updated_at.desc()), page, per_page)
     return {
-        "solutions": [s.to_dict() for s in solutions],
+        "solutions": [hide_cost_in(s.to_dict(), user, db) for s in solutions],
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -100,7 +101,7 @@ def create_solution(data: SolutionCreate, db: Session = Depends(get_db), user=De
     db.add(sol)
     db.commit()
     db.refresh(sol)
-    return {"solution": sol.to_dict()}
+    return {"solution": hide_cost_in(sol.to_dict(), user, db)}
 
 
 @router.get("/solutions/{solution_id}")
@@ -111,7 +112,7 @@ def get_solution(solution_id: int, db: Session = Depends(get_db), user=Depends(g
     if not sol:
         raise HTTPException(404, "Solution not found")
     check_ownership(sol, user, strict=True)
-    return {"solution": sol.to_dict()}
+    return {"solution": hide_cost_in(sol.to_dict(), user, db)}
 
 
 @router.put("/solutions/{solution_id}")
@@ -124,7 +125,7 @@ def update_solution(solution_id: int, data: SolutionUpdate, db: Session = Depend
     sol = db.scalar(select(Solution).options(
         selectinload(Solution.items).selectinload(SolutionItem.product),
     ).where(Solution.id == solution_id))
-    return {"solution": sol.to_dict()}
+    return {"solution": hide_cost_in(sol.to_dict(), user, db)}
 
 
 @router.delete("/solutions/{solution_id}")
@@ -146,7 +147,7 @@ def list_items(solution_id: int, db: Session = Depends(get_db), user=Depends(get
         selectinload(SolutionItem.product),
     ).filter_by(solution_id=solution_id)\
         .order_by(SolutionItem.sort_order).all()
-    return {"items": [i.to_dict() for i in items]}
+    return {"items": [hide_cost_in(i.to_dict(), user, db) for i in items]}
 
 
 @router.post("/solutions/{solution_id}/items", status_code=201)
@@ -173,7 +174,7 @@ def add_item(solution_id: int, data: SolutionItemCreate, db: Session = Depends(g
     _recalc_totals(sol, db)
     db.commit()
     db.refresh(item)
-    return {"item": item.to_dict()}
+    return {"item": hide_cost_in(item.to_dict(), user, db)}
 
 
 @router.put("/solutions/{solution_id}/items/reorder")
@@ -208,7 +209,7 @@ def update_item(solution_id: int, item_id: int, data: SolutionItemUpdate, db: Se
     _recalc_totals(sol, db)
     db.commit()
     db.refresh(item)
-    return {"item": item.to_dict()}
+    return {"item": hide_cost_in(item.to_dict(), user, db)}
 
 
 @router.delete("/solutions/{solution_id}/items/{item_id}")

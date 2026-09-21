@@ -211,11 +211,8 @@ def export_products(
     category_id: Optional[int] = None, search: str = "",
     db: Session = Depends(get_db), user=Depends(get_current_user),
 ):
-    is_admin = getattr(user, 'role', '') == 'admin'
-    show_cost = True
-    if not is_admin:
-        from app.services.field_visibility import get_field_visibility
-        show_cost = get_field_visibility(db).get('cost_price', True)
+    from app.services.field_visibility import cost_visible
+    show_cost = cost_visible(user, db)
 
     q = db.query(Product).options(
         selectinload(Product.category),

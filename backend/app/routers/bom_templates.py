@@ -13,6 +13,7 @@ from app.models.solution import Solution, SolutionItem
 from app.models.product import Product
 from app.auth import get_current_user, check_ownership, require_admin
 from app.models.user import User
+from app.services.field_visibility import cost_visible
 from app.schemas.bom_template import BOMTemplateCreate, BOMTemplateUpdate, SaveAsTemplateRequest
 from app.schemas.solution import BOMSnapshotSave
 from datetime import datetime, timezone
@@ -22,14 +23,6 @@ router = APIRouter()
 
 # BOM 表的成本列（_generate_snapshot 固定把成本写在 J 列，表头 J1="成本"）
 _COST_COLUMN = "J"
-
-
-def _cost_visible(user, db: Session) -> bool:
-    """当前用户能否看到成本价：admin 恒可，其他人看字段可见性设置。"""
-    if getattr(user, "role", "") == "admin":
-        return True
-    from app.services.field_visibility import get_field_visibility
-    return get_field_visibility(db).get("cost_price", True)
 
 
 def _strip_cost_column(snapshot: dict) -> dict:
@@ -122,7 +115,7 @@ def get_bom_snapshot(solution_id: int, db: Session = Depends(get_db), user=Depen
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
     check_ownership(sol, user, strict=False)
 
-    allow_cost = _cost_visible(user, db)
+    allow_cost = cost_visible(user, db)
 
     existing = db.query(SolutionBOMSnapshot).filter_by(solution_id=solution_id).first()
     if existing:
@@ -175,7 +168,11 @@ def save_bom_snapshot(solution_id: int, data: BOMSnapshotSave, db: Session = Dep
     # Sync snapshot cell data back to solution_items
     _sync_snapshot_to_items(solution_id, data.snapshot, db)
 
-    return {"bom_snapshot": existing.to_dict()}
+    result = existing.to_dict()
+    if not cost_visible(user, db):
+        # 保存接口此前直接把落库后的快照原样返回，非管理员可从响应里读到 J 列成本
+        result["snapshot"] = _strip_cost_column(result.get("snapshot") or {})
+    return {"bom_snapshot": result}
 
 
 def _sync_snapshot_to_items(solution_id: int, snapshot: dict, db: Session):
@@ -274,7 +271,7 @@ def export_bom_xlsx(solution_id: int, db: Session = Depends(get_db), user=Depend
 
     sol = get_or_404(db, Solution, solution_id, "Solution not found")
     check_ownership(sol, user, strict=False)
-    show_cost = _cost_visible(user, db)
+    show_cost = cost_visible(user, db)
 
     snap = db.query(SolutionBOMSnapshot).filter_by(solution_id=solution_id).first()
 

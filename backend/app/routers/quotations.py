@@ -14,6 +14,7 @@ from app.models.product import Product
 from app.models.solution import Solution, SolutionItem
 from app.auth import get_current_user, filter_by_ownership, check_ownership
 from app.models.user import User
+from app.services.field_visibility import cost_visible
 from app.utils.escape import escape_like, LIKE_ESCAPE
 from app.schemas.quotation import QuotationCreate, QuotationUpdate, QuotationItemCreate, QuotationItemUpdate
 from app.schemas.solution import BatchDeleteRequest
@@ -21,14 +22,6 @@ from datetime import datetime, timezone
 from io import BytesIO
 
 router = APIRouter()
-
-
-def _should_hide_cost(user, db) -> bool:
-    """True when cost_price must be hidden from this user per field visibility."""
-    if getattr(user, "role", "") == "admin":
-        return False
-    from app.services.field_visibility import get_field_visibility
-    return not get_field_visibility(db).get("cost_price", True)
 
 
 def _strip_cost_from_snapshot(snapshot: dict) -> dict:
@@ -41,7 +34,7 @@ def _strip_cost_from_snapshot(snapshot: dict) -> dict:
 
 def _filter_quotation_items_cost(items: list, user, db) -> list:
     """Remove cost_price from each item's product_snapshot when hidden."""
-    if not _should_hide_cost(user, db):
+    if cost_visible(user, db):
         return items
     for item in items:
         snap = item.get("product_snapshot") or {}
@@ -250,7 +243,7 @@ def list_quotation_items(quotation_id: int, db: Session = Depends(get_db), user=
     items = db.query(QuotationItem).filter_by(quotation_id=quotation_id)\
         .order_by(QuotationItem.sort_order).all()
     item_list = [i.to_dict() for i in items]
-    if _should_hide_cost(user, db):
+    if not cost_visible(user, db):
         for item in item_list:
             item["product_snapshot"] = _strip_cost_from_snapshot(item.get("product_snapshot") or {})
     return {"items": item_list}
@@ -444,7 +437,7 @@ def get_quotation_bom(quotation_id: int, db: Session = Depends(get_db), user=Dep
     items = db.query(QuotationItem).filter_by(quotation_id=quotation_id)\
         .order_by(QuotationItem.sort_order).all()
     rows = []
-    hide_cost = _should_hide_cost(user, db)
+    hide_cost = not cost_visible(user, db)
     for idx, item in enumerate(items):
         snap = item.product_snapshot or {}
         rows.append({

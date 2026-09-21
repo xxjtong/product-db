@@ -1086,6 +1086,136 @@ class TestFieldVisibility:
         # Without field settings, no fields are filtered
         assert res.json()["product"]["cost_price"] == 333.33
 
+    # ── 成本可见性统一判定（R36）：方案路径此前完全没接字段可见性 ──
+    #
+    # 背景：`cost_price` / `product_cost_price` / `total_cost` 是三个不同的键名，
+    # 而字段可见性只认第一个。方案接口直接返回 `Solution.to_dict()`（含方案总成本）
+    # 与 `SolutionItem.to_dict()`（含每项成本），普通用户拿到方案即拿到全部成本。
+
+    def _seed_solution_with_cost(self, db, user, cost=66.6, qty=2):
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, base_price=100, cost_price=cost)
+        res = client.post("/product-db/api/solutions", json={"name": "成本方案"},
+                          headers=self._auth_for(user))
+        assert res.status_code in (200, 201), res.text
+        sid = res.json()["solution"]["id"]
+        res = client.post(f"/product-db/api/solutions/{sid}/items",
+                          json={"product_id": p.id, "quantity": qty, "unit_price": 50},
+                          headers=self._auth_for(user))
+        assert res.status_code in (200, 201), res.text
+        return sid, res.json()["item"]
+
+    def test_solution_cost_hidden_from_user(self, db):
+        """全局关闭成本可见性时，方案的 6 个返回点都不得泄漏成本。"""
+        self._clear_field_settings(db)
+        self._seed_field_setting(db, "cost_price", False)
+        user = self._make_user(db)
+        sid, item = self._seed_solution_with_cost(db, user)
+
+        # 1) 新增条目接口（历史泄漏点）
+        assert "product_cost_price" not in item, "新增条目返回不得含成本"
+
+        # 2) 方案详情
+        res = client.get(f"/product-db/api/solutions/{sid}", headers=self._auth_for(user))
+        assert res.status_code == 200
+        sol = res.json()["solution"]
+        assert "total_cost" not in sol, "方案总成本不得外泄"
+        assert all("product_cost_price" not in it for it in sol["items"])
+
+        # 3) 方案列表（同样带 items）
+        res = client.get("/product-db/api/solutions", headers=self._auth_for(user))
+        assert res.status_code == 200
+        for s in res.json()["solutions"]:
+            assert "total_cost" not in s
+            for it in s["items"]:
+                assert "product_cost_price" not in it
+
+        # 4) 条目列表
+        res = client.get(f"/product-db/api/solutions/{sid}/items", headers=self._auth_for(user))
+        assert res.status_code == 200
+        assert all("product_cost_price" not in it for it in res.json()["items"])
+
+        # 5) 更新方案 / 6) 更新条目
+        res = client.put(f"/product-db/api/solutions/{sid}", json={"name": "改名"},
+                         headers=self._auth_for(user))
+        assert res.status_code == 200
+        assert "total_cost" not in res.json()["solution"]
+
+        item_id = client.get(f"/product-db/api/solutions/{sid}/items",
+                             headers=self._auth_for(user)).json()["items"][0]["id"]
+        res = client.put(f"/product-db/api/solutions/{sid}/items/{item_id}",
+                         json={"quantity": 3}, headers=self._auth_for(user))
+        assert res.status_code == 200
+        assert "product_cost_price" not in res.json()["item"]
+
+    def test_solution_cost_visible_when_global_on_and_for_admin(self, db):
+        """全局开关打开时普通用户可见；全局关掉后 admin 仍可见。"""
+        self._clear_field_settings(db)
+        self._seed_field_setting(db, "cost_price", True)
+        user = self._make_user(db)
+        sid, item = self._seed_solution_with_cost(db, user)
+
+        assert item["product_cost_price"] == 66.6
+        res = client.get(f"/product-db/api/solutions/{sid}", headers=self._auth_for(user))
+        assert res.json()["solution"]["total_cost"] == 133.2
+
+        # 把全局开关关掉（_clear_field_settings 会一并清 30s 缓存）
+        self._clear_field_settings(db)
+        self._seed_field_setting(db, "cost_price", False)
+
+        admin = db.query(User).filter_by(username="admin").first()
+        res = client.get(f"/product-db/api/solutions/{sid}", headers=self._auth_for(admin))
+        assert res.status_code == 200
+        assert res.json()["solution"]["total_cost"] == 133.2
+        assert res.json()["solution"]["items"][0]["product_cost_price"] == 66.6
+
+    def test_bom_snapshot_save_response_hides_cost(self, db):
+        """PUT /bom-snapshot 的响应也不得回传成本列（此前直接返回落库后的快照）。"""
+        self._clear_field_settings(db)
+        self._seed_field_setting(db, "cost_price", False)
+        user = self._make_user(db)
+        admin = db.query(User).filter_by(username="admin").first()
+        sid, _item = self._seed_solution_with_cost(db, user)
+
+        # 由 admin 触发生成快照：落库的快照里带 J 列成本
+        res = client.get(f"/product-db/api/solutions/{sid}/bom-snapshot",
+                         headers=self._auth_for(admin))
+        assert res.status_code == 200
+        assert any(k.startswith("J") for k in res.json()["bom_snapshot"]["snapshot"]["cells"])
+
+        # 非管理员保存时传空快照 → 服务端保留原快照（含 J），响应必须裁掉成本
+        res = client.put(f"/product-db/api/solutions/{sid}/bom-snapshot",
+                         json={"snapshot": {}}, headers=self._auth_for(user))
+        assert res.status_code == 200
+        cells = res.json()["bom_snapshot"]["snapshot"]["cells"]
+        assert not [k for k in cells if k.startswith("J")], "保存响应不得回传成本列"
+        assert cells.get("B1", {}).get("v") == "产品名称", "其它列必须保留"
+
+    def test_product_export_hides_cost_column(self, db):
+        """产品导出 xlsx 的 M 列（成本，第 13 列）对普通用户必须为空。"""
+        import io
+        import openpyxl
+
+        self._clear_field_settings(db)
+        self._seed_field_setting(db, "cost_price", False)
+        cat = _seed_category(db)
+        _seed_product(db, category_id=cat.id, cost_price=66.6)
+        user = self._make_user(db)
+        admin = db.query(User).filter_by(username="admin").first()
+
+        res = client.get("/product-db/api/products/export", headers=self._auth_for(user))
+        assert res.status_code == 200
+        ws = openpyxl.load_workbook(io.BytesIO(res.content)).active
+        # 第 3 行是表头，数据从第 4 行开始（enumerate(..., 1) → 3 + idx）
+        assert ws.cell(row=3, column=13).value == "成本"
+        assert ws.cell(row=4, column=13).value in (None, ""), "导出不得含成本值"
+        assert ws.cell(row=4, column=2).value, "导出仍需包含产品行"
+
+        res = client.get("/product-db/api/products/export", headers=self._auth_for(admin))
+        assert res.status_code == 200
+        ws = openpyxl.load_workbook(io.BytesIO(res.content)).active
+        assert ws.cell(row=4, column=13).value == 66.6, "admin 仍应看到成本列"
+
 
 class TestPerimeterHardening:
     """收敛几处「对外暴露面过大 / 静默失败」的审查项。"""
