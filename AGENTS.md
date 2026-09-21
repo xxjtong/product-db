@@ -2,7 +2,66 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-21, R40)
+## 最新变更 (2026-09-21, R41)
+
+### R41: 全面审计后的 5 条高危修复 (2026-09-21)
+
+起因是「再检查一下项目全部功能有无漏洞问题」，做了四路审计（后端安全 / 后端正确性 / 前端 / 运维与测试），
+再用**生产库只读实测**逐条确认可达性。审计报告里有一批"看起来严重但生产不可达"的项，也一并记在下面，
+避免以后重复误报。
+
+**A) 修掉的 5 条高危**
+
+| # | 问题 | 修法 |
+|---|------|------|
+| 1 | 报价单**条目写接口**（POST/PUT `/quotations/{id}/items`）把 `product_snapshot` 原样回传，含真实 `cost_price` —— 同文件的列表接口早已裁剪，列表裁了、写接口没裁等于没裁 | 两处返回值改走 `_filter_quotation_items_cost()`；并断言「管理员仍能看到」防止过度裁剪 |
+| 2 | 报价单**导出**只读全局开关（`get_field_visibility()`），不走 `cost_visible` → R37 的按用户三态覆盖在这条路径失效（被单独放行的用户导出仍没有成本；反向则泄漏） | 改为 `show_cost = cost_visible(user, db)`，与产品导出、方案 BOM 导出一致 |
+| 3 | **批量删除**用 `db.query(...).delete()`（bulk DELETE）不触发 ORM cascade，而 SQLite 外键在生产**未启用** → 产生永久孤儿子行；SQLite 的 `INTEGER PRIMARY KEY` 会复用 rowid，新单据可能把历史孤儿子行「认领」进新单据 | ①两条批量删除改为逐条 `db.delete(row)` 自行级联；②迁移 `b7c8d9e0f1a2` 清掉存量孤儿 |
+| 4 | 管理后台 6 处直接 `await fetch(...)` **不检查 `res.ok`** —— `fetch` 对 4xx/5xx 不 reject，`catch` 永不触发 → 后端 403/429/500 时仍弹「已保存/已删除/密码已重置」，且本地状态不回滚。管理员会以为成本价可见性、注册开关已生效 | 6 处改用文件内已有的 `adminApi()`（自带 `res.ok` + detail 提取），失败时回滚 `fv.visible`/`regOpen`、保留弹窗 |
+| 5 | **无登出、无 token 撤销**：JWT 无状态且全仓没有 logout 路由，改密/被重置密码后旧 token 仍能用满 24h | `users.token_version`（迁移 `c8d9e0f1a2b3`）+ payload 带 `ver` + `get_current_user` 逐次比对；新增 `POST /auth/logout`；改密、管理员重置密码时递增 |
+
+> 第 5 条的兼容设计：老 token 没有 `ver` 字段，取 0；存量用户 `token_version` 的 `server_default` 也是 0
+> → **部署不会把任何已登录用户踢下线**（有专门用例 `test_legacy_token_without_ver_still_valid` 守着）。
+> 代价是「登出会登出该用户所有设备」，在单账号场景下这是更安全的一侧。
+
+**B) 生产实测：外键为什么不能顺手打开**
+
+`PRAGMA foreign_key_check` 在生产有 **978 行违规**，分类如下 —— 其中审计类**不该删**，所以不能简单「清空后开约束」：
+
+| 违规 | 行数 | 处置 |
+|------|------|------|
+| `ai_messages → ai_conversations` | 712 | 会话已删、消息残留（可清理，但属独立事项） |
+| `quotation_items → quotations` | 124 | **本次清理**（孤儿子行，批量删除产生） |
+| `product_categories → products` | 56 | 产品已删、映射残留 |
+| `solution_items → solutions` | 50 | **本次清理** |
+| `login_logs → users` | 19 | **审计信息，必须保留** |
+| `quotation_items → products` | 6 | `product_id` 指向已删产品（条目本身有效，应置 NULL 而非删行） |
+| `product_comm_methods → dict_comm_methods` | 4 | 字典项已删 |
+| `ai_usage_logs → users` | 3 | **审计，保留** |
+| `solution_bom_snapshots → solutions` | 2 | **本次清理** |
+| `dict_comm_protocols → users`、`category_spec_definitions → device_categories` | 各 1 | 遗留引用 |
+
+结论：外键约束要打开，得先给每一类定策略（删 / 置 NULL / 保留），属独立事项；
+在此之前**批量删除已自行级联**，孤儿不会继续增长。这条留给后续（记在「遗留」里）。
+
+**C) 审计中"看着严重、实测不可达"的项（勿重复误报）**
+
+1. **不存在双库分裂**：生产 `.env` 只配 `DATABASE_PATH`，代码兜底的 `DATABASE_URL` 会落到 `~/product-db/backend/product_db.db`
+   —— 但 `readlink -f ~/product-db` = `/opt/product-db`（软链接），实测同一文件。**隐患仍在**（软链接一旦丢失，
+   SQLite 会静默新建空库且 `/api/health` 照样 200），但当前无问题。
+2. `AGENT_API_BASE` 生产已显式配 `127.0.0.1:8000`，代码兜底值 8002 未生效。
+3. BOM 模板快照含 J 列成本的数量 = **0** → 模板成本泄漏不可达。
+4. `products.parent_id` 非空的产品 = **0** → 「variants 内嵌成本未裁剪」不可达。
+5. `products.created_by` 为 NULL 的有 **377/396**（导入创建）→ 产品实质是全站共享，
+   「产品详情缺归属校验」应视为设计不一致，不是漏洞。
+
+**D) 未修（已记录，等指示）**：折扣率 `0` 被 `or 100` 当未设置（8 处）、品类父子可成环、报价单号竞态、
+`GET` 方案 BOM 快照会写库、导入非数字价格裸 `float()`、前端列表并发无序号保护、备份无异地副本、
+E2E 大量容忍断言与 CI 不含 E2E、`.env.example` 限流值落后于代码等。
+
+**测试:** backend **478 passed** (1 skipped, +9) / vitest **78 passed** (+7) / vue-tsc 0
+
+## 历史变更 (2026-09-21, R40)
 
 ### R40: 导出文件名带客户与项目名 + 修掉中文文件名的编码缺陷 (2026-09-21)
 
