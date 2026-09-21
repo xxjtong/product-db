@@ -1755,10 +1755,11 @@ class TestExportFilenames:
         assert len(safe_filename_part("长" * 100)) == 40            # 超长截断
 
     def test_quotation_export_filename_is_number_and_title(self, db):
-        """报价单文件名 = 编号 + 标题。
+        """报价单文件名 = 编号 + 标题（不含「报价单」前缀与客户名）。
 
-        用真实数据形态断言：客户叫「SMC」、标题就叫「SMC-会议室环境检测」——
-        客户信息已经写在标题里，文件名不该再拼一遍客户名（R43）。
+        用真实数据形态断言：客户叫「SMC」、标题就叫「SMC-会议室环境检测」。
+        编号本身以 QT 开头（quotation），类型语义已在里面，不该再写「报价单_」；
+        客户信息也已经写在标题里，不该再拼一遍客户名（R43/R44）。
         """
         from urllib.parse import quote
 
@@ -1767,7 +1768,8 @@ class TestExportFilenames:
         cd = client.get(f"/product-db/api/quotations/{qt['id']}/export-xlsx").headers["content-disposition"]
         assert cd.startswith("attachment;")
         assert f'filename="quotation_{qt["id"]}.xlsx"' in cd                      # ASCII 回退
-        assert quote(f"报价单_{qt['quote_number']}_SMC-会议室环境检测", safe="") in cd
+        assert quote(f"{qt['quote_number']}_SMC-会议室环境检测", safe="") in cd
+        assert quote("报价单", safe="") not in cd                                 # QT 已含该语义
         assert cd.count("SMC") == 1                                               # 客户名不得再拼一遍
         assert cd.index(quote(qt["quote_number"], safe="")) < cd.index("SMC")     # 标识在前
 

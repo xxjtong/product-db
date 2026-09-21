@@ -440,11 +440,10 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
-    # 文件名只用「编号 + 标题」：客户信息本来就写在标题里（业务习惯），
-    # 再拼一次客户名就是「报价单_QT-..._SMC_SMC-会议室环境检测.xlsx」这种重复
+    # 文件名只用「编号 + 标题」：编号本身以 QT（quotation）开头，类型信息已含在编号里，
+    # 再写一遍「报价单_」是冗余；客户信息本来也写在标题里（见 R43）
     from app.utils.helpers import attachment_disposition, safe_filename_part
     filename = "_".join(p for p in [
-        "报价单",
         safe_filename_part(qt.quote_number, f"id{quotation_id}"),
         safe_filename_part(qt.title),
     ] if p) + ".xlsx"
