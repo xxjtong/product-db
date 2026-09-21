@@ -55,6 +55,17 @@ ON DELETE**（迁移文件 `fix_create_all_to_explicit_ddl.py` 里写了，但�
 **生产副本实测**（`sqlite3 .backup` 拉回本地跑迁移）：`foreign_key_check` 787 → 0；
 缺 ON DELETE 21 → 0；表 33、索引 47 均无变化；行数变化只有上面列出的清理项。
 
+**生产部署与线上实测**（2026-09-22 00:33，先 `deploy/backup-db.sh` 取快照再迁移）：
+- 迁移输出与本地副本**逐行一致**；`alembic_version` = `e0f1a2b3c4d5`
+- 线上复查：外键 **46 个、缺 ON DELETE 0 个**、`foreign_key_check` 0 违规；
+  396 产品 / 50 品类 / 7 方案 / 8 报价无变化；`product_categories` 731 → 675（-56 孤儿）
+- 行为验证：删被引用产品 79 → **409「已被 3 个方案条目、3 个报价条目引用」**，产品未删
+- 级联验证（临时数据，测完即删）：建品类 → 建产品（`product_categories` 有 1 行）→
+  删产品 → **该行随 CASCADE 归零**（这正是以前留下 56 行孤儿的路径）→ 删品类，无残留
+- 回归巡检：产品/品类/方案/报价/用户/用量/下载日志/审批/厂商/供应商 全部 200；
+  BOM、报价单导出为合法 xlsx，文件名仍为 `BOM_id36_….xlsx` / `QT-20260918-001_….xlsx`；
+  规格书 PDF 436KB；服务 `active`，nginx 首页与 `/api/health` 均 200
+
 > **坑**：本机有两个 venv —— `venv`（3.9，装了 alembic/ip2region，**这个才是对的**）和
 > `.venv`（3.14，缺 alembic，`import alembic` 会命中仓库里的 `backend/alembic/` 目录变成
 > 命名空间包）。跑测试/迁移认准 `venv/bin/python`。
