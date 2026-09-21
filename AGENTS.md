@@ -90,13 +90,14 @@ DATABASE_PATH: str = ""   # 只赋给 DB_FILESYSTEM_PATH，**不参与 engine �
 | AI 对话（走 DeepSeek） | SSE 正常返回，说明沙箱内 **DNS 与 HTTPS 未被 `RestrictAddressFamilies` 拦** |
 | `app/uploads` 可写 | ✓（`ProtectSystem=full` 不影响 `/opt`） |
 
-**副产品结论**：`/opt/product-db/backend/product_db.db` 与
-`/home/tong/product-db/backend/product_db.db` 是**硬链接**（同一 inode `567635`、md5 一致）——
-两个目录树共享同一个库文件，所以此前直接对任一路径做的 sqlite3 查询读到的都是生产数据
-（历次审计结论有效）。
+**副产品结论**：`/home/tong/product-db` 是**指向 `/opt/product-db` 的符号链接**（R52 实测确认：
+`ls -ld` 显示 `-> /opt/product-db`），所以两个路径下的 `product_db.db` 本来就是同一个文件 ——
+此前直接对任一路径做的 sqlite3 查询读到的都是生产数据（历次审计结论有效）。
+（R51 当时误判为"硬链接"，R52 更正。）
 
-**待办（可选，收益有限暂不做）**：若要启用 `ProtectHome`，需把库真正迁到 `/opt` 并显式配置
-`DATABASE_URL` —— 注意 WAL/SHM 文件必须一并处理（否则两套 WAL 指向同一主库，会出不一致）。
+**待办（已被 R52 解决）**：当时判断「要启用 `ProtectHome` 就必须先迁库、还得处理 WAL」——
+R52 已把默认库路径改到 `/opt/product-db/backend/`（完全不经过 `/home`），
+因此现在启用 `ProtectHome` 是安全的，只需 root 执行一次 `deploy/install-systemd-unit.sh`（尚未启用）。
 
 ## 历史变更 (2026-09-21, R50)
 
