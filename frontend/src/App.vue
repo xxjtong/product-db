@@ -147,8 +147,12 @@ provide('toast', showToast)
 
 // Load session data on mount
 const currentUser = ref<any>(null)
+// 生效后的成本可见性（admin / 按用户覆盖 / 全局开关三者合一），由后端 /auth/session 给出。
+// 默认 false：加载完成前不渲染任何成本，避免一闪而过的敏感值。
+const canViewCost = ref(false)
 const aiStats = ref<{ total: number; user_count: number; total_tokens_in: number; user_tokens_in: number; user_tokens_out?: number } | null>(null)
 provide('currentUser', currentUser)
+provide('canViewCost', canViewCost)
 
 
 async function loadAiStats() {
@@ -180,6 +184,7 @@ async function loadSession() {
     }
     const data = await res.json()
     currentUser.value = data.user
+    canViewCost.value = !!data.can_view_cost
   } catch { /* ignore */ }
 }
 
@@ -196,6 +201,7 @@ function logout() {
   localStorage.removeItem('token')
   localStorage.removeItem('user')
   currentUser.value = null
+  canViewCost.value = false
   router.push('/login')
 }
 

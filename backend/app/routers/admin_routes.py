@@ -56,7 +56,7 @@ def create_user(data: CreateUserRequest, db: Session = Depends(get_db), user=Dep
     if db.query(User).filter_by(username=data.username).first():
         raise HTTPException(400, "用户名已存在")
     u = User(username=data.username, password_hash=hash_password(data.password),
-             role=data.role, email=data.email)
+             role=data.role, email=data.email, can_view_cost=data.can_view_cost)
     db.add(u)
     db.commit()
     db.refresh(u)
@@ -69,6 +69,10 @@ def update_user(uid: int, data: UpdateUserRequest, db: Session = Depends(get_db)
         raise HTTPException(403, "Admin only")
     u = get_or_404(db, User, uid, "User not found")
     apply_partial_update(u, data, ["email", "role", "is_active"])
+    # can_view_cost 是三态，不能交给 apply_partial_update —— 它跳过 None，
+    # 「改回跟随全局」就永远存不下去。改为只要请求里出现该字段就照写（含显式 null）。
+    if "can_view_cost" in data.model_fields_set:
+        u.can_view_cost = data.can_view_cost
     if data.password:
         u.password_hash = hash_password(data.password)
     db.commit()

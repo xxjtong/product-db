@@ -20,16 +20,26 @@ def get_field_visibility(db: Session) -> dict:
     return _cache["data"]
 
 
-def filter_fields_for_user(data: dict, is_admin: bool, db: Session = None) -> dict:
-    """Set invisible fields to None for non-admin users."""
-    if is_admin:
-        return data
-    if db is None:
+def apply_field_visibility(data: dict, user, db: Session) -> dict:
+    """按用户裁掉序列化结果里不可见的字段（产品数据的统一入口）。
+
+    - **成本**：走 `cost_visible()`（admin → 按用户覆盖 → 全局开关三层判定），
+      隐藏时置 `None`，与其它字段的表现一致（前端靠 `|| '—'` 兜底）
+    - **其余字段**（manufacturer_name / supplier_name / product_url）：仍只看全局开关
+
+    之所以把成本单独拎出来：全局开关无法表达「给某个用户单独开放/禁止」，
+    而按用户的覆盖只在这一层生效。历史教训是这段逻辑曾在 4 处各写一遍。
+    """
+    if getattr(user, "role", "") == "admin":
         return data
     visibility = get_field_visibility(db)
     for field_name, visible in visibility.items():
+        if field_name == "cost_price":
+            continue
         if not visible and field_name in data:
             data[field_name] = None
+    if "cost_price" in data and not cost_visible(user, db):
+        data["cost_price"] = None
     return data
 
 
@@ -40,11 +50,15 @@ def cost_visible(user, db: Session) -> bool:
     此前各路由各写一套（products 里直接读全局、quotations 有 `_should_hide_cost`、
     bom_templates 有 `_cost_visible`），漏改一处就等于成本泄漏。
 
-    admin 恒可见；其他用户看全局字段开关。按用户覆盖（users.can_view_cost）
-    只需改这一个函数。
+    ① admin 恒可见；
+    ② 否则看按用户的覆盖 `users.can_view_cost`（三态：None=跟随全局）；
+    ③ 都没有就用全局字段开关。
     """
     if getattr(user, "role", "") == "admin":
         return True
+    override = getattr(user, "can_view_cost", None)
+    if override is not None:
+        return bool(override)
     return bool(get_field_visibility(db).get("cost_price", True))
 
 

@@ -251,12 +251,14 @@ def register(data: RegistrationRequest, request: Request, db: Session = Depends(
 
 @router.get("/auth/session")
 def get_session(user=Depends(get_current_user), db: Session = Depends(get_db)):
-    from app.services.field_visibility import get_field_visibility
+    from app.services.field_visibility import get_field_visibility, cost_visible
     from app.models.system_setting import SystemSetting
 
     s = db.query(SystemSetting).filter_by(key="registration_open").first()
     return {
         "user": user.to_dict(),
         "field_visibility": {} if user.role == 'admin' else get_field_visibility(db),
+        # 生效后的成本可见性（admin / 按用户覆盖 / 全局开关三者合一），前端据此决定是否渲染成本列
+        "can_view_cost": cost_visible(user, db),
         "registration_open": s.value == "true" if s else False,
     }

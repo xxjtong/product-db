@@ -156,11 +156,10 @@ def list_products(
         pid = p['id']
         extra = pc_map.get(pid, [])
         if extra: p['all_category_names'] = extra
-    # Apply field visibility for non-admin users
-    from app.services.field_visibility import filter_fields_for_user
-    is_admin = getattr(user, 'role', '') == 'admin'
+    # 按用户裁掉不可见字段（成本走 cost_visible，支持按用户覆盖）
+    from app.services.field_visibility import apply_field_visibility
     for p in product_list:
-        filter_fields_for_user(p, is_admin, db)
+        apply_field_visibility(p, user, db)
     return {
         "products": product_list,
         "total": total,
@@ -373,9 +372,8 @@ def get_product(product_id: int, db: Session = Depends(get_db), user=Depends(get
     db.commit()
     db.refresh(p)
     result = build_product_detail(p, db)
-    from app.services.field_visibility import filter_fields_for_user
-    is_admin = getattr(user, 'role', '') == 'admin'
-    filter_fields_for_user(result, is_admin, db)
+    from app.services.field_visibility import apply_field_visibility
+    apply_field_visibility(result, user, db)
     return {"product": result}
 
 
@@ -427,9 +425,8 @@ def create_product(data: ProductCreate, db: Session = Depends(get_db), user=Depe
     db.refresh(p)
     cats, mfgs, sups = get_name_maps(db)
     result = p.to_dict(cats, sups, mfgs)
-    from app.services.field_visibility import filter_fields_for_user
-    is_admin = getattr(user, 'role', '') == 'admin'
-    filter_fields_for_user(result, is_admin, db)
+    from app.services.field_visibility import apply_field_visibility
+    apply_field_visibility(result, user, db)
     return {"product": result}
 
 
@@ -468,9 +465,8 @@ def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(g
     db.commit()
     cats, mfgs, sups = get_name_maps(db)
     result = p.to_dict(cats, sups, mfgs)
-    from app.services.field_visibility import filter_fields_for_user
-    is_admin = getattr(user, 'role', '') == 'admin'
-    filter_fields_for_user(result, is_admin, db)
+    from app.services.field_visibility import apply_field_visibility
+    apply_field_visibility(result, user, db)
     return {"product": result}
 
 

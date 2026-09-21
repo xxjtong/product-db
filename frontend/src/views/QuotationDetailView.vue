@@ -17,7 +17,7 @@
     </div>
 
     <table class="data-table" v-if="quotation.items.length">
-      <thead><tr><th>#</th><th>产品名称</th><th>型号/SKU</th><th>功能描述</th><th>数量</th><th>单价</th><th>折扣%</th><th>小计</th><th>备注</th><th>成本</th></tr></thead>
+      <thead><tr><th>#</th><th>产品名称</th><th>型号/SKU</th><th>功能描述</th><th>数量</th><th>单价</th><th>折扣%</th><th>小计</th><th>备注</th><th v-if="canViewCost">成本</th></tr></thead>
       <tbody>
         <tr v-for="(item, idx) in quotation.items" :key="item.id">
           <td>{{ idx + 1 }}</td>
@@ -29,7 +29,7 @@
           <td>{{ item.discount_rate }}</td>
           <td class="font-mono">{{ item.amount?.toFixed(2) }}</td>
           <td>{{ item.remark || '—' }}</td>
-          <td class="font-mono">{{ item.product_snapshot?.cost_price || '—' }}</td>
+          <td class="font-mono" v-if="canViewCost">{{ item.product_snapshot?.cost_price || '—' }}</td>
         </tr>
       </tbody>
       <tfoot>
@@ -67,6 +67,8 @@ const loading = ref(false)
 const loadError = ref('')
 const showBom = ref(false)
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
+// 成本列只在有权限时渲染（后端同样会裁掉值）
+const canViewCost = inject<any>('canViewCost', ref(false))
 
 function getDesc(item: { product_snapshot?: { description?: string; specs?: Record<string, unknown> } }): string {
   const snap = item.product_snapshot || {}

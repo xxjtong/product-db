@@ -867,9 +867,10 @@ class TestSpecValidation:
 class TestFieldVisibility:
     """Test that field visibility settings hide sensitive fields from non-admin users."""
 
-    def _make_user(self, db, username="normal", role="user"):
+    def _make_user(self, db, username="normal", role="user", can_view_cost=None):
         from app.auth import hash_password
-        u = User(username=username, password_hash=hash_password("test123"), role=role)
+        u = User(username=username, password_hash=hash_password("test123"), role=role,
+                 can_view_cost=can_view_cost)
         db.add(u)
         db.commit()
         db.refresh(u)
@@ -1079,7 +1080,7 @@ class TestFieldVisibility:
         p = _seed_product(db, category_id=cat.id, cost_price=333.33)
 
         # Admin endpoint auto-creates defaults, but regular endpoints
-        # just pass through (filter_fields_for_user has nothing to hide)
+        # just pass through (apply_field_visibility has nothing to hide)
         user = self._make_user(db)
         res = client.get(f"/product-db/api/products/{p.id}", headers=self._auth_for(user))
         assert res.status_code == 200
@@ -1093,7 +1094,8 @@ class TestFieldVisibility:
     # 与 `SolutionItem.to_dict()`（含每项成本），普通用户拿到方案即拿到全部成本。
 
     def _seed_solution_with_cost(self, db, user, cost=66.6, qty=2):
-        cat = _seed_category(db)
+        # 复用已存在的品类，避免同一个测试里建两次触发 slug 唯一约束
+        cat = db.query(Category).filter_by(slug="test-cat").first() or _seed_category(db)
         p = _seed_product(db, category_id=cat.id, base_price=100, cost_price=cost)
         res = client.post("/product-db/api/solutions", json={"name": "成本方案"},
                           headers=self._auth_for(user))
@@ -1252,6 +1254,87 @@ class TestFieldVisibility:
                           headers=self._auth_for(admin)).json()["quotation"]["items"][0]["product_snapshot"]
         assert snap.get("cost_price") == 66.6, "保存不得把成本归零"
         assert snap.get("name") == p.name, "其它字段仍按客户端提交保存"
+
+    # ── 按用户的成本可见性覆盖（users.can_view_cost，三态）──
+
+    def test_user_override_allows_cost_when_global_off(self, db):
+        """全局关掉成本，仍可给单个用户单独开放（覆盖优先于全局）。"""
+        self._clear_field_settings(db)
+        self._seed_field_setting(db, "cost_price", False)
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, cost_price=4321.0)
+        user = self._make_user(db, username="vip", can_view_cost=True)
+
+        res = client.get(f"/product-db/api/products/{p.id}", headers=self._auth_for(user))
+        assert res.status_code == 200
+        assert res.json()["product"]["cost_price"] == 4321.0
+
+        sid, item = self._seed_solution_with_cost(db, user, cost=4321.0)
+        assert item["product_cost_price"] == 4321.0
+        assert client.get(f"/product-db/api/solutions/{sid}",
+                          headers=self._auth_for(user)).json()["solution"]["total_cost"] == 8642.0
+
+    def test_user_override_denies_cost_when_global_on(self, db):
+        """反向覆盖：全局开着，也可以对某个人单独禁止。"""
+        self._clear_field_settings(db)
+        self._seed_field_setting(db, "cost_price", True)
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, cost_price=1234.0)
+        user = self._make_user(db, username="blocked", can_view_cost=False)
+
+        res = client.get(f"/product-db/api/products/{p.id}", headers=self._auth_for(user))
+        assert res.status_code == 200
+        assert res.json()["product"]["cost_price"] is None
+
+        sid, item = self._seed_solution_with_cost(db, user, cost=1234.0)
+        assert "product_cost_price" not in item
+        sol = client.get(f"/product-db/api/solutions/{sid}",
+                         headers=self._auth_for(user)).json()["solution"]
+        assert "total_cost" not in sol
+
+    def test_session_reports_effective_can_view_cost(self, db):
+        """GET /auth/session 暴露生效后的成本可见性（admin / 覆盖 / 全局三者合一）。"""
+        self._clear_field_settings(db)
+        self._seed_field_setting(db, "cost_price", False)
+
+        def session_flag(u):
+            res = client.get("/product-db/api/auth/session", headers=self._auth_for(u))
+            assert res.status_code == 200
+            return res.json()["can_view_cost"]
+
+        admin = db.query(User).filter_by(username="admin").first()
+        assert session_flag(admin) is True, "admin 恒可见"
+        assert session_flag(self._make_user(db, username="follow")) is False, "NULL 跟随全局"
+        assert session_flag(self._make_user(db, username="allow", can_view_cost=True)) is True
+        assert session_flag(self._make_user(db, username="deny", can_view_cost=False)) is False
+
+    def test_admin_sets_can_view_cost_three_state(self, db):
+        """管理端可三态设置：允许 / 禁止 / 改回跟随全局（显式 null）。"""
+        admin = db.query(User).filter_by(username="admin").first()
+        target = self._make_user(db, username="target")
+        url = f"/product-db/api/admin/users/{target.id}"
+
+        for value in (True, False):
+            res = client.put(url, json={"can_view_cost": value}, headers=self._auth_for(admin))
+            assert res.status_code == 200
+            assert res.json()["user"]["can_view_cost"] is value
+
+        # 改回跟随全局必须真的生效 —— apply_partial_update 会跳过 None，
+        # 若把 can_view_cost 交给它，这里会一直是 False（回归点）
+        res = client.put(url, json={"can_view_cost": None}, headers=self._auth_for(admin))
+        assert res.status_code == 200
+        assert res.json()["user"]["can_view_cost"] is None
+
+        # 列表接口也要带上该字段，管理页才能显示当前状态
+        users = client.get("/product-db/api/admin/users", headers=self._auth_for(admin)).json()["users"]
+        assert next(u for u in users if u["id"] == target.id)["can_view_cost"] is None
+
+        # 不带该字段的普通更新不得把它重置
+        assert client.put(url, json={"can_view_cost": False},
+                          headers=self._auth_for(admin)).status_code == 200
+        res = client.put(url, json={"email": "x@example.com"}, headers=self._auth_for(admin))
+        assert res.status_code == 200
+        assert res.json()["user"]["can_view_cost"] is False, "未提及该字段时不应被重置"
 
     def test_product_export_hides_cost_column(self, db):
         """产品导出 xlsx 的 M 列（成本，第 13 列）对普通用户必须为空。"""

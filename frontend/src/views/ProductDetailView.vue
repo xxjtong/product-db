@@ -31,7 +31,7 @@
       <div class="info-item"><label>厂商</label><span>{{ product.manufacturer_name || '—' }}</span></div>
       <div class="info-item"><label>供应商</label><span>{{ product.supplier_name || '—' }}</span></div>
       <div class="info-item"><label>价格</label><span class="font-mono">{{ product.base_price || '—' }}</span></div>
-      <div class="info-item"><label>成本</label><span class="font-mono">{{ product.cost_price || '—' }}</span></div>
+      <div class="info-item" v-if="canViewCost"><label>成本</label><span class="font-mono">{{ product.cost_price || '—' }}</span></div>
       <div class="info-item"><label>修改时间</label><span>{{ product.updated_at ? formatTime(product.updated_at) : '—' }}</span></div>
       <div class="info-item"><label>浏览</label><span>{{ product.view_count || 0 }} 次</span></div>
     </div>
@@ -183,7 +183,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, inject } from 'vue'
 import { useRoute } from 'vue-router'
 import { PencilIcon, FileTextIcon } from 'lucide-vue-next'
 import { formatTime } from '../utils/time'
@@ -196,6 +196,8 @@ import type { Product, SpecDefinition } from '../types'
 
 const route = useRoute()
 const product = ref<Product | null>(null)
+// 成本只在有权限时渲染（后端同样会把值裁成 null）
+const canViewCost = inject<any>('canViewCost', ref(false))
 const categoryNames = ref<Record<number, string>>({})
 const specDefs = ref<SpecDefinition[]>([])
 const lightboxIdx = ref<number | null>(null)

@@ -23,7 +23,7 @@
             <th style="width:60px">折扣%</th>
             <th style="width:80px">小计</th>
             <th style="width:80px">备注</th>
-            <th style="width:70px">成本</th>
+            <th style="width:70px" v-if="canViewCost">成本</th>
             <th style="width:30px"></th>
           </tr>
         </thead>
@@ -38,7 +38,7 @@
             <td><input v-model.number="row.discount" type="number" min="0" max="100" style="width:100%" @input="dirty = true" /></td>
             <td class="font-mono text-right">{{ subtotal(row) }}</td>
             <td><input v-model="row.remark" style="width:100%" @input="dirty = true" /></td>
-            <td><input v-model.number="row.cost" type="number" min="0" step="0.01" style="width:100%" @input="dirty = true" /></td>
+            <td v-if="canViewCost"><input v-model.number="row.cost" type="number" min="0" step="0.01" style="width:100%" @input="dirty = true" /></td>
             <td><button class="btn-icon btn-sm" @click="deleteRow(i)" title="删除行"><Trash2Icon style="width:14px;height:14px;color:var(--color-danger)" /></button></td>
           </tr>
         </tbody>
@@ -47,7 +47,7 @@
             <td colspan="7" class="text-right" style="font-weight:600">合计</td>
             <td class="font-mono text-right" style="font-weight:700">{{ totalPrice }}</td>
             <td></td>
-            <td></td>
+            <td v-if="canViewCost"></td>
             <td></td>
           </tr>
         </tfoot>
@@ -62,6 +62,8 @@ import { RefreshCwIcon, SaveIcon, DownloadIcon, PlusIcon, Trash2Icon } from 'luc
 import { fetchBomSnapshot, saveBomSnapshot, bomExportUrl, fetchQuotationBom, saveQuotationBom } from '../api'
 
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
+// 无成本权限时不渲染成本列，也不在保存时上报成本（后端还会以服务端值兜底，防读写两侧丢数据）
+const canViewCost = inject<any>('canViewCost', ref(false))
 
 const props = defineProps<{ solutionId?: number; quotationId?: number }>()
 
@@ -140,7 +142,8 @@ async function save() {
       const data = rows.value.map(r => ({
         name: r.name, sku: r.sku, model: r.model, qty: r.qty, price: r.price,
         discount: r.discount, description: r.description, remark: r.remark,
-        cost: r.cost,
+        // 无成本权限时不上报 cost：既读不到也不该改写，避免把服务端成本覆盖成 0
+        ...(canViewCost.value ? { cost: r.cost } : {}),
       }))
       await saveQuotationBom(props.quotationId, { rows: data })
     } else if (props.solutionId) {
@@ -156,7 +159,7 @@ async function save() {
         cells[`G${row}`] = { v: r.discount }
         cells[`H${row}`] = { v: Number(subtotal(r)) }
         cells[`I${row}`] = { v: r.remark }
-        cells[`J${row}`] = { v: r.cost }
+        if (canViewCost.value) cells[`J${row}`] = { v: r.cost }
       })
       await saveBomSnapshot(props.solutionId, { snapshot: { cells, sheet_name: 'BOM' } })
     }

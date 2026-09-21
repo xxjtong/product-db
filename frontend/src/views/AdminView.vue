@@ -93,10 +93,12 @@
     <h3>用户管理</h3>
     <button class="btn-primary btn-sm" @click="openAdd" style="margin-bottom:12px">+ 新增用户</button>
     <table class="data-table" v-if="users.length">
-      <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>邮箱</th><th>AI次数</th><th>AI Token</th><th>状态</th><th>操作</th></tr></thead>
+      <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>成本价</th><th>邮箱</th><th>AI次数</th><th>AI Token</th><th>状态</th><th>操作</th></tr></thead>
       <tbody>
         <tr v-for="u in users" :key="u.id">
-          <td>{{ u.id }}</td><td>{{ u.username }}</td><td>{{ u.role }}</td><td>{{ u.email || '—' }}</td>
+          <td>{{ u.id }}</td><td>{{ u.username }}</td><td>{{ u.role }}</td>
+          <td class="text-sm">{{ costPermLabel(u) }}</td>
+          <td>{{ u.email || '—' }}</td>
           <td class="font-mono">{{ u.ai_count || 0 }}</td>
           <td class="font-mono">{{ formatNum(u.ai_tokens || 0) }}</td>
           <td>{{ u.is_active ? '启用' : '停用' }}</td>
@@ -146,6 +148,14 @@
       <div class="form-group"><label>用户名 *</label><input v-model="form.username" /></div>
       <div class="form-group"><label>密码 {{ editing ? '(留空不修改)' : '*' }}</label><input v-model="form.password" type="password" /></div>
       <div class="form-group"><label>角色</label><select v-model="form.role"><option value="user">user</option><option value="admin">admin</option></select></div>
+      <div class="form-group" v-if="form.role !== 'admin'">
+        <label>成本价可见性</label>
+        <select v-model="form.cost_perm">
+          <option value="">跟随全局开关</option>
+          <option value="true">单独允许</option>
+          <option value="false">单独禁止</option>
+        </select>
+      </div>
       <div class="form-group"><label>邮箱</label><input v-model="form.email" /></div>
       <div class="form-group" v-if="editing"><label>状态</label><select v-model="form.is_active"><option :value="true">启用</option><option :value="false">停用</option></select></div>
     </div>
@@ -180,7 +190,7 @@ const showToast = inject<(msg: string, type?: string) => void>('toast', () => {}
 const token = () => localStorage.getItem('token') || ''
 const h = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` })
 
-interface AdminUser { id: number; username: string; role: string; email: string; is_active: boolean; created_at: string; last_login: string; ai_count?: number; ai_tokens?: number }
+interface AdminUser { id: number; username: string; role: string; email: string; is_active: boolean; created_at: string; last_login: string; can_view_cost?: boolean | null; ai_count?: number; ai_tokens?: number }
 interface LogEntry { id: number; user_id: number | null; username?: string; ip_address: string; region: string; success: boolean; created_at: string }
 interface DownloadLog { id: number; user_id: number; username?: string; file_type: string; entity_id: number; ip_address: string; created_at: string }
 
@@ -191,7 +201,8 @@ const loginLogsPage = ref(1); const loginLogsTotal = ref(0)
 const dlogsPage = ref(1); const dlogsTotal = ref(0)
 const modalVisible = ref(false)
 const editing = ref<AdminUser | null>(null)
-const form = ref({ username: '', password: '', role: 'user', email: '', is_active: true })
+// cost_perm: '' = 跟随全局（存 null）；'true' / 'false' = 单独允许 / 禁止
+const form = ref({ username: '', password: '', role: 'user', email: '', is_active: true, cost_perm: '' })
 const pwdModalVisible = ref(false)
 const pwdTarget = ref<AdminUser | null>(null)
 const newPwd = ref('')
@@ -341,13 +352,30 @@ async function toggleReg() {
 }
 
 // Users
-function openAdd() { editing.value = null; form.value = { username: '', password: '', role: 'user', email: '', is_active: true }; modalVisible.value = true }
-function openEdit(u: any) { editing.value = u; form.value = { username: u.username, password: '', role: u.role, email: u.email || '', is_active: u.is_active }; modalVisible.value = true }
+function openAdd() { editing.value = null; form.value = { username: '', password: '', role: 'user', email: '', is_active: true, cost_perm: '' }; modalVisible.value = true }
+function openEdit(u: any) {
+  editing.value = u
+  form.value = {
+    username: u.username, password: '', role: u.role, email: u.email || '', is_active: u.is_active,
+    cost_perm: u.can_view_cost === null || u.can_view_cost === undefined ? '' : String(u.can_view_cost),
+  }
+  modalVisible.value = true
+}
+
+// 成本可见性的显示文案（三态）
+function costPermLabel(u: AdminUser): string {
+  if (u.can_view_cost === null || u.can_view_cost === undefined) return '跟随全局'
+  return u.can_view_cost ? '可见' : '隐藏'
+}
 
 async function saveUser() {
   try {
+    const { cost_perm, ...rest } = form.value
+    // 显式传 null 才能「改回跟随全局」——后端 apply_partial_update 会跳过 null，
+    // 所以它单独处理这个字段，不能省略
+    const payload = { ...rest, can_view_cost: cost_perm === '' ? null : cost_perm === 'true' }
     const url = editing.value ? `/product-db/api/admin/users/${editing.value.id}` : '/product-db/api/admin/users'
-    await fetch(url, { method: editing.value ? 'PUT' : 'POST', headers: h(), body: JSON.stringify(form.value) })
+    await fetch(url, { method: editing.value ? 'PUT' : 'POST', headers: h(), body: JSON.stringify(payload) })
     modalVisible.value = false; showToast('已保存', 'success'); load()
   } catch (e: any) { showToast(e.message, 'error') }
 }

@@ -22,6 +22,8 @@ class CreateUserRequest(BaseModel):
     password: str = Field(..., min_length=1, max_length=128)
     role: str = "user"
     email: str = ""
+    # 三态：None=跟随全局成本可见性开关
+    can_view_cost: Optional[bool] = None
 
 
 class UpdateUserRequest(BaseModel):
@@ -29,6 +31,8 @@ class UpdateUserRequest(BaseModel):
     role: Optional[str] = None
     is_active: Optional[bool] = None
     password: Optional[str] = None
+    # 三态：None=跟随全局；显式传 null 表示「改回跟随全局」（见 admin_routes.update_user）
+    can_view_cost: Optional[bool] = None
 
 
 class UpdateProfileRequest(BaseModel):

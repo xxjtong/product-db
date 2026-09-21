@@ -26,7 +26,7 @@
         </select>
       </div>
       <div class="form-group"><label>价格 *</label><input v-model.number="form.base_price" type="number" step="0.01" /></div>
-      <div class="form-group"><label>成本价</label><input v-model.number="form.cost_price" type="number" step="0.01" /></div>
+      <div class="form-group" v-if="canViewCost"><label>成本价</label><input v-model.number="form.cost_price" type="number" step="0.01" /></div>
       <div class="form-group"><label>状态</label>
         <select v-model="form.status"><option value="active">在售</option><option value="discontinued">停售</option><option value="planned">规划中</option></select>
       </div>
@@ -241,6 +241,8 @@ import { fetchCategories, fetchSuppliers, fetchProducts, fetchProduct, createPro
 const route = useRoute()
 const router = useRouter()
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
+// 无权限时不渲染成本价输入框：既看不到也不应改写（保存时该字段不会出现在请求体里）
+const canViewCost = inject<any>('canViewCost', ref(false))
 
 const isEdit = computed(() => !!route.params.id)
 const loaded = ref(false)
@@ -512,6 +514,9 @@ async function save() {
   }
   try {
     const payload = cleaned
+    // 无成本权限时不要把 cost_price 发出去：新建时表单默认值是 0，发出去会把
+    // 成本写成 0（而不是「未填」）；编辑时后端也会跳过 null，这里一并省掉
+    if (!canViewCost.value) delete (payload as any).cost_price
     // Set image_url from primary image in images array
     const primaryImg = payload.images?.find((i: any) => i.is_primary)
     if (primaryImg?.url) payload.image_url = primaryImg.url
