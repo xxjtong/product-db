@@ -561,6 +561,28 @@ class TestQuotations:
         qt = resp.json()["quotation"]
         assert qt["client_name"] == "客户甲"
 
+    def test_tax_rate_defaults_to_13(self, db):
+        """报价单税率统一 13%（导出的 xlsx 备注行会写「税率 N%」，客户看得到）"""
+        qt = client.post("/product-db/api/quotations", json={"title": "税率"}).json()["quotation"]
+        assert qt["tax_rate"] == 13
+
+    def test_tax_rate_can_be_overridden(self, db):
+        """显式传入时仍以传入值为准（不要把 13 写死）"""
+        qt = client.post("/product-db/api/quotations",
+                         json={"title": "税率", "tax_rate": 6}).json()["quotation"]
+        assert qt["tax_rate"] == 6
+
+    def test_export_note_shows_tax_rate(self, db):
+        import io
+        import openpyxl
+
+        qt = client.post("/product-db/api/quotations", json={"title": "导出税率"}).json()["quotation"]
+        res = client.get(f"/product-db/api/quotations/{qt['id']}/export-xlsx")
+        assert res.status_code == 200
+        ws = openpyxl.load_workbook(io.BytesIO(res.content)).active
+        texts = [str(c.value) for row in ws.iter_rows() for c in row if c.value]
+        assert any("税率 13%" in t for t in texts), texts[-4:]
+
     def test_update_quotation(self, db):
         resp = client.post("/product-db/api/quotations", json={"title": "原始报价"})
         qt_id = resp.json()["quotation"]["id"]

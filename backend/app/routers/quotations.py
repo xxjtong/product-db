@@ -43,6 +43,18 @@ def _filter_quotation_items_cost(items: list, user, db) -> list:
     return items
 
 
+def _fmt_rate(rate) -> str:
+    """税率展示格式：整数不带小数点（13 → '13'，13.5 → '13.5'）
+
+    Numeric(5,2) 取出来是 Decimal('13.00')，直接 f-string 会打成「13.0%」。
+    """
+    try:
+        value = float(rate or 0)
+    except (TypeError, ValueError):
+        return "0"
+    return str(int(value)) if value == int(value) else f"{value:g}"
+
+
 def _generate_quote_number(db: Session) -> str:
     """Generate quote number: QT-YYYYMMDD-NNN."""
     today = datetime.now(timezone.utc).strftime("%Y%m%d")
@@ -401,7 +413,7 @@ def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user
     apply_total_row(ws, total_row, f"合计（大写）：{num_to_chinese_uppercase(total_amount)}", col_letter="J")
 
     # Note row
-    apply_note_row(ws, total_row + 1, f"注：本报价单有效期 {qt.valid_days or 30} 天，税率 {float(qt.tax_rate or 0)}%。")
+    apply_note_row(ws, total_row + 1, f"注：本报价单有效期 {qt.valid_days or 30} 天，税率 {_fmt_rate(qt.tax_rate)}%。")
 
     # Footer row
     apply_footer_row(ws, total_row + 2, f"报价单编号：{qt.quote_number or ''}  |  {user.username}")

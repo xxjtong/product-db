@@ -9,7 +9,9 @@ class QuotationCreate(BaseModel):
     client_name: Optional[str] = None
     client_contact: Optional[str] = None
     valid_days: int = 15
-    tax_rate: float = 0
+    # 增值税一般税率（百分数，13 表示 13%）。前端没有设置入口（R21 移除了税率信息行），
+    # 实际只在导出 xlsx 的备注行展示，所以统一按 13% 出。显式传入时仍以传入值为准。
+    tax_rate: float = 13
     status: str = "draft"
     notes: Optional[str] = None
 

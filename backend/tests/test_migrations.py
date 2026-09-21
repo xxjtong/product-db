@@ -23,7 +23,7 @@ from alembic.config import Config  # noqa: E402
 from app.config import settings  # noqa: E402
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HEAD_REVISION = "e5f6a7b8c9d0"
+HEAD_REVISION = "f6a7b8c9d0e1"
 
 
 def _build_fresh_db() -> str:

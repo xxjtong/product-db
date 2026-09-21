@@ -15,7 +15,7 @@ class Quotation(Base):
     client_name = Column(String(200), nullable=True)
     client_contact = Column(String(100), nullable=True)
     valid_days = Column(Integer, default=15)
-    tax_rate = Column(Numeric(5, 2), default=0)
+    tax_rate = Column(Numeric(5, 2), default=13)   # 增值税税率（百分数），统一 13%
     status = Column(String(20), default="draft")
     total_amount = Column(Numeric(14, 2), default=0)
     notes = Column(Text, nullable=True)
