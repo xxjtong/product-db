@@ -1,6 +1,7 @@
 # 数据库设计
 
-SQLite 单文件, 33 张表（含 `alembic_version`，业务表 32 张）, ~6,000 行数据。
+SQLite 单文件, 34 张表（业务表 32 张 = 31 张 ORM 表 + 裸表 `product_categories`，
+另加 `alembic_version`、`sqlite_sequence`）, ~6,000 行数据。
 
 ## 表总览
 
@@ -335,10 +336,11 @@ SQLite 默认**不校验**外键，且 `PRAGMA foreign_keys` 是**逐连接**的
 ## 权限数据模型
 
 ```
-8 张业务表含 created_by:
+11 张业务表含 created_by:
   products, device_categories, manufacturers, suppliers,
   dict_comm_methods, dict_comm_protocols,
-  dict_power_supplies, dict_sensor_metrics
+  dict_power_supplies, dict_sensor_metrics,
+  solutions, quotations, bom_templates
 
 created_by 值语义:
   NULL     → 系统/legacy (所有人可见)
@@ -354,6 +356,8 @@ check_ownership():
   普通 → item.created_by NOT IN (NULL, user.id, 1) → 403
 ```
 
+> 删用户时这些 `created_by` 一律 `SET NULL`（R57）—— 记录保留，归属清空，不会连带删除业务数据。
+
 ## 设计原则
 
 1. **多对多 > JSON 数组** — 字典引用完整性 + 可反向查询 + 属性级字段
@@ -361,4 +365,4 @@ check_ownership():
 3. **遗留兼容** — category_id 单列 + product_categories 多对多 并存过渡
 4. **预计算** — pinyin_search 加速中文搜索, view_count 追踪热度
 5. **审计优先** — login_logs / download_logs / ai_usage_logs
-6. **SQLite 友好** — 单文件零配置, FK 默认 OFF, WAL 模式
+6. **SQLite 友好** — 单文件零配置, WAL 模式；外键需逐连接打开，R57 起已开启（见「外键与级联」）

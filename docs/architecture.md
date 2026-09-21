@@ -6,12 +6,14 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立项目，�
 
 | 维度 | 数量 |
 |------|------|
-| Python 文件 | 62 个 (6,819 行) |
-| TypeScript/Vue/CSS | 38 个 (734 行) |
-| API 端点 | ~85 个 |
-| 数据库表 | 33 张 |
-| 产品 | 392 个 |
-| 测试 | pytest 341 + vitest 60 + E2E 92 |
+| Python 文件 | 66 个 (9,657 行, `backend/app/`) |
+| TypeScript/Vue/CSS | 41 个 (9,096 行, `frontend/src/`, 不含测试) |
+| API 路径 | 91 条 |
+| 数据库表 | 34 张（业务表 32 = 31 ORM + 裸表 `product_categories`） |
+| 产品 | 396 个 |
+| 测试 | pytest 514（513 passed + 1 skipped）+ vitest 78 + E2E 96（6 个 spec 套件） |
+
+> 统计于 2026-09-22（R57 后），数据为生产库实测值。
 
 ## 技术栈
 
@@ -25,15 +27,16 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立项目，�
 后端:   FastAPI + Uvicorn
         SQLAlchemy 2.0 ORM + Pydantic v2
         Alembic (数据库迁移)
-        SQLite (dev) / PostgreSQL (prod)
-        JWT (PyJWT 2.13) + bcrypt (direct)
+        SQLite 单文件 + WAL（开发与生产**同为 SQLite**，见 DEPLOY.md「数据库归属」）
+        外键强制：engine connect 事件逐连接 `PRAGMA foreign_keys=ON`（R57）
+        JWT + bcrypt + token 版本号（可撤销）
         loguru (结构化日志)
 
 AI:     DeepSeek API (LlmEngine async)
         SSE 流式响应 + Tool Calling (4 tools)
         Prompt 缓存 300s TTL
 
-部署:   Docker Compose + Nginx
+部署:   systemd (`product-db.service`) + Nginx 反代 + rsync 增量发布
         路径前缀: /product-db/
 ```
 
@@ -43,9 +46,9 @@ AI:     DeepSeek API (LlmEngine async)
 backend/app/
 ├── main.py              # FastAPI 入口 + CORS + loguru 中间件
 ├── config.py            # Pydantic Settings
-├── database.py          # SQLAlchemy engine + JSONBType
+├── database.py          # SQLAlchemy engine + JSONBType + `PRAGMA foreign_keys=ON`（R57）
 ├── auth.py              # JWT + bcrypt + SHA256 兼容 + 权限过滤
-├── models/              # 18 文件, 33 张表
+├── models/              # 18 文件, 31 张 ORM 表（+ 裸表 product_categories）
 │   ├── product.py, category.py, dictionary.py
 │   ├── solution.py, quotation.py, bom_template.py
 │   ├── dependency.py, supplier.py, user.py

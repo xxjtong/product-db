@@ -34,8 +34,8 @@ npx vite --host 0.0.0.0 --port 5173
 ## 测试
 
 ```bash
-# Backend（约 500 个用例，数量随迭代变化）
-cd backend && pytest tests/ -v
+# Backend（514 用例：513 passed + 1 skipped，数量随迭代变化）
+cd backend && venv/bin/python -m pytest tests/ -v
 
 # Frontend
 cd frontend && npx vitest run                     # 78 组件测试
@@ -67,14 +67,14 @@ product-db/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py              # FastAPI 入口 + 日志中间件
-│   │   ├── database.py          # SQLAlchemy + JSONBType
+│   │   ├── database.py          # SQLAlchemy + JSONBType + 外键强制开关
 │   │   ├── auth.py              # JWT 认证 (bcrypt) + DEV_MODE
 │   │   ├── config.py            # Pydantic Settings
-│   │   ├── models/              # 数据模型 (32 张表 + 1 张裸关联表)
+│   │   ├── models/              # 数据模型 (31 张 ORM 表 + 裸表 product_categories = 32 业务表)
 │   │   ├── routers/             # API 路由 (14 个模块：含 agent / product_import / product_files)
 │   │   ├── services/            # 业务逻辑
 │   │   └── schemas/             # Pydantic 请求/响应模型
-│   ├── tests/                   # pytest 测试，约 500 用例
+│   ├── tests/                   # pytest 测试，514 用例（513 passed + 1 skipped）
 │   └── alembic/                 # 数据库迁移
 ├── frontend/
 │   ├── src/

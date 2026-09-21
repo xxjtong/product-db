@@ -1930,7 +1930,7 @@ backend/app/
 │   ├── helpers.py       # apply_partial_update
 │   └── escape.py        # SQL LIKE 转义
 ├── schemas/             # Pydantic 请求/响应模型
-└── tests/               # pytest 440 collected（439 passed + 1 skipped）
+└── tests/               # pytest 514 collected（513 passed + 1 skipped）；conftest.py 统一建/删测试库
 
 frontend/src/
 ├── App.vue              # 主布局 (暗侧边栏 + 全局搜索 + toast + 用户菜单)
@@ -2235,4 +2235,4 @@ API key 存在?
 ## 文档
 
 - `docs/architecture.md` — 完整架构总览 (技术栈/分层/路由/组件/AI/安全)
-- `docs/database.md` — 数据库设计 (33 表/ER/索引/JSON 策略/权限模型)
+- `docs/database.md` — 数据库设计 (34 表/ER/索引/JSON 策略/权限模型/外键与级联)

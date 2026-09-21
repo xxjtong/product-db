@@ -144,6 +144,15 @@ ssh -p 28793 tong@124.221.178.161 \
 > `created_by` 列、`product_categories` 表、一批索引在生产静默滞后了几个月
 > （R33 才补齐）。它幂等，可以每次都跑。
 >
+> ⚠️ **但「幂等」不等于「无损」**：迁移里可能有会删/改数据的（例如 R57 `e0f1a2b3c4d5`
+> 清理了 763 行孤儿、重建 17 张表）。这类迁移上生产前必须：
+> 1. **先取快照** —— `cd /opt/product-db && deploy/backup-db.sh`
+> 2. **先在生产副本上试跑** —— 服务器上 `sqlite3 backend/product_db.db ".backup /tmp/copy.db"`
+>    拉回本地，用 `DATABASE_URL=sqlite:////tmp/copy.db backend/venv/bin/alembic upgrade head`
+>    跑一遍，比对迁移前后的行数 / 索引数 / `PRAGMA foreign_key_check`
+> 3. 确认差异与预期一致（只有该删的行变了）再上生产；迁移脚本末尾一般带硬校验，
+>    不达标会 `raise` 而不是留下半成品
+>
 > `deploy/restart-ready.sh` 取代裸 `systemctl restart`：它会轮询健康接口直到就绪
 > 再验一次经 nginx 的入口与前端首页，失败则打印 journalctl 与回滚命令并以非 0 退出。
 
