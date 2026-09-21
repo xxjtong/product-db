@@ -23,6 +23,21 @@ fi
 
 [ -f "${SRC}" ] || { log "找不到源文件：${SRC}"; exit 1; }
 
+# 应用实际使用的数据库/上传目录 —— 加固项（尤其 ProtectHome/ProtectSystem）与这些路径
+# 必须兼容，否则会出现「服务起来了但查库全 500」。R51 就踩过：库其实在 /home 下。
+if [ -x "${REPO_DIR}/backend/venv/bin/python" ]; then
+  log "应用配置（用于核对与加固项是否冲突）："
+  ( cd "${REPO_DIR}/backend" && venv/bin/python - <<'PY' 2>/dev/null
+from app.config import settings
+print("  DATABASE_URL  =", settings.DATABASE_URL)
+print("  数据库文件存在:", __import__("os").path.exists(
+    settings.DATABASE_URL.replace("sqlite:///", "", 1)))
+print("  UPLOAD_DIR    =", getattr(settings, "UPLOAD_DIR", "(见 storage.py)"))
+PY
+  ) || log "  （读取失败，跳过）"
+  log "  提示：若数据库在 /home 或 /root 下，不要启用 ProtectHome=true"
+fi
+
 # 0. 语法校验（不通过就别动生产）
 # 注意：verify 会顺带报告 /etc/systemd/system 下**其它** unit 的既有问题
 # （实测本机有 tat_agent、frps 两条无关警告），所以只认与本单元相关的报错

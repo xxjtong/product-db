@@ -30,7 +30,11 @@ TimeoutStopSec=25
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ProtectHome=true
+# ⚠️ 不要加 ProtectHome=true：生产数据库的真实路径在 /home/tong/product-db/backend/
+# （config.py 的 DATABASE_URL 默认值；.env 里的 DATABASE_PATH=/opt/... 并未生效 —— 见 R51），
+# 启用后 /home 被隐藏 → SQLite 打不开库 → 所有查库接口 500。
+# 待数据库迁到 /opt 后再开（迁移需单独评估：停机 + 数据搬迁 + 改配置）。
+# ProtectHome=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
