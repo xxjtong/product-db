@@ -2,7 +2,37 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-21, R48)
+## 最新变更 (2026-09-21, R49)
+
+### R49: 折扣率 0 不再被当成「未设置」（免费/赠品不再被按 100% 计价）(2026-09-21)
+
+**问题**：全仓多处写成 `discount_rate or 100`。Python 与 JS 都把 `0` 视为假值 → **折扣率 0
+被按 100% 计算**。凡是用到折扣的地方全部受影响：明细金额、方案/报价单合计、导出表格、
+AI 建单、前端显示。生产当前 `discount_rate ≠ 100` 的条目为 0 条，所以还没暴露，但一旦有人
+填 0（免费/赠品场景）就会算错钱。
+
+**修复**：新增**唯一判定入口** [helpers.discount_percent](backend/app/utils/helpers.py)
+（`0` 保留原值；只有 `None`/空串/脏数据才取默认 100），替换全部 15 处：
+
+| 位置 | 处数 |
+|---|---|
+| `routers/quotations.py`（`_recalc_total`、导出、bom rows 接口、BOM 导入落库） | 4 |
+| `routers/solutions.py`（`_recalc_totals`） | 1 |
+| `routers/bom_templates.py`（快照→条目同步、兜底导出、快照导出） | 3 |
+| `services/ai_tools.py`（算总价、落库） | 2 |
+| `models/quotation.py` / `models/solution.py`（`to_dict` 回读，原先 0 会被读成 100） | 2 |
+| 前端 `SolutionDetailView.vue` ×2、`BOMSpreadsheet.vue` ×2 | 4 |
+
+两处实现细节：`to_dict` 为让模型层不依赖 `utils`，用内联 `is not None` 判断；前端两个组件
+各自内联同口径的 `discountPct()`（`Number('') === 0` 会误判，所以不能简单用 `?? 100`）。
+
+**测试:** backend +3（helper 边界 7 条断言、方案折扣 0、报价单折扣 0 + 导出折扣列断言）
+
+> 顺带发现但**未改**（超出本次范围）：同一函数里的 `float(row.get("qty", 1) or 1)` 与
+> `float(row.get("price", 0) or 0)` 也是"假值即默认"写法 —— 数量 0 会被当成 1。
+> 因数量 0 的语义（等价于删除该行？）需业务确认，暂留待办。
+
+## 历史变更 (2026-09-21, R48)
 
 ### R48: 修掉本轮检查发现的 3 条高优先（agent 写操作 401 / 管理员自锁 / BOM 小计口径）(2026-09-21)
 
