@@ -2,7 +2,58 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-21, R47)
+## 最新变更 (2026-09-21, R48)
+
+### R48: 修掉本轮检查发现的 3 条高优先（agent 写操作 401 / 管理员自锁 / BOM 小计口径）(2026-09-21)
+
+本轮检查 = 2 路静态审计（本次改动的新问题 + 上轮遗留项现状）+ 生产实测。项目整体健康
+（服务 active、近 24h 零错误、业务孤儿 0、成本可见性正确），查出 3 条真问题：
+
+**H1. agent 提示词用 query token 做写操作 → 必然 401**
+生产 `agent_prompt` 里有 **15 处** `?token={{TOKEN}}` / `&token={{TOKEN}}`，其中包括
+`POST {{API_BASE}}/solutions?token={{TOKEN}}`、`PUT`、`DELETE` 与报价单 `POST`；
+而后端只允许 **GET** 用 query-string token（`auth.py` 的 method 检查），写操作一律 401。实测：
+
+```
+POST + query token   → 401   ← 提示词要求 agent 这么做
+GET  + query token   → 200
+POST + Authorization → 422   ← 鉴权通过（只是 body 不合法）
+```
+
+即 Hermes agent 的**建/改/删方案、建报价单全部失败**（读操作正常）。
+修法：提示词统一改为请求头 `Authorization: Bearer {{TOKEN}}`，并写明「写操作必须用请求头」。
+- 代码默认值（`admin_routes._PROMPT_DEFAULTS["agent_prompt"]`）已重写；
+- **生产 DB 里的实际值**（人工定制过，与代码默认值不同）用 `replace()` 精确剥离那 15 处
+  token 片段并重写规则行 —— 保留其余定制内容，不整段覆盖；
+- 生产验证：更新后 `token=` 出现次数 **15 → 0**，URL 示例变为 `/solutions`、`/solutions/<ID>` 等。
+
+**H2. 管理员改/重置自己的密码 → 把自己锁在报错页**
+`admin_routes` 递增 `token_version` 时没排除 `uid == 自己`，而管理页的 `adminApi` 用的是原生
+`fetch`、不接 `api()` 的 401 跳转 → 弹完「已重置」后所有请求 401，页面停在错误态；
+路由守卫只按客户端 `exp` 判断，所以刷新也不会跳登录。属 R41 第 4、5 两条修复的交互盲区。
+
+修法：`update_user`（带 password 时）与 `reset_user_password` 都拒绝操作自己
+（400 + 提示走「个人信息」）；补测试确认「改别人的密码」仍正常、且确实作废对方 token。
+
+**H3. BOM 兜底分支的小计漏了折扣 → 与合计行自相矛盾**
+兜底分支写 `=E*F`（数量×单价，不含折扣），快照分支写 `qty*price*discount/100`（含折扣），
+而合计行的大写金额来自含折扣的 `sol.total_price` —— R45 统一了**列布局**却没统一**口径**，
+同一张表里 `SUM(H)` 与大写金额会互相矛盾。**影响面**：生产当前 `discount_rate ≠ 100` 的条目
+0 条，故尚未暴露。
+
+修法：兜底 H 列改为 `=E{row}*F{row}*G{row}/100`，行内初值同步含折扣；补一条
+`discount_rate=90` 的用例（原用例折扣全是 100%，所以一直是绿的，发现不了）。
+
+**测试:** backend **486 passed** (1 skipped, +4)
+
+> 本轮检查的其余结论仍待办：401 统一处理只覆盖 `api()`（原生 fetch 通道未接入，H2 只是其中一例）、
+> BOM 看不到成本时仍设 J 列宽、`dedup_filename_part` 子串判重可能误删型号、
+> `_keep_server_cost` 的 `cells` 类型边界、`apply_total_row` 参数无校验、
+> 以及 14 条遗留项（折扣率 0 当 100、品类成环、报价单号竞态、GET 快照写库、导入裸 float、
+> `/agent/approvals` 跨用户、分页无上限、列表全表加载、systemd 缺加固、CI 不含 E2E、
+> 备份无异地、文档漂移等）。
+
+## 历史变更 (2026-09-21, R47)
 
 ### R47: 修复规格书 PDF「中文丢失」——根因是服务器没有中文字体 (2026-09-21)
 
