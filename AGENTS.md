@@ -2,7 +2,62 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-21, R50)
+## 最新变更 (2026-09-21, R51)
+
+### R51: systemd 安全加固（含一次真实回滚：ProtectHome 与数据库路径冲突）(2026-09-21)
+
+**加固内容** —— [product-db.service](deploy/systemd/product-db.service)（版本化）+ 安装脚本
+[install-systemd-unit.sh](deploy/install-systemd-unit.sh)（幂等、带备份与自动回滚）：
+
+| 项 | 值 | 作用 |
+|---|---|---|
+| `StartLimitIntervalSec` / `StartLimitBurst` | 300 / 20 | 崩溃循环超限后进入 failed，**不再无限重启**（默认 10s/5 次太紧） |
+| `TimeoutStopSec` | 25 | 卡住时更快完成重启（默认 90s） |
+| `NoNewPrivileges` / `RestrictSUIDSGID` / `LockPersonality` | true | 不得提权、不得生成 setuid 文件、锁定执行域 |
+| `ProtectSystem` | `full` | `/usr` `/boot` `/etc` 只读（`/opt` 与数据目录仍可写） |
+| `PrivateTmp` / `PrivateDevices` | true | 私有 `/tmp`；不暴露物理设备 |
+| `ProtectKernelTunables` / `ProtectKernelModules` / `ProtectControlGroups` | true | 不能动内核参数、模块、cgroup |
+| `RestrictAddressFamilies` | AF_INET AF_INET6 AF_UNIX AF_NETLINK | 只允许这几类套接字（`AF_NETLINK` 留给 DNS 解析） |
+
+**踩坑与回滚（本轮最重要的一条）**：首次上线带了 `ProtectHome=true`，结果
+**服务能启动、`/api/health` 也 200，但所有查库接口 500** ——
+`sqlite3.OperationalError: unable to open database file`。根因在
+[config.py](backend/app/config.py#L7)：
+
+```python
+DATABASE_URL: str = f"sqlite:///{os.path.expanduser('~')}/product-db/backend/product_db.db"
+DATABASE_PATH: str = ""   # 只赋给 DB_FILESYSTEM_PATH，**不参与 engine 创建**
+```
+
+[database.py](backend/app/database.py#L6-L7) 建 engine 用的是 `DATABASE_URL`，所以 `.env` 里那行
+`DATABASE_PATH=/opt/product-db/backend/product_db.db` **从未生效**，服务实际读的是
+`/home/tong/product-db/backend/product_db.db` → 被 `ProtectHome` 藏掉。
+
+处理：注释掉 `ProtectHome`（其余 10 项保留）。安装脚本补了两道防线：
+1. 安装前读取**服务用户**（从 unit 解析 `User=` 再取家目录）的 `DATABASE_URL`，若在 `/home`
+   或 `/root` 下而单元又启用 `ProtectHome` → **直接中止**并给出处理办法。
+   （第一次用 `sudo` 跑时 `~` 被算成 `/root`，显示的路径不对，已改为按服务用户 HOME 读取。）
+2. 重启后打印实际生效的加固项，便于核对。
+
+**加固上线后功能实测（全部通过）**：
+
+| 验证 | 结果 |
+|---|---|
+| 写库 / 读库 | 建临时报价单 → 库中可查 → 删除 → 残留 0 |
+| 导出规格书 PDF | 200、346 KB、文件头 `%PDF-`（weasyprint 子进程 + 系统字体 + 私有 `/tmp` 正常） |
+| 导出 xlsx | 200、55 KB |
+| AI 对话（走 DeepSeek） | SSE 正常返回，说明沙箱内 **DNS 与 HTTPS 未被 `RestrictAddressFamilies` 拦** |
+| `app/uploads` 可写 | ✓（`ProtectSystem=full` 不影响 `/opt`） |
+
+**副产品结论**：`/opt/product-db/backend/product_db.db` 与
+`/home/tong/product-db/backend/product_db.db` 是**硬链接**（同一 inode `567635`、md5 一致）——
+两个目录树共享同一个库文件，所以此前直接对任一路径做的 sqlite3 查询读到的都是生产数据
+（历次审计结论有效）。
+
+**待办（可选，收益有限暂不做）**：若要启用 `ProtectHome`，需把库真正迁到 `/opt` 并显式配置
+`DATABASE_URL` —— 注意 WAL/SHM 文件必须一并处理（否则两套 WAL 指向同一主库，会出不一致）。
+
+## 历史变更 (2026-09-21, R50)
 
 ### R50: 数量 0 定为合法值（「本次不采购但保留该行」），不再被悄悄改成 1 (2026-09-21)
 
