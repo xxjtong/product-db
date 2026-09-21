@@ -12,11 +12,11 @@ AI 建单、前端显示。生产当前 `discount_rate ≠ 100` 的条目为 0 �
 填 0（免费/赠品场景）就会算错钱。
 
 **修复**：新增**唯一判定入口** [helpers.discount_percent](backend/app/utils/helpers.py)
-（`0` 保留原值；只有 `None`/空串/脏数据才取默认 100），替换全部 15 处：
+（`0` 保留原值；只有 `None`/空串/脏数据才取默认 100），替换全部 **17 处**（后端 11 + 模型 2 + 前端 4）：
 
 | 位置 | 处数 |
 |---|---|
-| `routers/quotations.py`（`_recalc_total`、导出、bom rows 接口、BOM 导入落库） | 4 |
+| `routers/quotations.py`（`_recalc_total`、导出、bom rows 接口、BOM 导入的 amount 与 discount_rate） | 5 |
 | `routers/solutions.py`（`_recalc_totals`） | 1 |
 | `routers/bom_templates.py`（快照→条目同步、兜底导出、快照导出） | 3 |
 | `services/ai_tools.py`（算总价、落库） | 2 |
