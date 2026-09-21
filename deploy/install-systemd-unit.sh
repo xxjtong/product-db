@@ -23,19 +23,25 @@ fi
 
 [ -f "${SRC}" ] || { log "找不到源文件：${SRC}"; exit 1; }
 
-# 应用实际使用的数据库/上传目录 —— 加固项（尤其 ProtectHome/ProtectSystem）与这些路径
-# 必须兼容，否则会出现「服务起来了但查库全 500」。R51 就踩过：库其实在 /home 下。
+# 应用实际使用的数据库路径 —— 加固项（尤其 ProtectHome）必须与它兼容，否则会出现
+# 「服务起来了、/api/health 也 200，但所有查库接口 500」。R51 就踩过：库其实在 /home 下。
 if [ -x "${REPO_DIR}/backend/venv/bin/python" ]; then
-  log "应用配置（用于核对与加固项是否冲突）："
-  ( cd "${REPO_DIR}/backend" && venv/bin/python - <<'PY' 2>/dev/null
-from app.config import settings
-print("  DATABASE_URL  =", settings.DATABASE_URL)
-print("  数据库文件存在:", __import__("os").path.exists(
-    settings.DATABASE_URL.replace("sqlite:///", "", 1)))
-print("  UPLOAD_DIR    =", getattr(settings, "UPLOAD_DIR", "(见 storage.py)"))
-PY
-  ) || log "  （读取失败，跳过）"
-  log "  提示：若数据库在 /home 或 /root 下，不要启用 ProtectHome=true"
+  db_url="$( cd "${REPO_DIR}/backend" && venv/bin/python -c \
+    'from app.config import settings; print(settings.DATABASE_URL)' 2>/dev/null )" || db_url=""
+  if [ -n "${db_url}" ]; then
+    log "应用实际使用的数据库：${db_url}"
+    case "${db_url}" in
+      */home/*|*/root/*)
+        if grep -qE '^[[:space:]]*ProtectHome[[:space:]]*=[[:space:]]*(true|yes)' "${SRC}"; then
+          log "❌ 冲突：数据库在 /home 或 /root 下，而单元启用了 ProtectHome=true"
+          log "   （后果：服务能启动但查库全部 500 —— unable to open database file）"
+          log "   处理：注释掉单元里的 ProtectHome，或先把数据库移到 /opt。已中止。"
+          exit 1
+        fi
+        log "  注意：库位于 /home 或 /root 下，单元中不可启用 ProtectHome"
+        ;;
+    esac
+  fi
 fi
 
 # 0. 语法校验（不通过就别动生产）
