@@ -14,19 +14,22 @@ ssh -p 28793 tong@124.221.178.161 'sudo apt-get install -y --no-install-recommen
 
 > 2026-09-16 已安装 `3.2.7-1+deb12u5`（bookworm-security，含 CVE-2024-12084 系列修复）。rsync 仅装客户端二进制，默认 `rsync.service` 为 disabled，不监听端口。
 
-服务器还**需要中文字体**（生成产品规格书 PDF 用）。用 `deploy/install-cjk-fonts.sh`（幂等，已装则直接跳过）：
+服务器还**需要中文字体**（生成产品规格书 PDF 用）。脚本 `deploy/install-cjk-fonts.sh`（幂等）：
 
 ```bash
-# 用户级安装（无需 sudo）—— 默认就够用：服务以 tong 用户运行，能读到 ~/.fonts
-ssh -p 28793 tong@124.221.178.161 'bash /opt/product-db/deploy/install-cjk-fonts.sh'
-
-# 系统级安装（全部用户可用）—— 仅当把服务改成以别的用户运行时才需要
+# 系统级（当前采用，所有用户可用）—— 该机免密 sudo 白名单含 `apt install`，不需要密码
+ssh -p 28793 tong@124.221.178.161 'sudo -n apt install -y fonts-noto-cjk'
+#   或直接跑脚本（root 下会优先走 apt-get install，失败回退为复制字体文件）
 ssh -p 28793 tong@124.221.178.161 'sudo bash /opt/product-db/deploy/install-cjk-fonts.sh'
+
+# 用户级（无需 sudo）—— 服务以 tong 运行，这一档也够用
+ssh -p 28793 tong@124.221.178.161 'bash /opt/product-db/deploy/install-cjk-fonts.sh'
 ```
 
-> 2026-09-21 已安装 Noto Sans/Serif CJK（4 个 `.ttc` 共 89MB，位于 `/home/tong/.fonts/`，
-> 中文字体数 0 → 30）。服务的 systemd 单元是 `User=tong`，所以用户级字体就够用 ——
-> 这台机器的免密 sudo 白名单不含 apt，无需也不应为此提权。
+> 2026-09-21 已安装 Noto Sans/Serif CJK：先装用户级（`~/.fonts`）验证通过，随后按需求改为
+> **系统级**（`apt install fonts-noto-cjk` → `/usr/share/fonts/opentype/noto/`，4 个 `.ttc`
+> 共 89MB，中文字体数 30），并移除了用户级副本以免同一字体占两份空间。
+> 服务的 systemd 单元是 `User=tong`（用户级其实也够用），系统级是为了所有用户/其它服务都能用。
 >
 > ⚠️ **缺字体的后果是「静默丢字」**：weasyprint 找不到汉字字形时不会报错，渲染出的 PDF
 > 只剩英文与数字 —— 表现就是「规格书内容不完整，而且每份都长得一样」。

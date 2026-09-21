@@ -1,55 +1,69 @@
 #!/usr/bin/env bash
-# 安装中文字体（生成产品规格书 PDF 用）
+# 为产品规格书 PDF 安装中文字体
 #
 # 背景：weasyprint 找不到汉字字形时会**静默丢字**（不报错、不告警），导出的 PDF 里
 # 只剩英文与数字 —— 表现就是「规格书内容不完整，而且每份都长得一样」。
 # 详见 DEPLOY.md「服务器」一节 与 AGENTS.md R47。
 #
 # 用法：
-#   bash deploy/install-cjk-fonts.sh          # 用户级安装到 ~/.fonts（无需 sudo）
-#   sudo bash deploy/install-cjk-fonts.sh     # 系统级安装到 /usr/share/fonts（全部用户可用）
+#   bash deploy/install-cjk-fonts.sh          # 用户级装到 ~/.fonts（无需 sudo）
+#   sudo bash deploy/install-cjk-fonts.sh     # 系统级装到 /usr/share/fonts（所有用户可用）
 #
-# 默认用户级就够：服务的 systemd 单元是 User=tong（systemctl show product-db -p User），
-# 以同一用户运行的服务能读到 ~/.fonts。只有把服务改成以别的用户运行时，才需要 sudo 做系统级安装。
-#
-# 幂等：已有中文字体时直接退出，不会重复下载。
-# 装完**不需要重启服务** —— weasyprint 是每次导出时新起的子进程。
+# 说明：
+# - 服务以 tong 用户运行，用户级已经够用；系统级是让所有用户/其它服务都能用。
+# - 幂等：判断依据是**目标目录**里有没有字体，而不是 fc-list 的全局计数 ——
+#   否则「已装过用户级」会让「系统级安装」被误判为不需要装。
+# - 装完**不需要重启服务**：weasyprint 是每次导出时新起的子进程。
 set -uo pipefail
 
 PKG="fonts-noto-cjk"
 FONT_SUBDIR="opentype/noto"
+SYS_DIR="/usr/share/fonts/${FONT_SUBDIR}"
 
 log() { printf '%s\n' "$*"; }
+count_zh() { fc-list :lang=zh 2>/dev/null | wc -l; }
 
-# 1. 已装过就跳过
-existing=$(fc-list :lang=zh 2>/dev/null | wc -l)
-if [ "${existing:-0}" -gt 0 ]; then
-  log "已存在 ${existing} 个中文字体，无需安装。"
-  fc-list :lang=zh | head -3
+# 1. 确定安装位置
+if [ "$(id -u)" = "0" ]; then
+  DEST="${SYS_DIR}"
+  log "root 运行 → 系统级安装到 ${DEST}"
+else
+  DEST="${HOME}/.fonts"
+  log "普通用户 $(id -un) 运行 → 用户级安装到 ${DEST}"
+fi
+
+# 2. 幂等检查（按目标目录）
+if compgen -G "${DEST}/*.ttc" >/dev/null 2>&1; then
+  log "${DEST} 已有字体，无需安装。当前中文字体数 = $(count_zh)"
+  exit 0
+fi
+if [ "${DEST}" != "${SYS_DIR}" ] && compgen -G "${SYS_DIR}/*.ttc" >/dev/null 2>&1; then
+  log "系统目录 ${SYS_DIR} 已有字体，无需再装用户级。当前中文字体数 = $(count_zh)"
   exit 0
 fi
 
-# 2. 选择安装位置：root → 系统级；普通用户 → 用户级
-if [ "$(id -u)" = "0" ]; then
-  DEST="/usr/share/fonts/${FONT_SUBDIR}"
-  log "以 root 运行 → 系统级安装到 ${DEST}"
-else
-  DEST="${HOME}/.fonts"
-  log "以普通用户 $(id -un) 运行 → 用户级安装到 ${DEST}"
-  log "  （前提：product-db 服务以同一用户运行；否则请用 sudo 做系统级安装）"
+# 3. 系统级安装优先走发行版包管理（规范，且会自动刷新 fontconfig 缓存）
+if [ "${DEST}" = "${SYS_DIR}" ] && command -v apt-get >/dev/null 2>&1; then
+  if apt-get install -y "${PKG}" >/dev/null 2>&1; then
+    log "已通过 apt-get install ${PKG} 完成系统级安装，当前中文字体数 = $(count_zh)"
+    exit 0
+  fi
+  log "apt 安装未成功 → 回退为直接复制字体文件"
 fi
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 
-# 3. 取字体文件：优先复用系统里已有的，其次从 apt 源下载 deb（均无需 root）
+# 4. 找字体文件：优先复用本机已有的 .ttc，都没有才从 apt 源下载 deb（均无需 root）
 FILES=()
-if [ -d "/usr/share/fonts/${FONT_SUBDIR}" ]; then
-  while IFS= read -r f; do FILES+=("$f"); done < <(find "/usr/share/fonts/${FONT_SUBDIR}" -maxdepth 1 -name '*.ttc')
-fi
+for dir in "${SYS_DIR}" "${HOME}/.fonts" /home/*/.fonts /root/.fonts; do
+  [ -d "${dir}" ] || continue
+  while IFS= read -r f; do FILES+=("$f"); done < <(find "${dir}" -maxdepth 1 -name '*.ttc' 2>/dev/null)
+  [ "${#FILES[@]}" -gt 0 ] && break
+done
 
 if [ "${#FILES[@]}" -eq 0 ]; then
-  log "从 apt 源下载 ${PKG} …"
+  log "本机没有现成字体，从 apt 源下载 ${PKG} …"
   if ! (cd "${WORK}" && apt-get download "${PKG}" >/dev/null 2>&1); then
     log "下载失败：请确认 apt 源可用，或手动把 .ttc 字体文件放进 ${DEST}"
     exit 1
@@ -68,17 +82,16 @@ if [ "${#FILES[@]}" -eq 0 ]; then
   exit 1
 fi
 
-# 4. 安装并刷新 fontconfig 缓存
+# 5. 安装并刷新 fontconfig 缓存
 mkdir -p "${DEST}"
 cp -f "${FILES[@]}" "${DEST}/"
 fc-cache -f >/dev/null 2>&1 || true
 
-# 5. 验证
-count=$(fc-list :lang=zh 2>/dev/null | wc -l)
-log "已复制 ${#FILES[@]} 个字体文件到 ${DEST}"
-log "当前中文字体数 = ${count}"
-if [ "${count:-0}" -eq 0 ]; then
-  log "⚠️ 仍为 0：请确认 fc-list 可用，或检查字体文件是否可读"
+# 6. 验证
+c=$(count_zh)
+log "已复制 ${#FILES[@]} 个字体文件到 ${DEST}，当前中文字体数 = ${c}"
+if [ "${c:-0}" -eq 0 ]; then
+  log "⚠️ 仍为 0：请确认 fc-list 可用、字体文件可读"
   exit 1
 fi
 log "完成。无需重启服务，直接导出规格书即可。"

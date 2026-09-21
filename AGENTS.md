@@ -30,9 +30,12 @@ weasyprint 找不到汉字字形时会**静默丢字**（不报错、不告警�
 ssh -p 28793 tong@124.221.178.161 'bash /opt/product-db/deploy/install-cjk-fonts.sh'
 ```
 
-- 不走 `sudo apt-get install`：该机免密 sudo 白名单只有 nginx / `systemctl restart product-db`
-  等少数命令，不含 apt；用户级安装完全等价且无需提权。
 - **不需要重启服务**：weasyprint 是每次导出时新起的子进程，装完立刻可用。
+- **一处判断更正**：当时以为「免密 sudo 白名单不含 apt」才走用户级；复核 `sudo -n -l` 发现
+  白名单里其实有 `apt install *`（以及 `apt update/upgrade`）。随后按「所有用户可用」的需求，
+  用 `sudo -n apt install -y fonts-noto-cjk` 升级为**系统级**
+  （`/usr/share/fonts/opentype/noto/`），并删掉 `~/.fonts` 的用户级副本避免同一字体占两份
+  （复测：PDF 339KB、中文完整、耗时 10.4s）。
 
 **验证（生产实测）**：中文字体数 **0 → 30**；导出 RA02A（产品 485）规格书耗时 7.8s，
 PDF **37KB → 258KB**（内嵌 CJK 字体子集），提取文本 **196 → 309 字符且中文完整**
