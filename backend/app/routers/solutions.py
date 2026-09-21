@@ -82,9 +82,15 @@ def batch_delete_solutions(data: BatchDeleteRequest, db: Session = Depends(get_d
         forbidden = [i for i in data.ids if i not in owned_ids]
         if forbidden:
             raise HTTPException(403, f"Access denied for solutions: {forbidden}")
-    deleted = db.query(Solution).filter(Solution.id.in_(data.ids)).delete(synchronize_session="fetch")
+    # 逐条走 ORM 删除，不能用 `db.query(...).delete()`（bulk DELETE 不触发
+    # `Solution.items` / `bom_snapshot` 的 cascade）。SQLite 的外键约束在生产**未启用**
+    # （存量违规 978 行，暂不具备开启条件），所以这里必须自己级联，否则会留下永久孤儿行；
+    # 而 SQLite 的 rowid 会复用，孤儿子行可能被之后新建的方案「认领」。见 R41。
+    rows = db.query(Solution).filter(Solution.id.in_(data.ids)).all()
+    for row in rows:
+        db.delete(row)
     db.commit()
-    return {"ok": True, "deleted": deleted}
+    return {"ok": True, "deleted": len(rows)}
 
 
 @router.post("/solutions", status_code=201)

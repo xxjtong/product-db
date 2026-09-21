@@ -23,7 +23,7 @@ from alembic.config import Config  # noqa: E402
 from app.config import settings  # noqa: E402
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HEAD_REVISION = "f6a7b8c9d0e1"
+HEAD_REVISION = "c8d9e0f1a2b3"
 
 
 def _build_fresh_db() -> str:
@@ -59,7 +59,8 @@ class TestFreshDatabaseBuild:
                                   ("manufacturers", "sort_order"),
                                   ("quotations", "download_count"),
                                   ("dict_sensor_metrics", "accuracy"),
-                                  ("users", "can_view_cost")):
+                                  ("users", "can_view_cost"),
+                                  ("users", "token_version")):
                 cols = {c[1] for c in con.execute(f"PRAGMA table_info('{table}')")}
                 assert column in cols, f"{table}.{column} 缺失"
 

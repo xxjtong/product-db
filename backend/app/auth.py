@@ -67,10 +67,22 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
-def create_token(user_id: int, username: str) -> str:
+def create_token(user_id: int, username: str, token_version: int = 0) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.JWT_EXPIRE_MINUTES)
-    payload = {"sub": str(user_id), "username": username, "exp": expire}
+    payload = {"sub": str(user_id), "username": username,
+               "ver": int(token_version or 0), "exp": expire}
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+
+def _token_version_ok(user, payload) -> bool:
+    """JWT 里的 `ver` 必须等于用户当前的 `token_version`。
+
+    改密 / 登出会把 `token_version` +1，从而一次性作废该用户所有旧 token ——
+    这是 JWT 无状态前提下唯一的「撤销」手段。
+    老 token（本改动之前签发）不含 `ver` 字段，取 0；存量用户的 `token_version` 也是 0，
+    所以部署本改动不会强制所有人重新登录。
+    """
+    return int(payload.get("ver") or 0) == int(getattr(user, "token_version", 0) or 0)
 
 
 def get_current_user(
@@ -91,7 +103,7 @@ def get_current_user(
             payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
             user_id = int(payload.get("sub"))
             user = db.get(User, user_id)
-            if user and user.is_active:
+            if user and user.is_active and _token_version_ok(user, payload):
                 return user
         except (jwt.PyJWTError, ValueError, TypeError):
             pass
@@ -120,6 +132,9 @@ def get_current_user(
     user = db.get(User, user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    if not _token_version_ok(user, payload):
+        # 已登出 / 已改密 / 被管理员重置密码 → 旧 token 作废
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token 已失效，请重新登录")
     return user
 
 

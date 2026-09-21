@@ -75,6 +75,8 @@ def update_user(uid: int, data: UpdateUserRequest, db: Session = Depends(get_db)
         u.can_view_cost = data.can_view_cost
     if data.password:
         u.password_hash = hash_password(data.password)
+        # 同 reset_user_password：改密后旧 token 立即作废
+        u.token_version = (u.token_version or 0) + 1
     db.commit()
     return {"user": u.to_dict()}
 
@@ -87,6 +89,8 @@ def reset_user_password(uid: int, data: ResetPasswordRequest, db: Session = Depe
     if len(data.password) < 8:
         raise HTTPException(400, "密码至少8位")
     u.password_hash = hash_password(data.password)
+    # 重置密码必须同时作废该用户已签发的 token，否则旧 token 还能用满 24h
+    u.token_version = (u.token_version or 0) + 1
     db.commit()
     return {"ok": True}
 

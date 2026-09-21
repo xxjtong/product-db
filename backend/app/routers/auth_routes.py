@@ -187,13 +187,26 @@ def login(data: LoginRequest, request: Request, db: Session = Depends(get_db)):
     user.last_login = datetime.now(timezone.utc)
     db.commit()
 
-    token = create_token(user.id, user.username)
+    token = create_token(user.id, user.username, user.token_version)
     return {"token": token, "user": user.to_dict()}
 
 
 @router.get("/auth/me", response_model=UserResponse)
 def get_me(user=Depends(get_current_user)):
     return {"user": user.to_dict()}
+
+
+@router.post("/auth/logout")
+def logout(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """登出：把该用户的 token_version +1，作废其**所有**已签发的 token。
+
+    JWT 是无状态的，若不递增这个版本号，「登出」只是前端把 token 从 localStorage
+    删掉，被复制走的 token 仍能用满 24h。代价是也会登出该用户的其他设备 ——
+    在只有单一账号的使用场景下，这是更安全的一侧。
+    """
+    user.token_version = (user.token_version or 0) + 1
+    db.commit()
+    return {"ok": True}
 
 
 @router.put("/auth/profile", response_model=UserResponse)
@@ -208,6 +221,8 @@ def update_profile(data: UpdateProfileRequest, db: Session = Depends(get_db),
         if len(data.password) < 8:
             raise HTTPException(400, "密码至少8位")
         user.password_hash = hash_password(data.password)
+        # 改密后作废该用户所有已签发的 token（前端会提示重新登录）
+        user.token_version = (user.token_version or 0) + 1
     db.commit()
     return {"user": user.to_dict()}
 
@@ -243,7 +258,7 @@ def register(data: RegistrationRequest, request: Request, db: Session = Depends(
                     user_agent=request.headers.get("User-Agent", ""),
                     region=_lookup_ip_region(ip)))
     db.commit()
-    token = create_token(u.id, u.username)
+    token = create_token(u.id, u.username, u.token_version)
     return {"token": token, "user": u.to_dict()}
 
 

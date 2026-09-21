@@ -1817,3 +1817,225 @@ class TestExportFilenames:
         cd = res.headers["content-disposition"]
         assert quote("产品规格书_雷达传感器 室外_VS373-470M", safe="") in cd
         assert f'filename="spec-sheet-{p.id}.pdf"' in cd
+
+
+# ============================================================
+# R41: 成本出口补齐 + 批量删除不留孤儿 + token 可撤销
+# ============================================================
+class TestR41CostLeaks:
+    """R41 修掉的两个成本泄漏出口。
+
+    背景：R37 建立的约定是「成本的所有出口都必须走 cost_visible」，但
+      ① 报价单条目的**写接口**（POST/PUT items）原样回传 `product_snapshot`，
+         而同文件的列表接口已裁剪 —— 列表裁了、写接口没裁，等于没裁；
+      ② 报价单**导出**只读全局开关，不看按用户的三态覆盖，
+         于是「单独放行成本的用户」导出时仍拿不到成本（反过来则泄漏）。
+    """
+
+    def _make_user(self, db, username="normal", can_view_cost=None):
+        u = User(username=username, password_hash=hash_password("test123"), role="user",
+                 can_view_cost=can_view_cost)
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        return u
+
+    def _auth_for(self, user):
+        return {"Authorization": f"Bearer {create_token(user.id, user.username, user.token_version)}"}
+
+    def _set_field(self, db, field_name, user_visible):
+        from app.models.field_setting import FieldSetting
+        fs = db.query(FieldSetting).filter_by(field_name=field_name).first()
+        if fs:
+            fs.user_visible = user_visible
+        else:
+            db.add(FieldSetting(field_name=field_name, user_visible=user_visible))
+        db.commit()
+        from app.services.field_visibility import _cache
+        _cache["ts"] = 0
+        _cache["data"] = None
+
+    def _seed_quotation_with_item(self, db, user, product):
+        qid = client.post("/product-db/api/quotations", json={"title": "T"},
+                          headers=self._auth_for(user)).json()["quotation"]["id"]
+        res = client.post(f"/product-db/api/quotations/{qid}/items",
+                          json={"product_id": product.id, "quantity": 1, "unit_price": 50},
+                          headers=self._auth_for(user))
+        assert res.status_code == 201
+        return qid, res
+
+    def test_add_item_response_hides_cost_price(self, db):
+        """新增条目的**响应体**不能带成本（此前只有随后的 GET 会裁剪）"""
+        self._set_field(db, "cost_price", False)
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, base_price=100, cost_price=55.5)
+        user = self._make_user(db)
+
+        _, res = self._seed_quotation_with_item(db, user, p)
+        assert "cost_price" not in res.json()["item"]["product_snapshot"]
+
+        # 管理员仍要能看到（不能过度裁剪）
+        admin = db.query(User).filter_by(username="admin").first()
+        _, res = self._seed_quotation_with_item(db, admin, p)
+        assert res.json()["item"]["product_snapshot"]["cost_price"] == 55.5
+
+    def test_update_item_response_hides_cost_price(self, db):
+        self._set_field(db, "cost_price", False)
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, base_price=100, cost_price=55.5)
+        user = self._make_user(db)
+        qid, res = self._seed_quotation_with_item(db, user, p)
+        item_id = res.json()["item"]["id"]
+
+        res = client.put(f"/product-db/api/quotations/{qid}/items/{item_id}",
+                         json={"quantity": 3}, headers=self._auth_for(user))
+        assert res.status_code == 200
+        assert "cost_price" not in res.json()["item"]["product_snapshot"]
+
+    def test_export_follows_per_user_cost_override(self, db):
+        """导出必须走 cost_visible：按用户放行时要有成本列，按用户禁止时不能有"""
+        import openpyxl
+        from io import BytesIO
+
+        self._set_field(db, "cost_price", False)          # 全局：隐藏
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, base_price=100, cost_price=66.6)
+        allowed = self._make_user(db, "cost-allowed", can_view_cost=True)
+        denied = self._make_user(db, "cost-denied", can_view_cost=False)
+
+        def _cost_cell(user):
+            qid, _ = self._seed_quotation_with_item(db, user, p)
+            exp = client.get(f"/product-db/api/quotations/{qid}/export-xlsx",
+                             headers=self._auth_for(user))
+            assert exp.status_code == 200
+            ws = openpyxl.load_workbook(BytesIO(exp.content)).active
+            return ws.cell(row=4, column=13).value        # M 列 = 成本
+
+        # 全局隐藏 + 按用户放行 → 必须看到（R37 的覆盖在这条路径上曾经失效）
+        assert _cost_cell(allowed) == pytest.approx(66.6)
+
+        # 全局打开 + 按用户禁止 → 必须看不到
+        self._set_field(db, "cost_price", True)
+        assert _cost_cell(denied) in (None, "")
+
+
+class TestR41BatchDeleteNoOrphans:
+    """批量删除必须级联清掉子行。
+
+    原来用 `db.query(...).delete()`（bulk DELETE），不触发 ORM cascade，而 SQLite 的
+    外键约束在生产未启用 → 子行永留库中。危害不止占空间：SQLite 的 INTEGER PRIMARY KEY
+    会复用被删行的 rowid，新单据拿到同一 id 时会把历史孤儿子行「认领」进新单据。
+    """
+
+    @staticmethod
+    def _orphan_count(db, table, column, parent):
+        from sqlalchemy import text
+        return db.execute(text(
+            f"SELECT COUNT(*) FROM {table} WHERE {column} IS NOT NULL "
+            f"AND {column} NOT IN (SELECT id FROM {parent})"
+        )).scalar()
+
+    def test_solution_batch_delete_removes_children(self, db, auth_headers):
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id)
+        sol = Solution(name="待删方案")
+        db.add(sol)
+        db.commit()
+        db.refresh(sol)
+        db.add(SolutionItem(solution_id=sol.id, product_id=p.id, quantity=1, unit_price=10))
+        db.add(SolutionBOMSnapshot(solution_id=sol.id, snapshot={"A1": {"v": "x"}}))
+        db.commit()
+
+        res = client.post("/product-db/api/solutions/batch-delete",
+                          json={"ids": [sol.id]}, headers=auth_headers)
+        assert res.status_code == 200
+        assert res.json()["deleted"] == 1
+
+        db.expire_all()
+        assert self._orphan_count(db, "solution_items", "solution_id", "solutions") == 0
+        assert self._orphan_count(db, "solution_bom_snapshots", "solution_id", "solutions") == 0
+
+    def test_quotation_batch_delete_removes_children(self, db, auth_headers):
+        cat = _seed_category(db)
+        p = _seed_product(db, category_id=cat.id, base_price=10)
+        qt = client.post("/product-db/api/quotations", json={"title": "待删报价单"},
+                         headers=auth_headers).json()["quotation"]
+        db.add(QuotationItem(quotation_id=qt["id"], product_id=p.id,
+                             product_snapshot={"name": p.name}, quantity=1, unit_price=10))
+        db.commit()
+
+        res = client.post("/product-db/api/quotations/batch-delete",
+                          json={"ids": [qt["id"]]}, headers=auth_headers)
+        assert res.status_code == 200
+        assert res.json()["deleted"] == 1
+
+        db.expire_all()
+        assert self._orphan_count(db, "quotation_items", "quotation_id", "quotations") == 0
+
+
+class TestR41TokenRevocation:
+    """JWT 撤销：登出 / 改密后，旧 token 必须立即失效。
+
+    在此之前全仓没有登出接口、也没有任何撤销手段 —— 密码被改或被重置后，
+    旧 token 仍能用满 JWT_EXPIRE_MINUTES（默认 24h）。
+    """
+
+    def _make_user(self, db, username="tokuser"):
+        u = User(username=username, password_hash=hash_password("test123"), role="user")
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        return u
+
+    def _auth_for(self, user):
+        return {"Authorization": f"Bearer {create_token(user.id, user.username, user.token_version)}"}
+
+    def test_logout_invalidates_existing_token(self, db):
+        u = self._make_user(db)
+        headers = self._auth_for(u)
+        assert client.get("/product-db/api/auth/me", headers=headers).status_code == 200
+
+        assert client.post("/product-db/api/auth/logout", headers=headers).status_code == 200
+        assert client.get("/product-db/api/auth/me", headers=headers).status_code == 401
+
+        # 重新登录后拿到的新 token 必须可用
+        res = client.post("/product-db/api/auth/login",
+                          json={"username": u.username, "password": "test123"})
+        assert res.status_code == 200
+        new_headers = {"Authorization": f"Bearer {res.json()['token']}"}
+        assert client.get("/product-db/api/auth/me", headers=new_headers).status_code == 200
+
+    def test_password_change_invalidates_existing_token(self, db):
+        u = self._make_user(db)
+        headers = self._auth_for(u)
+
+        res = client.put("/product-db/api/auth/profile",
+                         json={"current_password": "test123", "password": "newpass123"},
+                         headers=headers)
+        assert res.status_code == 200
+        assert client.get("/product-db/api/auth/me", headers=headers).status_code == 401
+
+    def test_admin_reset_invalidates_existing_token(self, db, auth_headers):
+        u = self._make_user(db)
+        headers = self._auth_for(u)
+        assert client.get("/product-db/api/auth/me", headers=headers).status_code == 200
+
+        res = client.put(f"/product-db/api/admin/users/{u.id}/password",
+                         json={"password": "resetpass123"}, headers=auth_headers)
+        assert res.status_code == 200
+        assert client.get("/product-db/api/auth/me", headers=headers).status_code == 401
+
+    def test_legacy_token_without_ver_still_valid(self, db):
+        """升级不能把已登录的人踢下线：老 token 没有 ver 字段，按 0 比对"""
+        import jwt
+        from datetime import datetime, timedelta, timezone
+        from app.config import settings
+
+        u = self._make_user(db)
+        payload = {"sub": str(u.id), "username": u.username,
+                   "exp": datetime.now(timezone.utc) + timedelta(minutes=5)}
+        legacy = jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+        res = client.get("/product-db/api/auth/me", headers={"Authorization": f"Bearer {legacy}"})
+        assert res.status_code == 200
+        assert res.json()["user"]["username"] == u.username

@@ -204,9 +204,13 @@ def batch_delete_quotations(data: BatchDeleteRequest, db: Session = Depends(get_
         forbidden = [i for i in data.ids if i not in owned_ids]
         if forbidden:
             raise HTTPException(403, f"Access denied for quotations: {forbidden}")
-    deleted = db.query(Quotation).filter(Quotation.id.in_(data.ids)).delete(synchronize_session="fetch")
+    # 同 solutions.batch-delete：bulk DELETE 不触发 `Quotation.items` 的 cascade，
+    # 而生产未启用 SQLite 外键（存量违规 978 行），必须逐条 ORM 删除以免产生孤儿行。
+    rows = db.query(Quotation).filter(Quotation.id.in_(data.ids)).all()
+    for row in rows:
+        db.delete(row)
     db.commit()
-    return {"ok": True, "deleted": deleted}
+    return {"ok": True, "deleted": len(rows)}
 
 
 @router.get("/quotations/{quotation_id}")
@@ -284,7 +288,9 @@ def add_quotation_item(quotation_id: int, data: QuotationItemCreate, db: Session
     _recalc_total(qt, db)
     db.commit()
     db.refresh(qi)
-    return {"item": qi.to_dict()}
+    # 快照直接来⾃ prod.to_dict()，含真实 cost_price —— 与列表接口一样要按权限裁剪，
+    # 否则这条路会成为成本出口（列表裁了、写接口没裁就等于没裁）。
+    return {"item": _filter_quotation_items_cost([qi.to_dict()], user, db)[0]}
 
 
 @router.put("/quotations/{quotation_id}/items/{item_id}")
@@ -300,7 +306,7 @@ def update_quotation_item(quotation_id: int, item_id: int, data: QuotationItemUp
     _recalc_total(qt, db)
     db.commit()
     db.refresh(qi)
-    return {"item": qi.to_dict()}
+    return {"item": _filter_quotation_items_cost([qi.to_dict()], user, db)[0]}
 
 
 @router.delete("/quotations/{quotation_id}/items/{item_id}")
@@ -323,11 +329,9 @@ def delete_quotation_item(quotation_id: int, item_id: int, db: Session = Depends
 def export_quotation_xlsx(quotation_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     qt = get_or_404(db, Quotation, quotation_id, "Quotation not found")
     check_ownership(qt, user, strict=True)
-    is_admin = getattr(user, 'role', '') == 'admin'
-    show_cost = is_admin
-    if not is_admin:
-        from app.services.field_visibility import get_field_visibility
-        show_cost = get_field_visibility(db).get('cost_price', True)
+    # 成本可见性必须走 cost_visible（admin → 按用户三态覆盖 → 全局开关）。
+    # 这里原来只读全局开关，会让「按用户单独放行/禁止成本」在导出路径上失效。
+    show_cost = cost_visible(user, db)
 
     import openpyxl
     from app.utils.excel_style import (
