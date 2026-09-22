@@ -84,7 +84,7 @@
           <div class="agent-msg-avatar"><BotIcon :size="18" /></div>
           <div class="agent-msg-body">
             <!-- 工具执行阶段先把"在干什么"显示出来，别让用户对空白气泡干等 -->
-            <div v-if="toolSteps.length" class="agent-tool-steps">
+            <div v-if="toolSteps.length" ref="streamStepsEl" class="agent-tool-steps">
               <div v-for="(s, si) in toolSteps" :key="si" :title="s.label">
                 <span class="agent-tool-emoji">{{ s.emoji }}</span>{{ s.label }}
               </div>
@@ -217,6 +217,7 @@ const streamText = ref('')
 const streaming = ref(false)
 // 本轮已执行的工具步骤（Hermes 的 hermes.tool.progress，经后端规范化）
 const toolSteps = ref<ToolStep[]>([])
+const streamStepsEl = ref<HTMLElement | null>(null)
 const showHistory = ref(false)
 // 仅用于把上传文件的绝对路径写进用户消息；system 提示词由服务端注入（R60）
 const uploadDir = ref('')   // loaded from /api/agent/config
@@ -396,7 +397,9 @@ function renderTable(html: string): string {
 
 function renderMd(text: string): string {
   if (!text) return ''
-  let html = text
+  // 去掉开头的空白：Hermes 的回答常以换行开头，而下面会把 \n 变成 <br>，
+  // 于是气泡顶部多出一条空行（历史消息里也存着这种前导换行，所以在这里剥）
+  let html = text.replace(/^\s+/, '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -554,6 +557,8 @@ async function send(question?: string) {
               emoji: chunk.emoji || '🛠',
               label: chunk.label || chunk.tool || '执行中',
             }].slice(-5)
+            // 单行横向滚动，把最新一条滚进可视区
+            nextTick(scrollStepsToEnd)
             scrollDown()
             continue
           }
@@ -650,6 +655,12 @@ function scrollDown() {
       msgContainer.value.scrollTop = msgContainer.value.scrollHeight
     }
   })
+}
+
+/** 工具步骤是单行横向滚动：新增一条后把最新一条滚进可视区 */
+function scrollStepsToEnd() {
+  const el = streamStepsEl.value
+  if (el) el.scrollLeft = el.scrollWidth
 }
 
 // ── Lifecycle ──────────────────────────────────────────
@@ -791,21 +802,34 @@ watch(streaming, (val) => {
   max-width: 600px;
 }
 
-/* 工具执行步骤：贴在气泡里，单行省略，完整命令放 title */
+/* 工具执行步骤：单行横向排列，放不下就横向滚动（不换行） */
 .agent-tool-steps {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 14px;
   margin-bottom: 6px;
   font-size: 12px;
   color: var(--color-text-secondary);
   opacity: .85;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.agent-tool-steps::-webkit-scrollbar {
+  height: 4px;
+}
+.agent-tool-steps::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 2px;
 }
 .agent-tool-steps > div {
+  flex: 0 0 auto;
+  max-width: 78%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100%;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .agent-tool-emoji {
