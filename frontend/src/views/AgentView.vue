@@ -59,12 +59,15 @@
                 </a>
               </div>
             </div>
-            <div v-else class="agent-msg-text" v-html="renderMd(m.content as string)" />
-            <div v-if="m.role === 'assistant' && m.steps?.length" class="agent-tool-steps">
-              <div v-for="(s, si) in m.steps" :key="si" :title="s.label">
-                <span class="agent-tool-emoji">{{ s.emoji }}</span>{{ s.label }}
+            <!-- 工具步骤放在正文之前：与流式期间的位置一致，回答完成时不会跳一下 -->
+            <template v-else>
+              <div v-if="m.steps?.length" class="agent-tool-steps">
+                <div v-for="(s, si) in m.steps" :key="si" :title="s.label">
+                  <span class="agent-tool-emoji">{{ s.emoji }}</span>{{ s.label }}
+                </div>
               </div>
-            </div>
+              <div class="agent-msg-text" v-html="renderMd(m.content as string)" />
+            </template>
             <div v-if="m._approval?.status === 'pending'" class="agent-approval-btns">
               <button class="btn-primary btn-sm" @click="approveDecision(m, true)" :disabled="streaming">授权执行</button>
               <button class="btn-danger btn-sm" @click="approveDecision(m, false)" :disabled="streaming">拒绝</button>
