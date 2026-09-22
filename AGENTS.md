@@ -34,15 +34,24 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 - 前端：流式期间显示步骤（此时不再显示"思考中"），回答完成后步骤随消息保留（最多 5 步），
   单行省略、完整命令放 `title`
 - 布局：工具步骤统一放在**正文之前**（第一版流式时在上、完成后在下方，会跳一下，已修）
-- **布局微调（同日反馈）**：① 工具步骤从"每步一行"改为**单行横向排列、超出横向滚动**，
-  新增一条自动滚到最新（`ref=streamStepsEl` + `scrollLeft = scrollWidth`）；
+- **布局微调（同日反馈，两版）**：① 工具步骤从"每步一行"收成**单行高的窗口**：
+  第一版做成**横向排列 + 横向滚动**（`flex-direction: row` + `scrollLeft`），用户随即纠正
+  「要上下滚动、不是左右滚动」→ 定为**纵向**：`flex-direction: column` + `height: 20px` +
+  `overflow-y: auto` / `overflow-x: hidden`，子项 `flex: 0 0 20px` + 省略号，滚动条 `display: none`；
+  新增一条 `scrollTop = scrollHeight`（`scrollStepsToEnd`，由 `watch(toolSteps.length)` 驱动）；
   ② 去掉答复气泡**顶部的空行** —— 根因是 Hermes 的回答常以 `\n\n` 开头，而 `renderMd`
   会把 `\n` 变 `<br>`，于是顶部多出 `<br><br>`。修在 `renderMd` 入口剥前导空白，
   这样 **localStorage 里已存的历史消息也一起修好**（入库时 trim 只能修新消息）。
   实测：存储内容是 `"\n\n产品库共 396…"`（`startsWithNewline: true`），
   渲染后 `innerHTML` 直接以正文开头（`startsWithBr: false`），中部的 `\n\n` 仍正常变 `<br><br>`。
-  单行也实测确认：`flexDirection=row / flexWrap=nowrap / overflowX=auto`，
-  两条步骤 `offsetTop` 相同、`scrollWidth 720 > clientWidth 452`（确实走横向滚动）
+  纵向实测（线上，历史回放）：`flexDirection=column / overflowY=auto / overflowX=hidden`，
+  `clientHeight 20 / scrollHeight 40`（两行内容只露一行）、`scrollWidth == clientWidth`（`canScrollX=false`），
+  两个子项 `left` 相同、`top` 递增（`distinctLefts=1 / distinctTops=2`）
+- **踩坑：历史回放不会自动滚到最新一步**。第一版把对齐写在 `:ref="pinStepsBottom"` 回调里，
+  线上实测 `scrollTop` 停在 0（看到的是第一步、最新一步被裁掉）—— **ref 回调早于元素插入 DOM，
+  那时 `scrollHeight` 还是 0，设 `scrollTop` 无效**。改为 `loadChat()` 里 `nextTick(pinStepsBottomAll)`，
+  挂载后按 `.agent-tool-steps` 批量对齐到底部；复测（含来回切换对话）`atBottom=true`、
+  `lastStepVisible=true`、`firstStepVisible=false`
 
 **实测**
 

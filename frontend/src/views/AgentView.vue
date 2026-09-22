@@ -61,7 +61,7 @@
             </div>
             <!-- 工具步骤放在正文之前：与流式期间的位置一致，回答完成时不会跳一下 -->
             <template v-else>
-              <div v-if="m.steps?.length" :ref="pinStepsBottom" class="agent-tool-steps">
+              <div v-if="m.steps?.length" class="agent-tool-steps">
                 <div v-for="(s, si) in m.steps" :key="si" :title="s.label">
                   <span class="agent-tool-emoji">{{ s.emoji }}</span>{{ s.label }}
                 </div>
@@ -332,6 +332,7 @@ function loadChat(id: string) {
   clearQuickReplies()
   showHistory.value = false
   scrollDown()
+  nextTick(pinStepsBottomAll)
 }
 
 function deleteChat(id: string) {
@@ -663,10 +664,14 @@ function scrollStepsToEnd() {
   if (el) el.scrollTop = el.scrollHeight
 }
 
-/** 历史回放时挂载就要对齐到最新一条（稳定函数引用 → 只在挂载时调用一次） */
-function pinStepsBottom(el: any) {
-  const node = el as HTMLElement | null
-  if (node) node.scrollTop = node.scrollHeight
+/**
+ * 历史消息回放：这些窗口挂载/被换内容时要对齐到最新一条。
+ * 不能挂在 ref 回调里 —— ref 回调早于元素插入 DOM，那时 scrollHeight 还是 0，
+ * 设 scrollTop 无效（线上实测：加载历史对话后 scrollTop 停在 0，看到的是第一步而不是最新一步）。
+ */
+function pinStepsBottomAll() {
+  msgContainer.value?.querySelectorAll<HTMLElement>('.agent-tool-steps')
+    .forEach(el => { el.scrollTop = el.scrollHeight })
 }
 
 // ── Lifecycle ──────────────────────────────────────────
