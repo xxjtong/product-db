@@ -7,7 +7,7 @@ export default defineConfig({
   retries: 1,
   reporter: [['list']],
   use: {
-    baseURL: 'http://product-db.cn/product-db',
+    baseURL: 'https://product-db.cn/product-db',
     trace: 'on-first-retry',
   },
   projects: [

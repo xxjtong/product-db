@@ -60,6 +60,23 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 `test_supplement.py` 的 2 条 AI 工具用例改为断言「预览不落库」；
 `test_migrations.py` 的 `HEAD_REVISION` 跟进。前端 98 passed、vue-tsc 0 错误。
 
+**E2E 补全 + 生产实测（本次一并做）**
+
+- 新增 `e2e/fixes.spec.ts` 6 条，每条都满足「**零写入**或失败也安全」：
+  注册关闭语义（反复请求稳定 403）/ 导入幂等（构造一行与既有产品完全相同 → 预期全跳过）/
+  品类树与列表口径一致 / 报价单用不存在的方案 ID → 404 /
+  字典引用 409（**先确认该项确实被产品引用**才尝试删除，找不到就 skip）/
+  未授权访问 admin 被拒
+- `package.json` 加 `test:e2e` / `test:e2e:prod`；`playwright.prod.config.ts` 的
+  baseURL 从 `http://` 改 `https://`
+- 命名避坑：这个文件**不能**叫 `regression.spec.ts` —— playwright 的文件过滤是
+  子串匹配，会连 `full-regression.spec.ts`（含 UI 写操作）一起选中
+- **生产实测**：`fixes + api-health + core-flows + agent-isolation`
+  = **21 passed / 1 skipped**（agent-isolation 里需要自助注册的用例已 `skip(IS_REMOTE)`）
+- README 补了「E2E 套件对生产的安全边界」表：`full-regression` / `error-scenarios`
+  含 UI 写操作（建产品、加删字典、BOM 保存）**不可对生产跑**；`perf-check` 的 3 秒
+  断言是本地基准，跨公网必然超时
+
 ## 上一版 (2026-09-22, R70)
 
 ### R70: `/categories/tree` 可见域与列表对齐 + 孤儿子树提升 (2026-09-22)
@@ -2553,11 +2570,19 @@ npm run dev -- --host 0.0.0.0 --port 5173    # 本地 vite (^6.3)，不用 npx v
 npx vitest run
 npx vue-tsc --noEmit
 
-# E2E 测试
+# E2E 测试（本地；先起前后端）
+npm run test:e2e                                                  # 全部 7 个套件
 npx playwright test e2e/full-regression.spec.ts --reporter=list   # 全功能 (53 tests)
-npx playwright test e2e/api-health.spec.ts --reporter=list        # API 端点 (19 tests)
-npx playwright test e2e/perf-check.spec.ts --reporter=list        # 性能+可访问性 (4 tests)
-npx playwright test --reporter=list                               # 全部套件
+npx playwright test e2e/api-health.spec.ts --reporter=list        # API 端点 (17 tests)
+npx playwright test e2e/fixes.spec.ts --reporter=list             # R68~R71 回归 (6 tests, 零写入)
+npx playwright test e2e/perf-check.spec.ts --reporter=list        # 性能+可访问性 (4 tests, 本地基准)
+
+# E2E 对生产：**只跑零写入的套件**（边界见 README「E2E 套件对生产的安全边界」）
+E2E_BASE_URL=https://product-db.cn/product-db \
+E2E_API_URL=https://product-db.cn/product-db/api \
+E2E_USERNAME=tong E2E_PASSWORD=... E2E_USER_ID=2 E2E_ROLE=admin \
+npm run test:e2e:prod -- fixes.spec.ts api-health.spec.ts \
+    core-flows.spec.ts agent-isolation.spec.ts
 ```
 
 ## 路径前缀配置

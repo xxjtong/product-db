@@ -42,8 +42,28 @@ cd frontend && npx vitest run                     # 98 组件测试
 cd frontend && npx vue-tsc --noEmit               # 类型检查
 
 # E2E (需要先启动前后端服务)
-cd frontend && npx playwright test                # 6 个 spec 套件（见 e2e/）
+cd frontend && npm run test:e2e                    # 7 个 spec 套件（见 e2e/）
+
+# E2E 对生产（只跑「零写入」的套件 —— 见下方说明）
+cd frontend && \
+  E2E_BASE_URL=https://product-db.cn/product-db \
+  E2E_API_URL=https://product-db.cn/product-db/api \
+  E2E_USERNAME=tong E2E_PASSWORD=... E2E_USER_ID=2 E2E_ROLE=admin \
+  npx playwright test fixes.spec.ts api-health.spec.ts core-flows.spec.ts \
+    agent-isolation.spec.ts --config=playwright.prod.config.ts
 ```
+
+### ⚠️ E2E 套件对生产的安全边界
+
+| 套件 | 生产可跑 | 原因 |
+|---|---|---|
+| `fixes.spec.ts` | ✅ | 全部零写入或「失败也安全」（重复导入会被跳过、字典删除先确认有引用才试、报价单用不存在的方案 ID） |
+| `api-health.spec.ts` | ✅ | 只读接口 + 登录 + 上传非图片（400，不落盘） |
+| `core-flows.spec.ts` | ✅ | 只浏览列表/详情/检查导出按钮 |
+| `agent-isolation.spec.ts` | ✅ | 需要自助注册的用例已 `test.skip(IS_REMOTE)` |
+| `perf-check.spec.ts` | ❌ | 3 秒加载断言是**本地**基准，跨公网必然超时 |
+| `full-regression.spec.ts` | ❌ | 含 UI 写操作（建产品、加/删字典、BOM 保存），会在生产造数据 |
+| `error-scenarios.spec.ts` | ❌ | 同样含表单提交类写操作 |
 
 ## 生产部署
 
@@ -81,7 +101,7 @@ product-db/
 │   │   ├── components/          # 通用组件 (14 个, 含 GenUI 2 个)
 │   │   └── views/               # 页面视图 (16 个)
 │   ├── src/__tests__/           # vitest 前端测试 (98 用例)
-│   └── e2e/                     # Playwright E2E (6 个 spec 套件)
+│   └── e2e/                     # Playwright E2E (7 个 spec 套件)
 ├── deploy/                      # systemd 单元 + 备份/健康检查/日报脚本
 ├── docker-compose.yml           # 仅本地可选
 └── .github/workflows/ci.yml     # CI
