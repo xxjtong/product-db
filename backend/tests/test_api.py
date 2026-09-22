@@ -2,6 +2,8 @@
 import pytest
 import os
 import json
+import subprocess
+import sys
 import tempfile
 
 # Force test DB before any app imports
@@ -2395,8 +2397,38 @@ class TestConfigConsistency:
         defaults = cfg.Settings(_env_file=None, SECRET_KEY="x" * 32)
         expected = os.path.join(cfg._BACKEND_DIR, "product_db.db")
         assert defaults.DATABASE_URL == f"sqlite:///{expected}"
-        assert "/home/" not in defaults.DATABASE_URL
-        assert "/root/" not in defaults.DATABASE_URL
+
+    def test_default_database_url_does_not_follow_home(self):
+        """默认库路径不得随 **HOME** 漂移（R51）。
+
+        R51 事故根因：默认值写成 `f"sqlite:///{os.path.expanduser('~')}/..."`，
+        依赖运行用户的家目录；systemd 加固启用 ProtectHome 隐藏 /home 后，服务能启动
+        但所有查库接口 500（unable to open database file）。
+
+        为什么这条要单开、还要起子进程：
+        - 不能断言「路径里不含 "/home/"」—— 项目自己就可能在家目录下（CI 的检出目录正是
+          /home/runner/...），按子串判会误报，那正是旧断言在 CI 里必挂、本地却永远绿的原因；
+        - 也不能在进程内改 HOME 再看结果 —— 默认值是**类属性，import 时就求值并冻结**了，
+          进程内改 HOME 看不出差别；本机上仓库又恰好位于 ~/product-db，连路径比较都区分不出来。
+        只有「换个 HOME 重新导入一次」才能真的验到。
+        """
+        def _default_url_with_home(home: str) -> str:
+            env = {k: v for k, v in os.environ.items()
+                   if k not in ("DATABASE_URL", "DATABASE_PATH")}   # 否则会被环境变量覆盖
+            env["HOME"] = home
+            proc = subprocess.run(
+                [sys.executable, "-c",
+                 "from app.config import Settings;"
+                 "print(Settings(_env_file=None, SECRET_KEY='x' * 32).DATABASE_URL)"],
+                env=env, capture_output=True, text=True, errors="replace",
+                cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                timeout=60,
+            )
+            assert proc.returncode == 0, proc.stderr
+            return proc.stdout.strip()
+
+        assert _default_url_with_home("/tmp/pdb-home-a") == _default_url_with_home("/tmp/pdb-home-b"), \
+            "默认库路径不得随 HOME 变化（R51 事故）"
 
     def test_db_filesystem_path_matches_database_url(self):
         """reporting 用的 DB_FILESYSTEM_PATH 必须与 engine 用的 DATABASE_URL 指向同一文件。

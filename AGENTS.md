@@ -132,8 +132,8 @@ bash 会把全角括号的字节当成变量名的一部分 → `set -u` 下直�
 > 测试里 `subprocess` 必须带 `errors="replace"`：脚本被打断时 stderr 会留下半个多字节字符，
 > 默认严格解码会把「脚本输出不对」变成「测试自己崩了」，反而掩盖问题。
 
-**测试**：backend **674 passed**（1 skipped，+8 `test_round15` 健康详情 / +5 `test_round16` 备份脚本 /
-+5 `test_round17` DEV_MODE 护栏）；
+**测试**：backend **675 passed**（1 skipped，+8 `test_round15` 健康详情 / +5 `test_round16` 备份脚本 /
++5 `test_round17` DEV_MODE 护栏 / +1 库路径不随 HOME 漂移）；
 frontend vitest **101 passed**（+3：401 统一处理的 App 层与导入页）；E2E **100 条进 CI**。
 
 **⑩ 收尾时发现：CI 从建立起就一直红着**（`61f1507` 那道护栏把 CI 误伤了）
@@ -154,6 +154,18 @@ pytest 在 collect 阶段 `SystemExit`（日志里只有 `collected 0 items` + I
 **修法**：把 CI 排除出这家护栏的判断（GitHub 自动设 `CI=true`；生产机上不会设 CI，护栏照旧生效）。
 另外补了 `tests/test_round17.py` 5 条把四种组合钉住（CI 放行 / 生产拒绝 / FORCE 覆盖 / 无 systemd 放行 /
 DEV_MODE=false 不受影响）—— **这道护栏此前没有任何测试**，正是它悄悄弄红 CI 的原因。
+
+**⑪ 护栏修好后 CI 真正跑起来，又暴露 1 条「只有 CI 会挂」的测试**
+
+`test_api.py::TestConfigConsistency` 里有 `assert "/home/" not in defaults.DATABASE_URL`。
+它的意图是守 R51 事故（默认库路径曾用 `expanduser('~')` 拼家目录，systemd 的 `ProtectHome`
+隐藏 /home 后服务能起但查库全 500），但**判据选错了**：CI 的检出目录正是 `/home/runner/...`
+→ 项目自己在家目录下就误报。这条断言在本地永远绿、在 CI 必挂。
+
+**修法**：不再按子串判，也不查源码文本（`config.py` 的注释里恰好写着 `expanduser` 的历史写法，
+会被误伤），改为**换 HOME 起子进程重新导入 config、断言默认值不变** ——
+默认值是类属性、import 时就冻结了，进程内改 HOME 看不出差别；而本机仓库恰好又在
+`~/product-db`，连路径比较都区分不出来。已反向验证：把 config 改回家目录拼接 → 该用例失败。
 
 > 📌 教训：CI 长期红着等于没有 CI。今天新增的 e2e job 之所以能立刻发现这个问题，
 > 只是因为顺手看了一眼 Actions —— 值得给 CI 失败加个通知。
