@@ -170,6 +170,38 @@ DEV_MODE=false 不受影响）—— **这道护栏此前没有任何测试**，
 > 📌 教训：CI 长期红着等于没有 CI。今天新增的 e2e job 之所以能立刻发现这个问题，
 > 只是因为顺手看了一眼 Actions —— 值得给 CI 失败加个通知。
 
+## 遗留清单（backlog，跨轮次维护）
+
+> 这份清单是**长期**的：每轮修完就更新它，而不是在每轮末尾各记一份 —— 那样很快就找不到了。
+> **R78 已清掉**：`suggest_solution` 的 N+1、列表分页无上限、401 未覆盖的原生 fetch、
+> E2E 硬等 93 处、前端 `any`（225→22）、移动端 12 项实证缺陷、`/health/detailed`、
+> CI 不进 E2E、备份无异地副本、备份保留策略删错快照、CI 长期红着 —— 细节见上面各轮。
+
+### 待办
+
+| # | 项 | 现状 / 为什么还没做 | 起点 |
+|---|---|---|---|
+| 1 | **Hermes 长期记忆的用户隔离** | 仍只有 R66 的**提示词软护栏**，不是隔离。真隔离需「新建 profile（`/p/pdb-api/v1/…`，API server 原生支持该前缀）+ 关该 profile 的记忆 + 记忆收归产品库」，属**跨系统**改造，且与飞书/CLI 共用同一套 Hermes 部署（要重启 gateway）。风险是实打实的：一份 `MEMORY.md`/`USER.md` 被 10 个产品库用户 + 飞书/CLI 共用，且每轮注入系统提示词。存量记忆混着运维笔记、**无法事后拆分**，迁移前要先定「留给自己还是清掉」 | R65 段 |
+| 2 | **AgentView.vue 拆分（1323 行）** | 单文件过大，但**组件内交互没有测试覆盖**，拆分回归风险最高。R78 时用户明确未选 | R78 |
+| 3 | **CI 失败没有通知** | R78 才发现「CI 从 R23 起一直红着」却没人知道 —— 红着没人看等于没有 CI。建议给 Actions 失败接飞书/邮件通知 | R78 ⑩ |
+| 4 | 生产 `login_logs` 里的 curl 噪声 | **266 条**（`curl/8.7.1` 等）都是历次**线上验证登录**留下的，会出现在管理员审计页。按 `user_agent` 一次性清理即可 | R78 |
+| 5 | 前端残留 `any` **22 处** | 都不是硬凑的：`api.ts` 6 / `types.ts` 5 / `markdown.ts` 5 / `SolutionDetailView` 4 / `ProductFormView` 1 / `AgentView` 1，均为真动态数据（`custom_fields`、`product_snapshot`、AI 流式异构数组）。继续收需连带改调用方 | R78 ⑦ |
+| 6 | 遗留 `backend/.venv`（Python 3.14，缺依赖） | 跑测试/迁移一律用 `backend/venv`（3.9，依赖齐）。这个是历史残留，可直接删 | 系统功能说明 |
+
+### 已明确「不做」的（别再翻工）
+
+| 项 | 理由 |
+|---|---|
+| E2E 里**保留**的 21 处 `waitForTimeout` | 等防抖、等 CSS transition、纯前端态后跟非自动等待的 `isVisible()`、以及 agent 流式回答 / LLM 测试这类「本就时长不确定」的场景 —— 换 `networkidle` 会挂到超时。逐条理由见 R78 ⑥ |
+| `suppliers` 的 `all=true` 参数 | 已从「完全绕过分页」改成「取上限走同一条分页路径」，保留参数以免破坏外部调用方 |
+| Hermes 侧工具面收窄（`web_search`/`execute_code` 等） | 请求体没有按次收窄的参数，只能在 Hermes 配置里收；与飞书共用 profile 需另建 profile —— 与待办 #1 是同一个项目 |
+| 备份保留策略改回 mtime 排序 | `rsync -a` 会把源目录 mtime 盖到快照目录上，按 mtime 排会**删错快照**。见 R78 ⑨ 与脚本里的 `list_snapshots_desc()` |
+
+### 长期项
+
+- **文档漂移**：每轮改完要同步 AGENTS.md / README / `docs/architecture.md` / `系统功能说明.md`
+  里的**测试数与统计值**（当前：pytest 675 passed + 1 skipped、vitest 101、E2E 100 条进 CI）。
+
 ## 上一版 (2026-09-22, R77)
 
 ### R77: 列表接口 page / per_page 收口（`MAX_PER_PAGE = 1000`）(2026-09-22)
