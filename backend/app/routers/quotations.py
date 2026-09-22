@@ -12,13 +12,14 @@ from app.utils.helpers import (get_or_404, apply_partial_update, format_descript
                                discount_percent, number_or)
 from app.models.quotation import Quotation, QuotationItem
 from app.models.product import Product
-from app.models.solution import Solution, SolutionItem
+from app.models.solution import Solution
 from app.auth import get_current_user, filter_by_ownership, check_ownership
 from app.models.user import User
 from app.services.field_visibility import cost_visible
 from app.utils.escape import escape_like, LIKE_ESCAPE
 from app.schemas.quotation import QuotationCreate, QuotationUpdate, QuotationItemCreate, QuotationItemUpdate
 from app.schemas.solution import BatchDeleteRequest
+from app.services.quotation_service import create_quotation_from_solution
 from datetime import datetime, timezone
 from io import BytesIO
 
@@ -54,26 +55,6 @@ def _fmt_rate(rate) -> str:
     except (TypeError, ValueError):
         return "0"
     return str(int(value)) if value == int(value) else f"{value:g}"
-
-
-def _generate_quote_number(db: Session) -> str:
-    """Generate quote number: QT-YYYYMMDD-NNN。
-
-    取当天**已用编号的最大序号 +1**。早前是按 id 倒序取最后一条再 +1 —— 只要当天编号
-    出现过乱序（手工改号、删单后重建），就会取到已存在的号並撞上唯一约束。取号本身
-    不带锁（SQLite 不支持 SELECT ... FOR UPDATE，`with_for_update()` 是空操作），
-    真正的并发冲突由 create_quotation 捕获唯一约束后回 409 兜底（R56）。
-    """
-    today = datetime.now(timezone.utc).strftime("%Y%m%d")
-    prefix = f"QT-{today}-"
-    max_seq = 0
-    rows = db.query(Quotation.quote_number).filter(Quotation.quote_number.like(f"{prefix}%")).all()
-    for (num,) in rows:
-        try:
-            max_seq = max(max_seq, int(str(num).split("-")[-1]))
-        except (ValueError, IndexError):
-            continue
-    return f"{prefix}{max_seq + 1:03d}"
 
 
 def _recalc_total(qt: Quotation, db: Session):
@@ -125,78 +106,35 @@ def list_quotations(
 
 @router.post("/quotations", status_code=201)
 def create_quotation(data: QuotationCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    qt = Quotation(
-        solution_id=data.solution_id,
-        quote_number=_generate_quote_number(db),
-        title=data.title,
-        client_name=data.client_name,
-        client_contact=data.client_contact,
-        valid_days=data.valid_days,
-        tax_rate=data.tax_rate,
-        status=data.status,
-        notes=data.notes,
-        created_by=user.id,
-    )
+    """建报价单。实现集中在 `services/quotation_service`（REST / AI / Hermes 共用一份）。"""
+    solution = None
+    if data.solution_id:
+        solution = db.get(Solution, data.solution_id)
+        if not solution:
+            # 以前这里 `if sol:` 为假时静默跳过，调用方以为复制了方案、实际拿到一张空单
+            raise HTTPException(404, "方案不存在")
+        # 归属校验：否则任意登录用户传别人的 solution_id 就能把该方案的
+        # 条目/单价/产品快照整体复制进自己的报价单（ai_tools 里同一动作是 strict）
+        check_ownership(solution, user, strict=True)
 
-    # Populate from solution if provided
-    solution_id = data.solution_id
-    if solution_id:
-        sol = db.get(Solution, solution_id)
-        if sol:
-            # 归属校验：否则任意登录用户传别人的 solution_id 就能把该方案的
-            # 条目/单价/产品快照整体复制进自己的报价单（ai_tools 里同一动作是 strict）
-            check_ownership(sol, user, strict=True)
-            if not qt.title:
-                qt.title = sol.name
-            if not qt.client_name:
-                qt.client_name = sol.client_name
-            sol_items = db.query(SolutionItem).options(
-                selectinload(SolutionItem.product),
-            ).filter_by(solution_id=solution_id).order_by(SolutionItem.sort_order).all()
-            # Preload products with all relationships for full snapshots
-            product_ids = [si.product_id for si in sol_items]
-            products_map = {}
-            if product_ids:
-                prods = db.query(Product).options(
-                    selectinload(Product.category),
-                    selectinload(Product.manufacturer),
-                    selectinload(Product.supplier),
-                    selectinload(Product.comm_methods),
-                    selectinload(Product.comm_protocols),
-                    selectinload(Product.power_supplies),
-                    selectinload(Product.hardware_interfaces),
-                    selectinload(Product.sensor_capabilities),
-                    selectinload(Product.images),
-                ).filter(Product.id.in_(product_ids)).all()
-                products_map = {p.id: p for p in prods}
-            for idx, si in enumerate(sol_items):
-                prod = products_map.get(si.product_id)
-                snapshot = prod.to_dict() if prod else {}
-                qi = QuotationItem(
-                    quotation=qt,
-                    solution_item_id=si.id,
-                    product_id=si.product_id,
-                    product_snapshot=snapshot,
-                    quantity=si.quantity,
-                    unit_price=si.unit_price if si.unit_price is not None else (float(prod.base_price) if prod and prod.base_price else 0),
-                    amount=float(si.quantity or 0) * (float(si.unit_price) if si.unit_price is not None else (float(prod.base_price) if prod and prod.base_price else 0)),
-                    discount_rate=si.discount_rate,
-                    remark=si.remark,
-                    sort_order=idx + 1,
-                )
-                db.add(qi)
-
-    db.add(qt)
     try:
+        qt = create_quotation_from_solution(
+            db, solution, user,
+            title=data.title,
+            client_name=data.client_name,
+            client_contact=data.client_contact,
+            valid_days=data.valid_days,
+            tax_rate=data.tax_rate,
+            status=data.status,
+            notes=data.notes,
+            extra_items=data.extra_items,
+        )
         db.commit()
     except IntegrityError:
         # 并发建单取到同一编号（SQLite 无 SELECT FOR UPDATE，取号无法加锁）：
         # 与其抛 500，不如明确告诉调用方重试（R56）
         db.rollback()
         raise HTTPException(409, "报价单号生成冲突，请重试")
-    db.refresh(qt)
-    _recalc_total(qt, db)
-    db.commit()
     db.refresh(qt)
     result = qt.to_dict()
     _filter_quotation_items_cost(result.get("items") or [], user, db)

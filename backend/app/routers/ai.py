@@ -10,9 +10,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.auth import get_current_user
+from app.auth import get_current_user, check_ownership
 from app.config import settings
 from app.models.user import User
+from app.models.solution import Solution
 from app.models.ai_models import AIConversation, AIMessage
 from app.models.ai_usage_log import AIUsageLog
 from app.models.system_setting import SystemSetting
@@ -20,7 +21,7 @@ from app.services.ai_engine import engine, DEFAULT_MODEL
 # 提示词默认值集中在 admin_routes._PROMPT_DEFAULTS（后台可编辑那份的唯一来源）。
 # 以前这里各写一份兜底字符串，结果和默认值漂移（且都没有业务范围围栏）。
 from app.routers.admin_routes import _PROMPT_DEFAULTS
-from app.services.ai_tools import TOOL_DEFINITIONS, execute_tool
+from app.services.ai_tools import TOOL_DEFINITIONS, READ_ONLY_TOOL_DEFINITIONS, execute_tool
 from app.services.product_helpers import product_eager_loads
 from app.schemas.ai import AiChatRequest
 
@@ -207,12 +208,12 @@ def _product_to_dict(p) -> dict:
 
 
 def _parse_tool_result(result_str: str) -> tuple:
-    """Safely parse tool result JSON and extract products and created_quote."""
+    """Safely parse tool result JSON → (products, created_quote, quotation_preview)。"""
     try:
         tr = json.loads(result_str)
-        return tr.get("products"), tr.get("created_quote")
+        return tr.get("products"), tr.get("created_quote"), tr.get("quotation_preview")
     except (json.JSONDecodeError, TypeError, KeyError):
-        return None, None
+        return None, None, None
 
 
 # Raw tool-call markup that some models emit as plain text instead of returning
@@ -457,8 +458,11 @@ def _build_db_context(db: Session) -> str:
     return _cache['value']
 
 
-async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = None):
+async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = None,
+                    tool_definitions: list = None):
     """Run agent loop with tool calling. Yields SSE event dicts."""
+    # 不给就用全量工具集；带方案上下文时由调用方传入（否则只读，见 READ_ONLY_TOOL_DEFINITIONS）
+    tools = TOOL_DEFINITIONS if tool_definitions is None else tool_definitions
     yield {"event": "connect"}
 
     # If no API key, use mock mode
@@ -511,7 +515,7 @@ async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = No
                     "function": {"name": "search_products", "arguments": json.dumps(args)}
                 }]})
                 current_messages.append({"role": "tool", "tool_call_id": "extract_0", "content": result_str})
-                products_data, _ = _parse_tool_result(result_str)
+                products_data, _, _ = _parse_tool_result(result_str)
                 if products_data:
                     products_found = True
                     yield {"event": "products", "data": products_data}
@@ -619,7 +623,7 @@ async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = No
                         if len(interleaved) <= 3:
                             args = {"keywords": keywords or [], "limit": 10, **filter_args}
                             result_str = execute_tool("search_products", args, db, user_id=user_id)
-                            sql_data, _ = _parse_tool_result(result_str)
+                            sql_data, _, _ = _parse_tool_result(result_str)
                             if sql_data:
                                 shown_ids = {p["id"] for p in interleaved}
                                 extra = [p for p in sql_data if p["id"] not in shown_ids]
@@ -637,7 +641,7 @@ async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = No
                         "function": {"name": "search_products", "arguments": json.dumps(args)}
                     }]})
                     current_messages.append({"role": "tool", "tool_call_id": "extract_0", "content": result_str})
-                    products_data, _ = _parse_tool_result(result_str)
+                    products_data, _, _ = _parse_tool_result(result_str)
                     if products_data:
                         products_found = True
                         yield {"event": "products", "data": products_data}
@@ -660,7 +664,7 @@ async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = No
     for turn in range(max_turns):
         try:
             response = await engine.chat(current_messages, model=chat_model, temperature=0.3,
-                                         tools=TOOL_DEFINITIONS)
+                                         tools=tools)
             # Accumulate token usage
             usage = response.get("usage", {})
             total_tokens["in"] += usage.get("prompt_tokens", 0)
@@ -714,14 +718,15 @@ async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = No
 
                 # Save tool result
                 save_message(conv_id, "tool", content=result_str, tool_call_id=tc.get("id", ""), db=db, commit=False)
-                products_data, created_quote = _parse_tool_result(result_str)
+                products_data, _, preview = _parse_tool_result(result_str)
                 if products_data:
                     products_found = True
                     yield {"event": "products", "data": products_data}
                     yield {"event": "component", "component": "SolutionProductCard", "props": {"products": products_data}}
-                if created_quote:
+                if preview:
+                    # 报价单**预览**卡：点「确认生成」才真正落库（R71）
                     products_found = True
-                    yield {"event": "component", "component": "QuoteDraftCard", "props": created_quote}
+                    yield {"event": "component", "component": "QuoteDraftCard", "props": preview}
 
                 current_messages.append({
                     "role": "tool",
@@ -785,6 +790,22 @@ async def ai_chat(data: AiChatRequest, db: Session = Depends(get_db), user=Depen
     if not user_input:
         raise HTTPException(400, "Input is required")
 
+    # 方案上下文：只有带着**有权限的**方案时，才把写工具（create_quotation）交给模型。
+    # 拿不到上下文时它只能凭空猜一个 solution_id 去建单 —— 浮窗里说一句话就生成一张
+    # 报价单，正是从这里进去的。无权/已删的方案按「没有上下文」处理，静默降级为只读。
+    solution = None
+    if data.solution_id:
+        candidate = db.get(Solution, data.solution_id)
+        if candidate is not None:
+            try:
+                check_ownership(candidate, user, strict=True)
+                solution = candidate
+            except HTTPException:
+                logging.getLogger("uvicorn").warning(
+                    "ai_chat: 用户 %s 请求了无权访问的方案 %s，本次降级为只读",
+                    user.id, data.solution_id)
+    tool_definitions = TOOL_DEFINITIONS if solution else READ_ONLY_TOOL_DEFINITIONS
+
     # Get or create conversation
     conv = get_or_create_conversation(user.id, conv_id, db)
 
@@ -806,6 +827,7 @@ async def ai_chat(data: AiChatRequest, db: Session = Depends(get_db), user=Depen
     # Save user message and capture values before session closes
     cid = conv.id
     uid = user.id  # capture before async context
+    source = (data.source or "").strip()[:20]   # 入口来源（floating / solution），只用于用量统计
     save_message(cid, "user", content=user_input, db=db)
 
 
@@ -817,7 +839,8 @@ async def ai_chat(data: AiChatRequest, db: Session = Depends(get_db), user=Depen
         success = True
         replied = False  # run_agent 是否已把 assistant 回复写进库
         try:
-            async for event in run_agent(messages, sse_db, cid, user_id=uid):
+            async for event in run_agent(messages, sse_db, cid, user_id=uid,
+                                         tool_definitions=tool_definitions):
                 event["conversation_id"] = cid
                 if event.get("event") == "done" and event.get("tokens"):
                     tokens = event["tokens"]
@@ -856,7 +879,7 @@ async def ai_chat(data: AiChatRequest, db: Session = Depends(get_db), user=Depen
                 usage = AIUsageLog(
                     user_id=uid, operation='chat',
                     tokens_in=tokens.get("in", 0), tokens_out=tokens.get("out", 0),
-                    duration_ms=duration, success=success,
+                    duration_ms=duration, success=success, source=source,
                 )
                 sse_db.add(usage)
                 sse_db.commit()

@@ -7,6 +7,11 @@ from pydantic import BaseModel
 class AiChatRequest(BaseModel):
     input: str
     conversation_id: Optional[int] = None
+    # 入口来源，仅用于用量统计：floating（全局浮窗）/ solution（方案详情页助手）
+    source: str = ""
+    # 方案上下文。带上**且有权限**时才会把写工具（create_quotation）交给模型；
+    # 否则模型只能凭空猜一个 solution_id 去建单（见 R71）。
+    solution_id: Optional[int] = None
 
 
 class AgentApprovalRequest(BaseModel):

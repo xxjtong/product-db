@@ -61,7 +61,7 @@
             </template>
           </div>
           <div v-if="m.components?.length">
-            <component v-for="(comp, ci) in m.components" :key="ci" :is="componentRegistry[comp.component]" v-bind="comp.props" @addToBom="onAddToBom" @compare="onCompare" @viewQuote="(id: number) => router.push(`/quotations/${id}`)" />
+            <component v-for="(comp, ci) in m.components" :key="ci" :is="componentRegistry[comp.component]" v-bind="comp.props" @addToBom="onAddToBom" @compare="onCompare" @created="(id: number) => router.push(`/quotations/${id}`)" />
           </div>
         </div>
         <div v-if="chatLoading" class="sol-chat-msg assistant"><div class="sol-chat-bubble"><span class="ai-cursor">▊</span></div></div>
@@ -390,7 +390,12 @@ async function sendChat() {
   let lastRender = 0
   const RENDER_INTERVAL = 50  // throttle reactive updates to every 50ms
   try {
-    for await (const text of streamAiChat(question, chatCid.value)) {
+    for await (const text of streamAiChat(question, {
+      conversationId: chatCid.value,
+      source: 'solution',
+      // 带上方案上下文：后端据此才把「生成报价单预览」这个写工具交给模型
+      solutionId: Number(route.params.id),
+    })) {
       if (typeof text === 'string' && text.startsWith('[CONVERSATION:')) {
         const match = text.match(/\[CONVERSATION:(\d+)\]/)
         if (match) chatCid.value = parseInt(match[1])

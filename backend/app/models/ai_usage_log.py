@@ -17,6 +17,9 @@ class AIUsageLog(Base):
     duration_ms = Column(Float, default=0)
     success = Column(Boolean, default=True)
     error = Column(Text, nullable=True)
+    # 入口来源（floating=全局浮窗 / solution=方案详情页助手）。/ai/chat 被两处共用，
+    # 不记来源就答不出「哪个入口用得多」；存量行为 NULL（迁移 f2b3c4d5e6f7）。
+    source = Column(String(20), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", foreign_keys=[user_id])
@@ -33,5 +36,6 @@ class AIUsageLog(Base):
             "duration_ms": self.duration_ms or 0,
             "success": bool(self.success),
             "error": self.error or "",
+            "source": self.source or "",
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M:%S") if self.created_at else "",
         }

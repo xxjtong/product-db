@@ -69,6 +69,7 @@
               v-bind="comp.props"
               @addToBom="onAddToBom"
               @compare="onCompare"
+              @created="(id: number) => router.push(`/quotations/${id}`)"
             />
           </div>
           <div v-if="m.quickReplies?.length" class="ai-quick-replies">
@@ -349,7 +350,9 @@ async function send(question?: string) {
     const res = await fetch('/product-db/api/ai/chat', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ input: q, conversation_id: convId.value }),
+      // source 只用于后端用量统计；浮窗**不带** solution_id —— 没有方案上下文时后端
+      // 不会把「生成报价单」这个写工具交给模型（它拿不到方案就只能瞎猜 ID）
+      body: JSON.stringify({ input: q, conversation_id: convId.value, source: 'floating' }),
     })
     // Non-SSE error response (e.g. 422) has no `data:` lines — fail loudly
     // instead of ending the stream silently with no reply.

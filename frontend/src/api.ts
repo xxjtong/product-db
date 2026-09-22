@@ -217,15 +217,29 @@ export const quotationExportUrl = (qtId: number) => {
 }
 
 // --- AI ---
-export async function* streamAiChat(input: string, conversationId?: number | null): AsyncGenerator<string> {
+export interface AiChatOptions {
+  conversationId?: number | null
+  /** 入口来源，仅用于后端用量统计：floating（全局浮窗）/ solution（方案详情页助手） */
+  source?: string
+  /** 方案上下文。带上**且有权限**时后端才会把写工具（生成报价单预览）交给模型 */
+  solutionId?: number | null
+}
+
+export async function* streamAiChat(input: string, opts: AiChatOptions = {}): AsyncGenerator<string> {
   const token = localStorage.getItem('token')
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) headers['Authorization'] = `Bearer ${token}`
+  const conversationId = opts.conversationId
   let conversationCaptured = !!conversationId
   const res = await fetch(`${API_BASE}/ai/chat`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ input, conversation_id: conversationId }),
+    body: JSON.stringify({
+      input,
+      conversation_id: conversationId ?? null,
+      source: opts.source || '',
+      solution_id: opts.solutionId ?? null,
+    }),
   })
   if (!res.ok) {
     // Non-SSE error response (e.g. 422 validation) — surface it instead of

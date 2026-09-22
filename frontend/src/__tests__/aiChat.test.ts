@@ -154,7 +154,7 @@ describe('AiChat API functions', () => {
     globalThis.TextDecoder = RealTextDecoder
     try {
       const out: string[] = []
-      for await (const chunk of streamAiChat('你好', null)) {
+      for await (const chunk of streamAiChat('你好', { conversationId: null })) {
         out.push(chunk)
       }
       expect(out).toContain('[CONVERSATION:123]')
@@ -177,7 +177,7 @@ describe('AiChat API functions', () => {
     })
     try {
       const consume = async () => {
-        for await (const _ of streamAiChat('再找个网关', 14)) { /* drain */ }
+        for await (const _ of streamAiChat('再找个网关', { conversationId: 14 })) { /* drain */ }
       }
       await expect(consume()).rejects.toThrow(ApiError)
       await expect(consume()).rejects.toThrow('valid string')

@@ -15,6 +15,10 @@ class QuotationCreate(BaseModel):
     tax_rate: float = 13
     status: str = "draft"
     notes: Optional[str] = None
+    # 可选：创建时一并并入方案的产品（形如 [{"product_id": 1, "quantity": 2}]）。
+    # 用于「AI 出预览 → 用户点确认」这条路：预览里展示过的补充产品原样回传，
+    # 方案里已存在的会被忽略（不重复添加、不改数量）。
+    extra_items: list[dict] = []
 
 
 class QuotationUpdate(BaseModel):

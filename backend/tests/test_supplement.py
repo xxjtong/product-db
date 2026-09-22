@@ -406,8 +406,9 @@ class TestAITools:
         assert result["count"] >= 2
 
     def test_create_quotation_tool(self, db):
-        """create_quotation tool creates a quotation with the user context."""
+        """create_quotation 工具只回**预览**，不落库（R71）。"""
         from app.services.ai_tools import execute_tool
+        from app.models.quotation import Quotation
         cat = _seed_category(db)
         p = _seed_product(db, category_id=cat.id, base_price=100)
 
@@ -421,7 +422,14 @@ class TestAITools:
 
         result = json.loads(execute_tool("create_quotation",
                                          {"solution_id": sol.id}, db, user_id=1))
-        assert "created_quote" in result
+        assert "quotation_preview" in result
+        assert "created_quote" not in result
+        preview = result["quotation_preview"]
+        assert preview["solution_id"] == sol.id
+        assert preview["count"] == 1
+        assert preview["total"] == 200.0
+        # 关键：预览不落库
+        assert db.query(Quotation).count() == 0
 
     def test_create_quotation_nonexistent_solution(self, db):
         from app.services.ai_tools import execute_tool
@@ -441,7 +449,7 @@ class TestAITools:
         assert "error" in result
 
     def test_create_quotation_tool_sets_creator_and_quote_number(self, db):
-        """AI create_quotation must record created_by and a quote_number."""
+        """预览阶段**不**建单 —— created_by / 编号由确认后的 POST /quotations 负责（R71）。"""
         from app.services.ai_tools import execute_tool
         from app.models.quotation import Quotation
         cat = _seed_category(db)
@@ -458,10 +466,8 @@ class TestAITools:
         result = json.loads(execute_tool(
             "create_quotation", {"solution_id": sol.id}, db, user_id=1
         ))
-        assert "created_quote" in result
-        qt = db.get(Quotation, result["created_quote"]["id"])
-        assert qt.created_by == 1
-        assert qt.quote_number and qt.quote_number.startswith("QT-")
+        assert "quotation_preview" in result
+        assert db.query(Quotation).count() == 0, "预览不得建单"
 
     def test_create_quotation_tool_rejects_foreign_solution(self, db):
         """Non-admin user must not create quotations from another user's solution."""

@@ -56,7 +56,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_quotation",
-            "description": "为当前方案创建报价单。需要方案ID，可选填入已知的产品ID和数量列表。",
+            "description": "为当前方案**预览**一张报价单（不会立刻生成，等用户在卡片上确认后才落库）。需要方案ID，可选填入建议补充的产品ID和数量。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -73,6 +73,13 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+]
+
+# 只读工具集：**没有方案上下文时**给模型的就是这一份（去掉 create_quotation）。
+# 模型拿不到具体方案时，它只能凭空猜一个 solution_id 去建单 —— 那正是「在浮窗里
+# 说一句话就生成一张报价单」这类事故的入口。带上下文（且归属校验通过）才给写工具。
+READ_ONLY_TOOL_DEFINITIONS = [
+    t for t in TOOL_DEFINITIONS if t["function"]["name"] != "create_quotation"
 ]
 
 
@@ -283,21 +290,21 @@ def execute_tool(tool_name: str, arguments: dict, db, user_id: int = None) -> st
         return json.dumps({"count": len(result), "categories": result}, ensure_ascii=False)
 
     elif tool_name == "create_quotation":
-        from app.models.solution import Solution, SolutionItem
-        from app.models.quotation import Quotation, QuotationItem
-        from app.models.product import Product as Prod
+        # 只出**预览**，不落库：写操作等用户在卡片上点确认（R71）。
+        # 以前这里直接建单，还会顺手把模型猜的产品写进方案 —— 用户还没确认，方案就先被改了。
+        from app.models.solution import Solution
+        from app.services.quotation_service import preview_quotation
         from app.auth import check_ownership
         from fastapi import HTTPException
-        from app.routers.quotations import _generate_quote_number
 
         if not user_id:
-            return json.dumps({"error": "缺少用户上下文，无法创建报价单"}, ensure_ascii=False)
+            return json.dumps({"error": "缺少用户上下文，无法生成报价单预览"}, ensure_ascii=False)
         user = db.get(AuthUser, user_id)
         if not user:
             return json.dumps({"error": "用户不存在"}, ensure_ascii=False)
 
         solution_id = arguments.get("solution_id")
-        sol = db.get(Solution, solution_id)
+        sol = db.get(Solution, solution_id) if solution_id else None
         if not sol:
             return json.dumps({"error": "方案不存在"}, ensure_ascii=False)
         try:
@@ -305,52 +312,9 @@ def execute_tool(tool_name: str, arguments: dict, db, user_id: int = None) -> st
         except HTTPException:
             return json.dumps({"error": "无权访问该方案"}, ensure_ascii=False)
 
-        # Auto-add suggested items if provided
-        items_data = arguments.get("items") or []
-        for item in items_data:
-            pid = item.get("product_id")
-            qty = item.get("quantity", 1)
-            if pid and not db.query(SolutionItem).filter_by(solution_id=solution_id, product_id=pid).first():
-                p = db.get(Prod, pid)
-                if p:
-                    db.add(SolutionItem(solution_id=solution_id, product_id=pid, quantity=qty,
-                                        unit_price=float(p.base_price or 0)))
-        db.commit()
-
-        # Create quotation
-        items = db.query(SolutionItem).filter_by(solution_id=solution_id).all()
-        if not items:
+        preview = preview_quotation(db, sol, arguments.get("items") or [])
+        if not preview["items"]:
             return json.dumps({"error": "方案中没有产品"}, ensure_ascii=False)
-
-        total = sum(float(it.quantity or 0) * float(it.unit_price or 0) * (discount_percent(it.discount_rate) / 100)
-                    for it in items)
-        qt = Quotation(solution_id=solution_id, title=sol.name,
-                       client_name=sol.client_name or "",
-                       quote_number=_generate_quote_number(db),
-                       status="draft", total_amount=total, created_by=user_id)
-        db.add(qt)
-        db.commit()
-        db.refresh(qt)
-
-        # Add items with product snapshot
-        for it in items:
-            p = db.get(Prod, it.product_id)
-            snapshot = {"name": p.name, "model": p.model, "sku": p.sku} if p else {}
-            db.add(QuotationItem(quotation_id=qt.id, product_id=it.product_id, product_snapshot=snapshot,
-                                 quantity=it.quantity, unit_price=it.unit_price,
-                                 discount_rate=discount_percent(it.discount_rate),
-                                 amount=float(it.quantity or 0) * float(it.unit_price or 0)))
-        db.commit()
-
-        item_list = []
-        for it in db.query(QuotationItem).filter_by(quotation_id=qt.id).all():
-            item_list.append({"product_name": it.product_snapshot.get("name", "") if it.product_snapshot else "",
-                              "quantity": float(it.quantity or 0),
-                              "unit_price": float(it.unit_price or 0)})
-
-        return json.dumps({
-            "created_quote": {"id": qt.id, "title": qt.title, "total": float(qt.total_amount or 0), "items": item_list},
-            "message": f"已创建报价单 #{qt.id}「{qt.title}」，共 {len(item_list)} 项，合计 ¥{float(qt.total_amount or 0):.0f}",
-        }, ensure_ascii=False)
+        return json.dumps({"quotation_preview": preview}, ensure_ascii=False)
 
     return json.dumps({"error": f"Unknown tool: {tool_name}"})
