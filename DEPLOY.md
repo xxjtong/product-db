@@ -155,6 +155,12 @@ ssh -p 28793 tong@124.221.178.161 \
 >
 > `deploy/restart-ready.sh` 取代裸 `systemctl restart`：它会轮询健康接口直到就绪
 > 再验一次经 nginx 的入口与前端首页，失败则打印 journalctl 与回滚命令并以非 0 退出。
+>
+> 💡 **`tong` 有 NOPASSWD 白名单，上面整条命令可以非交互执行**（含 `restart-ready.sh` 内部的
+> `sudo systemctl restart product-db`）：白名单里与部署相关的有 `/usr/bin/systemctl restart product-db`、
+> `/usr/sbin/nginx -s reload`、`/usr/bin/nginx -t`、`/usr/bin/cp /etc/*`、`/usr/bin/journalctl *` 等
+> （完整清单：`ssh … 'sudo -n -l'`）。注意白名单是**按命令精确匹配**的 —— `sudo -n true` 这类
+> 试探命令会报 "a password is required"，不代表没有权限，别据此判断"必须让用户手动执行"。
 
 > 不要用 `git stash && git pull && git stash drop`：服务器上任何未提交改动会被静默丢弃（2026-09 曾发现服务器遗留未跟踪文件）。
 
