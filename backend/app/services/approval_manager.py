@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -17,6 +18,8 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 TIMEOUT_SECONDS = 120  # Max wait for human approval
+# 没有等待者的任务由 create() 顺带回收（见 wait_for_decision 的取消分支）
+STALE_SECONDS = TIMEOUT_SECONDS * 2
 
 
 @dataclass
@@ -32,7 +35,7 @@ class ApprovalTask:
     user_id: int = None  # User who triggered the tool call (approval owner)
     event: threading.Event = field(default_factory=threading.Event)
     result: Optional[dict] = field(default=None)  # {"approved": True/False, "reason": "..."}
-    created_at: float = field(default_factory=lambda: __import__("time").time())
+    created_at: float = field(default_factory=time.time)
 
 
 class ApprovalManager:
@@ -51,6 +54,7 @@ class ApprovalManager:
         user_id: int = None,
     ) -> ApprovalTask:
         """Create a new approval task and return it."""
+        self._evict_stale()
         task_id = uuid.uuid4().hex[:12]
         task = ApprovalTask(
             task_id=task_id,
@@ -77,10 +81,29 @@ class ApprovalManager:
             if not decided:
                 logger.warning("ApprovalTask %s timed out", task_id)
                 task.result = {"approved": False, "reason": "审批超时"}
-        finally:
+        except asyncio.CancelledError:
+            # 客户端断开（点「停止」/关页面/断网）时这里被取消。**不要把任务清掉**：
+            # 清了之后界面上这条待审批就凭空消失，用户再点「授权执行」会拿到 404
+            # （2026-09 线上实测，POST /agent/approval/{id} → 404）。
+            # 留着由 _evict_stale 兜底回收，避免没人消费时无限堆积。
+            logger.warning("ApprovalTask %s 等待被取消（客户端断开），任务保留待处理", task_id)
+            raise
+        else:
             self._tasks.pop(task_id, None)
 
         return task.result or {"approved": False, "reason": "No decision"}
+
+    def _evict_stale(self) -> None:
+        """回收长时间没人处理的任务。
+
+        正常路径由 wait_for_decision 在拿走结果时删除；但客户端断开后任务会留在
+        队列里（见上面的取消分支），于是需要这个兜底 —— 否则排队列表只增不减。
+        """
+        cutoff = time.time() - STALE_SECONDS
+        stale = [tid for tid, t in self._tasks.items() if t.created_at < cutoff]
+        for tid in stale:
+            self._tasks.pop(tid, None)
+            logger.warning("ApprovalTask %s 超过 %ds 无人处理，已回收", tid, STALE_SECONDS)
 
     def decide(self, task_id: str, approved: bool, reason: str = "") -> bool:
         """Record human decision and wake the waiting coroutine."""

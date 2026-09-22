@@ -16,8 +16,9 @@ class AgentApprovalRequest(BaseModel):
 
 class AgentChatRequest(BaseModel):
     # 只收正常对话轮次：system 由服务端注入、model 由服务端固定（R60），不从这里传
+    # stream 也不收（R64）：这个端点的契约就是 SSE 透传，固定 True。
+    # 客户端多传的字段会被 pydantic 忽略（extra 默认 ignore），不会 422。
     messages: list
-    stream: bool = True
 
 
 class AgentSuggestionsRequest(BaseModel):

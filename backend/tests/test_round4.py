@@ -896,10 +896,9 @@ class TestAgentHermesProxy:
         """Hermes connection error should return error SSE."""
         import httpx as _httpx
 
-        async def raise_connect(*args, **kwargs):
-            raise _httpx.ConnectError("Cannot connect")
-
-        mock_stream.side_effect = raise_connect
+        # 直接让 client.stream() 抛 ConnectError：以前这里挂的是 async 函数，
+        # 实际抛出的是「coroutine 当上下文用」的 AttributeError，测的不是连接失败
+        mock_stream.side_effect = _httpx.ConnectError("Cannot connect")
 
         resp = client.post("/product-db/api/agent/chat", json={
             "messages": [{"role": "user", "content": "hi"}],
@@ -907,7 +906,8 @@ class TestAgentHermesProxy:
         }, headers=auth_headers)
         assert resp.status_code == 200
         body = resp.text
-        assert "error" in body.lower() or "DONE" in body
+        assert "Cannot connect to Hermes" in body
+        assert "data: [DONE]" in body
 
     @patch("httpx.AsyncClient.stream")
     def test_agent_chat_non_200(self, mock_stream, auth_headers):
@@ -939,9 +939,10 @@ class TestAgentToolProgress:
     JWT = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.PAYLOAD.SIG"
 
     @staticmethod
-    def _stub(mock_stream, lines):
+    def _stub(mock_stream, lines, content_type="text/event-stream"):
         class FakeResp:
             status_code = 200
+            headers = {"content-type": content_type}
 
             async def aiter_lines(self):
                 for ln in lines:
@@ -1225,3 +1226,142 @@ class TestAgentQuickReplies:
         resp = client.post(_SUGGEST_URL, json={"messages": []}, headers=auth_headers)
         assert resp.status_code == 200
         assert resp.json()["suggestions"] == []
+
+
+# ============================================================
+# Agent: SSE 出口加固 —— R64
+# ============================================================
+class TestAgentStreamHardening:
+    """三个「静默失效」的收口：
+
+    1. 客户端能传 `stream: false` → Hermes 回整段 JSON（没有 `data: ` 前缀）→ 前端
+       一行都解析不到，气泡永远空白且等不到 [DONE]（线上实测）。
+    2. 客户端断开时 `_stream_with_usage` 记成 success=True（CancelledError 是
+       BaseException，被 `except Exception` 漏掉），而 usage 块在流末尾还没到 →
+       账面变成「成功 + 0 token」，成本被记没。
+    3. 上游没按 SSE 回（网关塞个 JSON 错误页）时原样透传 → 同样是空白气泡。
+    """
+
+    @patch("httpx.AsyncClient.stream")
+    def test_client_cannot_turn_stream_off(self, mock_stream, auth_headers):
+        """客户端传 stream=false 也要按 SSE 请求 Hermes（这条端点的契约就是流式）"""
+        TestAgentToolProgress._stub(mock_stream, ['data: [DONE]', ""])
+
+        resp = client.post("/product-db/api/agent/chat", json={
+            "messages": [{"role": "user", "content": "hi"}], "stream": False,
+        }, headers=auth_headers)
+
+        assert resp.status_code == 200
+        assert mock_stream.call_args.kwargs["json"]["stream"] is True
+
+    @patch("httpx.AsyncClient.stream")
+    def test_non_sse_upstream_reports_error(self, mock_stream, auth_headers):
+        """上游返回 JSON（非 SSE）→ 明确报错，而不是透传出一串前端看不懂的行"""
+        TestAgentToolProgress._stub(
+            mock_stream,
+            ['{"id":"c1","choices":[{"message":{"content":"你好"}}]}'],
+            content_type="application/json",
+        )
+
+        resp = client.post("/product-db/api/agent/chat", json={
+            "messages": [{"role": "user", "content": "hi"}],
+        }, headers=auth_headers)
+
+        assert resp.status_code == 200
+        assert "data: [DONE]" in resp.text
+        assert '"error"' in resp.text
+        # 关键：不能把原始 JSON 当 SSE 行透传出去
+        assert '"choices"' not in resp.text
+
+    def test_client_abort_is_logged_as_failure(self):
+        """客户端中断要记 success=False，别再记成成功"""
+        from app.routers import agent as agent_mod
+
+        logged = []
+        async def aborted():
+            yield 'data: {"choices":[{"delta":{"content":"部分"}}]}\n'
+            raise asyncio.CancelledError()
+
+        async def run():
+            try:
+                async for _ in agent_mod._stream_with_usage(aborted(), 1, "hermes-agent"):
+                    pass
+            except asyncio.CancelledError:
+                pass
+
+        with patch.object(agent_mod, "_log_agent_usage",
+                          lambda *a, **kw: logged.append((a, kw))):
+            asyncio.run(run())
+
+        assert len(logged) == 1
+        args, kwargs = logged[0]
+        assert args[5] is False, "中断不该记成成功"
+        assert kwargs["error"] == "客户端中断"
+
+    def test_upstream_error_is_logged_with_reason(self):
+        """上游异常也要带上原因，便于排障"""
+        from app.routers import agent as agent_mod
+
+        logged = []
+        async def boom():
+            yield 'data: {"choices":[]}\n'
+            raise RuntimeError("upstream reset")
+
+        async def run():
+            try:
+                async for _ in agent_mod._stream_with_usage(boom(), 1, "hermes-agent"):
+                    pass
+            except RuntimeError:
+                pass
+
+        with patch.object(agent_mod, "_log_agent_usage",
+                          lambda *a, **kw: logged.append((a, kw))):
+            asyncio.run(run())
+
+        args, kwargs = logged[0]
+        assert args[5] is False
+        assert "upstream reset" in kwargs["error"]
+
+
+class TestApprovalSurvivesDisconnect:
+    """客户端一断，待审批任务曾被静默清掉（线上实测 POST /agent/approval/{id} → 404），
+    用户界面上这条待审批凭空消失。改为保留 + 兜底回收。"""
+
+    def _new_manager(self):
+        from app.services.approval_manager import ApprovalManager
+        return ApprovalManager()
+
+    def test_cancel_keeps_task_pending(self, monkeypatch):
+        from app.services import approval_manager as am
+
+        # 等待走 run_in_executor，超时值是 120s；调小否则测试收尾要等这个线程
+        monkeypatch.setattr(am, "TIMEOUT_SECONDS", 0.1)
+        m = self._new_manager()
+        task = m.create(tool_name="t", tool_label="创建报价单", tool_input={}, summary="s")
+
+        async def wait_and_cancel():
+            t = asyncio.create_task(m.wait_for_decision(task.task_id))
+            await asyncio.sleep(0.01)       # 让它进到等待里
+            t.cancel()
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
+
+        asyncio.run(wait_and_cancel())
+
+        assert m.get(task.task_id) is not None, "断开后任务不该被清掉"
+        assert [t.task_id for t in m.get_pending()] == [task.task_id]
+
+    def test_stale_tasks_are_evicted(self):
+        """没人处理的任务由 create() 兜底回收，队列不会只增不减"""
+        from app.services import approval_manager as am
+
+        m = self._new_manager()
+        old = m.create(tool_name="t", tool_label="旧任务", tool_input={}, summary="s")
+        old.created_at -= am.STALE_SECONDS + 1
+
+        fresh = m.create(tool_name="t", tool_label="新任务", tool_input={}, summary="s")
+
+        assert m.get(old.task_id) is None
+        assert m.get(fresh.task_id) is not None

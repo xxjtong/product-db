@@ -12,6 +12,8 @@ from app.models import *  # noqa: ensure all models registered
 from app.routers import products, product_import, categories, suppliers, solutions, quotations, bom_templates, ai, dictionaries, auth_routes, admin_routes, system_settings, product_files, agent
 from app.config import settings
 from loguru import logger
+from contextlib import asynccontextmanager
+import logging
 import os
 import sys
 import time
@@ -41,6 +43,34 @@ logger.add(
     level="INFO",
 )
 
+
+class _LoguruBridge(logging.Handler):
+    """把 stdlib logging 的记录转给 loguru。
+
+    backend 里有二十来处用 `logging.getLogger(__name__)`（agent、登录地区、AI 提取…），
+    它们**不经过 loguru**：INFO 级默认不落盘，WARNING 级只进 journalctl。结果是排查
+    agent/AI 问题时只看 app.log 会误判成「没有日志」（曾被记在 DEPLOY.md 里当成已知坑）。
+
+    只挂在 `app` 这个父 logger 上：这样 `app.*` 模块的日志会进 app.log，而 uvicorn
+    自己的访问日志不受影响（它们的 logger 名是 uvicorn.*，不会冒泡到这里）。
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+        frame, depth = logging.currentframe(), 2
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+        logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+
+
+_app_logger = logging.getLogger("app")
+_app_logger.setLevel(logging.INFO)
+_app_logger.addHandler(_LoguruBridge())
+
 if settings.DEV_MODE:
     # Safety: refuse DEV_MODE under systemd unless explicitly forced
     if os.environ.get('INVOCATION_ID') and not os.environ.get('FORCE_DEV_MODE'):
@@ -51,7 +81,14 @@ if settings.DEV_MODE:
     logger.warning("    NEVER use in production. Set DEV_MODE=false in .env")
     logger.warning("=" * 60)
 
-app = FastAPI(title="物联网产品中心", version="2.0.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    yield
+    # 关闭 agent 代理复用的连接池（R64：以前每个请求各建一个 client）
+    await agent.close_http_client()
+
+
+app = FastAPI(title="物联网产品中心", version="2.0.0", lifespan=lifespan)
 
 # 全局限流 —— 按 IP 计。**只有 default_limits 生效**：slowapi 的 SlowAPIMiddleware
 # 一律按「解析到的 handler 名字」匹配限流规则，而 SPA catch-all

@@ -429,44 +429,81 @@ async def _relay_hermes_sse(resp):
         yield line + "\n"
 
 
-async def _call_hermes(client, model: str, messages: list, stream: bool = True, tools: list | None = None):
-    """Single pass: call Hermes and stream text lines back (SSE format)."""
+_http_client: "httpx.AsyncClient | None" = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    """复用一个 AsyncClient：以前每轮对话都新建，等于每次重新握手建连。
+
+    连接池是线程/协程安全的，复用即可；应用关闭时由 `close_http_client` 释放。
+    """
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=HERMES_TIMEOUT)
+    return _http_client
+
+
+async def close_http_client() -> None:
+    """应用关闭时释放连接池（main.py 的 lifespan 调用）。"""
+    global _http_client
+    if _http_client is not None and not _http_client.is_closed:
+        await _http_client.aclose()
+    _http_client = None
+
+
+async def _call_hermes(model: str, messages: list, tools: list | None = None):
+    """调 Hermes 并把它的 SSE 流按行吐回来。
+
+    `stream` 固定 True，不由调用方指定（与 model 同理）：这个端点的契约就是 SSE 透传。
+    以前它跟着客户端传下来的 `stream` 走，传 false 时 Hermes 会返回整段 JSON ——
+    而 JSON 里没有 `data: ` 前缀，前端一行都解析不到，表现为「气泡永远是空的」
+    且永远等不到 `[DONE]`（R64 实测）。
+    """
     headers = {
         "Content-Type": "application/json",
         **_build_auth_header(),
     }
-    payload = {"model": model, "messages": messages, "stream": stream}
+    payload = {"model": model, "messages": messages, "stream": True}
     if tools:
         payload["tools"] = tools
 
+    client = _get_http_client()
     try:
-        if client is None:
-            async with httpx.AsyncClient(timeout=HERMES_TIMEOUT) as c:
-                async with c.stream("POST", HERMES_CHAT_URL, json=payload, headers=headers) as resp:
-                    if resp.status_code != 200:
-                        yield f"data: {json.dumps({'error': f'Hermes returned {resp.status_code}'})}\n\n"
-                        yield "data: [DONE]\n\n"
-                        return
-                    async for line in _relay_hermes_sse(resp):
-                        yield line
-        else:
-            async with client.stream("POST", HERMES_CHAT_URL, json=payload, headers=headers) as resp:
-                if resp.status_code != 200:
-                    yield f"data: {json.dumps({'error': f'Hermes returned {resp.status_code}'})}\n\n"
-                    yield "data: [DONE]\n\n"
-                    return
-                async for line in _relay_hermes_sse(resp):
-                    yield line
+        async with client.stream("POST", HERMES_CHAT_URL, json=payload, headers=headers) as resp:
+            if resp.status_code != 200:
+                logger.error("Hermes 返回 %d（%s）", resp.status_code, HERMES_CHAT_URL)
+                yield f"data: {json.dumps({'error': f'Hermes returned {resp.status_code}'})}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+            # 上游没按 SSE 回（网关插了个 JSON 错误页之类）：明确报错，
+            # 别静默透传出去让前端渲染出一个空白气泡
+            ctype = str(resp.headers.get("content-type", ""))
+            if "text/event-stream" not in ctype:
+                logger.error("Hermes 未返回流式响应（content-type=%s）", ctype)
+                yield f"data: {json.dumps({'error': 'Agent 上游未返回流式响应'}, ensure_ascii=False)}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+            async for line in _relay_hermes_sse(resp):
+                yield line
     except httpx.ConnectError:
+        logger.exception("连接 Hermes 失败：%s", HERMES_CHAT_URL)
         yield f"data: {json.dumps({'error': 'Cannot connect to Hermes agent server'})}\n\n"
         yield "data: [DONE]\n\n"
+    except (httpx.HTTPError, OSError):
+        logger.exception("Hermes 流异常中断")
+        yield f"data: {json.dumps({'error': 'Agent stream interrupted'})}\n\n"
+        yield "data: [DONE]\n\n"
     except Exception:
+        # 兜底：SSE 响应头早已发出，这里再抛异常前端只会看到流被掐断且无任何线索，
+        # 所以照旧转成 error 事件，但**必须留痕**（以前这里什么日志都没有）
+        logger.exception("Hermes 代理出现未预期异常")
         yield f"data: {json.dumps({'error': 'Agent stream interrupted'})}\n\n"
         yield "data: [DONE]\n\n"
 
 
 def _log_agent_usage(user_id: int, model: str, tokens_in: int, tokens_out: int,
-                     duration_ms: int, success: bool = True, operation: str = "agent_chat"):
+                     duration_ms: int, success: bool = True, operation: str = "agent_chat",
+                     error: str = ""):
     """Persist agent token usage to ai_usage_logs via a fresh DB session."""
     try:
         from app.database import SessionLocal
@@ -475,7 +512,7 @@ def _log_agent_usage(user_id: int, model: str, tokens_in: int, tokens_out: int,
             sdb.add(AIUsageLog(
                 user_id=user_id, operation=operation, model=model,
                 tokens_in=tokens_in, tokens_out=tokens_out,
-                duration_ms=duration_ms, success=success,
+                duration_ms=duration_ms, success=success, error=error or None,
             ))
             sdb.commit()
         finally:
@@ -491,6 +528,7 @@ async def _stream_with_usage(gen, user_id: int, model: str):
     usage_in = 0
     usage_out = 0
     success = True
+    error = ""
     try:
         async for line in gen:
             # Extract usage from chunks with top-level "usage" key (OpenAI format)
@@ -504,12 +542,21 @@ async def _stream_with_usage(gen, user_id: int, model: str):
                 except (json.JSONDecodeError, KeyError, TypeError):
                     pass
             yield line
-    except Exception:
+    except asyncio.CancelledError:
+        # 客户端断开（点「停止」/关页面/网络断）时走这里，异常类型是 BaseException，
+        # 以前被 `except Exception` 漏掉 → 记成 success=True。而 Hermes 的 usage 块在
+        # 流末尾，中断时通常还没到，于是账面上变成「成功 + 0 token」，把真实成本记没了。
         success = False
+        error = "客户端中断"
+        raise
+    except Exception as e:
+        success = False
+        error = f"{type(e).__name__}: {e}"
         raise
     finally:
         duration_ms = int((time.time() - start_time) * 1000)
-        _log_agent_usage(user_id, model, usage_in, usage_out, duration_ms, success)
+        _log_agent_usage(user_id, model, usage_in, usage_out, duration_ms, success,
+                         error=error)
 
 
 @router.post("/agent/chat")
@@ -521,10 +568,10 @@ async def agent_chat(
 ):
     """把对话转发给 Hermes，并把它的 SSE 流原样回传。
 
-    **system 由服务端接管（R60）**：客户端传来的 `system` 消息一律丢弃，改用
-    `system_settings.agent_prompt`（后台可编辑）由服务端替换占位符后注入；
-    `model` 也固定为服务端常量。这样提示词里的业务范围围栏才真正生效 ——
-    以前它由前端拼好发上来，客户端随手就能改写或清空。
+    **system / model / stream 都由服务端定（R60、R64）**：客户端传来的 `system`
+    一律丢弃，改用 `system_settings.agent_prompt`（后台可编辑）由服务端替换占位符后注入；
+    `model` 固定为服务端常量；`stream` 固定 True（这个端点的契约就是 SSE 透传，
+    客户端传 `stream: false` 只会让 Hermes 回整段 JSON，前端一行都解析不到）。
 
     这里仍**不是**审批/工具执行的边界：
     - `AGENT_TOOLS` 只是"声明"给模型，product-db **不执行**工具；写操作靠 prompt 里
@@ -546,7 +593,6 @@ async def agent_chat(
     system_prompt = _build_server_system_prompt(db, _bearer_token(request))
     messages = [{"role": "system", "content": system_prompt}, *messages]
 
-    stream = data.stream
     model = _AGENT_MODEL
 
     # Test trigger: inject approval for "测试审批" before calling Hermes
@@ -583,7 +629,7 @@ async def agent_chat(
                 return
             # Continue to Hermes
             async for line in _stream_with_usage(
-                _call_hermes(None, model, messages, stream, tools=AGENT_TOOLS),
+                _call_hermes(model, messages, tools=AGENT_TOOLS),
                 user.id, model,
             ):
                 yield line
@@ -595,7 +641,7 @@ async def agent_chat(
     logger.info("agent_chat: proxying %d messages to %s", len(messages), HERMES_CHAT_URL)
     return StreamingResponse(
         _stream_with_usage(
-            _call_hermes(None, model, messages, stream, tools=AGENT_TOOLS),
+            _call_hermes(model, messages, tools=AGENT_TOOLS),
             user.id, model,
         ),
         media_type="text/event-stream",
