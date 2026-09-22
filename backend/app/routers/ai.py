@@ -400,12 +400,29 @@ def run_mock_agent(user_input: str, db: Session, conv_id: int, user_id: int = No
     yield {"event": "quick_replies", "items": ["对比产品", "全部加入方案"]}
 
 
-def _build_db_context(db: Session) -> str:
-    """Build cached DB context string for LLM keyword matching (300s TTL)."""
-    _cache = getattr(_build_db_context, '_cache', {'ts': 0, 'value': ''})
+# 关键词提取（Round 0）用的 DB 上下文缓存。**分两档**：full（首轮，含全部产品清单）
+# 与 compact（后续轮，只有词表与统计）。分开缓存，否则首轮会把精简档也污染成全量。
+_db_ctx_cache: dict = {"full": {"ts": 0.0, "value": ""}, "compact": {"ts": 0.0, "value": ""}}
+
+
+def _build_db_context(db: Session, full: bool = True) -> str:
+    """构造关键词提取用的 DB 上下文（300s TTL）。
+
+    `full=True` 带上**全部产品**的 `[ID]` 名称/型号/描述/specs —— 会话**首轮**冷启动
+    选型用：模型据此把用户需求直接对上具体产品 ID（代价是这份上下文很大，实测单轮
+    input 一度到 51.7k tokens）。
+
+    `full=False` 只给「统计 + 品类/厂商/通讯方式/协议/供电/传感指标」这些**词表**，
+    够模型判断「该搜什么关键词」，不再塞产品正文 —— 后续轮的产品交给
+    `search_products` 工具（SQL 检索），而不是每轮重发整库。
+
+    「首轮全量、之后精简」由 ai_chat 按本会话是否首轮决定（R73）。
+    """
+    key = "full" if full else "compact"
+    cache = _db_ctx_cache[key]
     now = time.time()
-    if now - _cache['ts'] <= 300:
-        return _cache['value']
+    if now - cache["ts"] <= 300:
+        return cache["value"]
 
     from app.models.category import Category
     from app.models.product import Product
@@ -416,6 +433,25 @@ def _build_db_context(db: Session) -> str:
     protocols = db.query(DictCommProtocol).order_by(DictCommProtocol.name).all()
     powers = db.query(DictPowerSupply).order_by(DictPowerSupply.name).all()
     metrics = db.query(DictSensorMetric).order_by(DictSensorMetric.name).all()
+
+    # 词表部分：两档共用。compact 档到这里就够了 —— 模型据此判断该搜什么
+    vocab = f"""数据库现有数据：
+品类({len(cats)}): {', '.join(c.name for c in cats)}
+厂商({len(mfgs)}): {', '.join(m.name for m in mfgs)}
+通讯方式({len(methods)}): {', '.join(m.name for m in methods)}
+协议({len(protocols)}): {', '.join(p.name for p in protocols)}
+供电({len(powers)}): {', '.join(m.name for m in powers)}
+传感器指标({len(metrics)}): {', '.join(m.name for m in metrics)}"""
+
+    if not full:
+        value = vocab + (
+            "\n（本会话已过首轮，为省 token 不再重复发送产品清单；需要具体产品时"
+            "请调用 search_products 工具，按关键词/品类/厂商/通讯方式检索）"
+        )
+        cache["value"] = value
+        cache["ts"] = now
+        return value
+
     products = db.query(Product.id, Product.name, Product.model, Product.description, Product.specs)\
         .filter(Product.status == 'active').order_by(Product.name).all()
 
@@ -445,22 +481,21 @@ def _build_db_context(db: Session) -> str:
         prod_parts.append(part)
     products_text = '\n'.join(prod_parts)
 
-    _cache['value'] = f"""数据库现有数据：
-品类({len(cats)}): {', '.join(c.name for c in cats)}
-厂商({len(mfgs)}): {', '.join(m.name for m in mfgs)}
-通讯方式({len(methods)}): {', '.join(m.name for m in methods)}
-协议({len(protocols)}): {', '.join(p.name for p in protocols)}
-供电({len(powers)}): {', '.join(p.name for p in powers)}
-传感器指标({len(metrics)}): {', '.join(m.name for m in metrics)}
+    value = f"""{vocab}
 产品列表(名称/型号/描述/specs):
 {products_text}"""
-    _cache['ts'] = now
-    return _cache['value']
+    cache["value"] = value
+    cache["ts"] = now
+    return value
 
 
 async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = None,
-                    tool_definitions: list = None):
-    """Run agent loop with tool calling. Yields SSE event dicts."""
+                    tool_definitions: list = None, full_db_context: bool = True):
+    """Run agent loop with tool calling. Yields SSE event dicts.
+
+    `full_db_context`：Round 0 是否把**全部产品清单**塞进关键词提取的 system prompt。
+    ai_chat 只在会话**首轮**传 True（冷启动选型），之后传 False 走精简词表（R73）。
+    """
     # 不给就用全量工具集；带方案上下文时由调用方传入（否则只读，见 READ_ONLY_TOOL_DEFINITIONS）
     tools = TOOL_DEFINITIONS if tool_definitions is None else tool_definitions
     yield {"event": "connect"}
@@ -481,7 +516,7 @@ async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = No
     auth_failed = False
     user_query = messages[-1]["content"] if messages else ""
     try:
-        db_ctx = _build_db_context(db)
+        db_ctx = _build_db_context(db, full=full_db_context)
 
         kw_model = _get_ai_setting(db, "ai_keyword_model", "deepseek-chat")
         # 兜底用共享默认值：此前这里藏了**第三份**独立文案，与 _PROMPT_DEFAULTS 那份不一致，
@@ -817,6 +852,9 @@ async def ai_chat(data: AiChatRequest, db: Session = Depends(get_db), user=Depen
     # Build context
     system_msg = build_context(db)
     history = get_messages_for_context(conv.id, db)
+    # 只有本会话**首轮**把整库产品清单交给模型（冷启动选型）；之后各轮只给词表，
+    # 具体产品交给 search_products 工具检索。原先每轮都重发全量，实测单轮 input 51.7k（R73）
+    is_first_turn = not history
 
     messages = [
         {"role": "system", "content": system_msg},
@@ -840,7 +878,8 @@ async def ai_chat(data: AiChatRequest, db: Session = Depends(get_db), user=Depen
         replied = False  # run_agent 是否已把 assistant 回复写进库
         try:
             async for event in run_agent(messages, sse_db, cid, user_id=uid,
-                                         tool_definitions=tool_definitions):
+                                         tool_definitions=tool_definitions,
+                                         full_db_context=is_first_turn):
                 event["conversation_id"] = cid
                 if event.get("event") == "done" and event.get("tokens"):
                     tokens = event["tokens"]

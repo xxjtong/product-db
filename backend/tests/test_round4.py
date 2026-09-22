@@ -1496,7 +1496,8 @@ class TestApprovalSurvivesDisconnect:
     def test_cancel_keeps_task_but_marks_detached(self, monkeypatch):
         from app.services import approval_manager as am
 
-        # 等待走 run_in_executor，超时值是 120s；调小否则测试收尾要等这个线程
+        # 超时值调小，让超时/取消路径快速走到。等待本身已改为可取消的协程
+        # （R73：原先走 run_in_executor，取消后线程还会阻塞到超时）
         monkeypatch.setattr(am, "TIMEOUT_SECONDS", 0.1)
         m = self._new_manager()
         task = m.create(tool_name="t", tool_label="创建报价单", tool_input={}, summary="s")

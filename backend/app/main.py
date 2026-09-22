@@ -11,8 +11,10 @@ from app.auth import client_ip
 from app.models import *  # noqa: ensure all models registered
 from app.routers import products, product_import, categories, suppliers, solutions, quotations, bom_templates, ai, dictionaries, auth_routes, admin_routes, system_settings, product_files, agent
 from app.config import settings
+from app.services.approval_manager import reaper_loop as approval_reaper_loop
 from loguru import logger
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
+import asyncio
 import logging
 import os
 import sys
@@ -88,9 +90,18 @@ if settings.DEV_MODE:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    yield
-    # 关闭 agent 代理复用的连接池（R64：以前每个请求各建一个 client）
-    await agent.close_http_client()
+    # 审批任务的过期回收：原先只在 create() 里顺带做 —— 长时间没有新审批创建的
+    # 实例上，过期任务会一直挂在内存里（R68 审查发现「只在 create 时触发」）。
+    # 起一个后台循环兜住，关闭时取消。
+    reaper = asyncio.create_task(approval_reaper_loop())
+    try:
+        yield
+    finally:
+        reaper.cancel()
+        with suppress(asyncio.CancelledError):
+            await reaper
+        # 关闭 agent 代理复用的连接池（R64：以前每个请求各建一个 client）
+        await agent.close_http_client()
 
 
 app = FastAPI(title="物联网产品中心", version="2.0.0", lifespan=lifespan)
