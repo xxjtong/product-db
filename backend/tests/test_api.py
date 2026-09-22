@@ -2582,8 +2582,10 @@ class TestR56Consistency:
 
         assert _num_or_400(100, "价格", 1) == 100
         assert _num_or_400("1200.5", "价格", 1) == 1200.5
-        assert _num_or_400(None, "价格", 1) == 0.0          # 不填 = 未定价
-        assert _num_or_400("", "成本", 3) == 0.0
+        # R75 改：不填存 NULL（未定价），与「填了 0 元」是两件事
+        assert _num_or_400(None, "价格", 1) is None
+        assert _num_or_400("", "成本", 3) is None
+        assert _num_or_400(0, "价格", 1) == 0.0
         with pytest.raises(FastApiHTTPException) as exc:
             _num_or_400("面议", "价格", 2)
         assert "2 个数据行" in exc.value.detail

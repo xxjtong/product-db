@@ -2,7 +2,41 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-22, R74)
+## 最新变更 (2026-09-22, R75)
+
+### R75: 一档小项收尾（导入价格语义 + 价格区间参数纠偏）(2026-09-22)
+
+R74 收尾时列的「一档还剩 3 项小项」。逐项核实后：两项合并成一次改动，一项**早已消失**。
+
+**① 导入空价格落 0 → 落 NULL**（`product_import._num_or_400`）
+
+`_num_or_400` 原先把空值返回 `0.0`。`products.base_price` / `cost_price` 都是 `nullable=True`
+（`models/product.py`），「表格里没填」与「填了 0 元」是两件事：一律落 0 会让未定价的产品
+看起来是免费的，也让「哪些产品还没定价」这种查询无从下手。
+
+改后：空值 → `None`（未定价），显式 `0` 仍按 0 元入库，非数字仍报 400 并指出行号。
+接口展示层不变（`Product.to_dict` 仍把 `None` 映成 `0`）——前端本来就用真值判断
+（`product.base_price || '—'`、`v-if="p.base_price"`），0 与 NULL 在界面上同样显示「—」，
+故不动 `to_dict`，避免波及排序与报价计算。
+
+**② `min_price > max_price` 传反 → 自动交换**（`ai_tools.execute_tool`）
+
+区间传反在 SQL 层就是「查不到」，模型会据此回答「没有符合的产品」—— 那是**假结论**。
+现在检测到 `min > max` 就交换后再查，并按 `logging.getLogger("uvicorn").info` 记一条，
+方便从日志里发现模型在乱传参数。类型不可转数字时静默放行（交给后面的过滤逻辑）。
+
+**③ `search_products` schema「两处不一致」→ 已消失，不改**
+
+该问题原本指 `agent.py` 的 `AGENT_TOOLS` 与 `ai_tools.TOOL_DEFINITIONS` 各声明了一份
+`search_products`。R74 已因「Hermes 0.21.4 不读请求体 tools」删掉 `AGENT_TOOLS`，
+现在全仓只剩 `ai_tools.py` 一处声明，无需再改。
+
+**测试**：backend **641 passed**（1 skipped）。新增 `tests/test_round12.py` 5 条
+（留空→NULL / 显式 0→0 / 正常价格不变 / 区间传反自动交换后仍命中 / 正常区间仍过滤）；
+`tests/test_api.py::TestR56Consistency::test_num_or_400_reports_row_number` 同步改断言
+（原断言空值 `== 0.0`，属旧语义）。
+
+## 上一版 (2026-09-22, R74)
 
 ### R74: 二档批量清理（schema / 分页 / 唯一性 / 记账 / 死代码）(2026-09-22)
 

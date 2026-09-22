@@ -1,5 +1,6 @@
 """AI tool definitions for product database queries."""
 import json
+import logging
 from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 from app.utils.escape import escape_like, LIKE_ESCAPE
@@ -108,6 +109,16 @@ def execute_tool(tool_name: str, arguments: dict, db, user_id: int = None) -> st
         manufacturer = (arguments.get("brand") or arguments.get("manufacturer") or "").strip()
         min_price = arguments.get("min_price")
         max_price = arguments.get("max_price")
+        # 传反了（min > max）在 SQL 层就是「查不到」，模型会据此回答"没有符合的" ——
+        # 那是个假结论。这里直接交换，并把纠正后的值记进日志，方便发现模型在乱传（R75）
+        try:
+            if min_price is not None and max_price is not None and float(min_price) > float(max_price):
+                logging.getLogger("uvicorn").info(
+                    "search_products: min_price(%s) > max_price(%s)，已自动交换",
+                    min_price, max_price)
+                min_price, max_price = max_price, min_price
+        except (TypeError, ValueError):
+            pass
         sort_by = (arguments.get("sort_by") or "").strip()
         limit = min(int(arguments.get("limit", 10) or 10), 50)
 

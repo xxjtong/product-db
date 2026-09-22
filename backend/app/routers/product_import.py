@@ -1,4 +1,6 @@
 """Product import — Excel preview and confirm."""
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -151,14 +153,18 @@ def import_confirm(data: ProductImportConfirm, db: Session = Depends(get_db), us
     return {"imported": imported, "skipped": skipped}
 
 
-def _num_or_400(value, label: str, row_no: int) -> float:
+def _num_or_400(value, label: str, row_no: int) -> Optional[float]:
     """把表格里的价格/成本转成数字；无效值报错并指出行号（R56）。
 
     早前是裸 `float(...)`：一格填成「1,200」「面议」「¥500」会让整批导入 500，
-    且看不出是哪一行。空值仍按 0 处理（不填=未定价）。
+    且看不出是哪一行。
+
+    **空值返回 None 而不是 0**（R75）：`products.base_price` 是可空列，「表格里没填」
+    与「填了 0 元」是两件事 —— 一律落 0 会让未定价的产品看起来是免费的，也让
+    「哪些产品还没定价」这种查询无从下手。数值本身仍按 0 元正常入库。
     """
-    if value is None or value == "":
-        return 0.0
+    if value is None or str(value).strip() == "":
+        return None
     try:
         return float(value)
     except (TypeError, ValueError):
