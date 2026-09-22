@@ -2,7 +2,45 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-21, R57)
+## 最新变更 (2026-09-22, R58)
+
+### R58: Agent 页自动生成快捷答复按钮（+ 确认流式本来就是 SSE）(2026-09-22)
+
+**先纠正一个前提**：`/agent` 的输出**已经是 SSE**，不需要改造 —— 后端
+`POST /agent/chat` 就是 `StreamingResponse(media_type="text/event-stream")` 逐行透传 Hermes，
+响应头带 `X-Accel-Buffering: no`（绕开 nginx 缓冲）；前端 `fetch` + `reader.read()`
+增量渲染。实测经 nginx 全链路 **TTFB 0.08s / 总耗时 1.08s**，确实是逐块到达。
+「看着不像流式」的真实原因通常是：Hermes 在工具调用期间不吐字；或命中
+`approval_required` 时前端主动退出流等审批。
+
+**新增：模型生成的快捷追问**
+
+- 后端 `POST /agent/suggestions`：取最近 6 轮（单条截断 800 字）→ 要模型给 3 条追问 →
+  正则抠第一段 `[...]` 解析 → 最多 3 条、每条 ≤30 字
+- 前端：回复结束后异步请求（不阻塞对话），渲染在最下方；请求序号 + abort 双保险，
+  期间发新消息/切会话就丢弃在途结果；只在最新一条回复下显示，不写 localStorage
+- **任何失败都返回空数组**：模型不可用、超时（20s）、垃圾格式、没配 key → 只是不出按钮，
+  不弹错、不影响主对话。解析失败时**绝不把原文透给用户**（避免 DSML 式标记泄露重演）
+- token 记账复用 `_log_agent_usage`（加 `operation` 参数，记为 `agent_suggestions`）
+
+**成本取舍（本轮最重要的一条）**：一开始让 Hermes 生成，实测 `prompt_tokens = 15,810`
+—— 那是 Hermes 自带的 agent 系统提示词，我们那点内容不到 100 token。为 3 个按钮把每轮
+输入成本翻倍，不划算。改用**本项目自己的 DeepSeek 引擎**（`AI_GATEWAY_KEY` 已在用）：
+
+| 方案 | prompt_tokens | 耗时 | 输出 |
+|------|---------------|------|------|
+| Hermes | 15,810 | 2.7s | `["对比这三款参数","生成报价单","按推荐的选一款"]` |
+| DeepSeek 直连 | 122 | 0.7s | `["对比这几款参数","推荐性价比最高","支持多少频段"]` |
+
+**测试**：backend **525 passed**（+13：解析容错 7 例 + 生成/异常/超时/无 key/空输入）。
+线上实测：`POST /agent/suggestions` 经 nginx **0.82s** 返回 3 条，`ai_usage_logs`
+记到 `agent_suggestions|deepseek-flash|122|14|1`；浏览器实操确认按钮出现在回复下方、
+点击即发、每轮刷新、console 无报错。
+
+> **注意**：`agent_suggestions` 只依赖 `AI_GATEWAY_KEY`，与 `HERMES_API_KEY` 无关 ——
+> 只配了 Hermes 没配 DeepSeek 的部署，这个功能会静默不出按钮（日志有 INFO 提示）。
+
+## 历史变更 (2026-09-21, R57)
 
 ### R57: 外键治理 —— 先补齐 ON DELETE，再开启强制 (2026-09-21)
 
@@ -1854,7 +1892,7 @@ E2E 新增 17 测试 (`error-scenarios.spec.ts`):
 | XSS | DOMPurify (所有 v-html 已清洗) |
 | SSRF | validate_url() + 手动重定向验证 |
 | Logging | loguru (structured + rotation) |
-| Testing | pytest 514 collected（513 passed + 1 skipped）+ vitest 78 tests + Playwright 96 tests |
+| Testing | pytest 526 collected（525 passed + 1 skipped）+ vitest 78 tests + Playwright 96 tests |
 | Deployment | systemd + nginx + rsync（`deploy/` 下备份/探针/就绪门控脚本；`docker-compose.yml` 是早期实验、**非生产路径**） |
 
 ## 开发命令
@@ -1930,7 +1968,7 @@ backend/app/
 │   ├── helpers.py       # apply_partial_update
 │   └── escape.py        # SQL LIKE 转义
 ├── schemas/             # Pydantic 请求/响应模型
-└── tests/               # pytest 514 collected（513 passed + 1 skipped）；conftest.py 统一建/删测试库
+└── tests/               # pytest 526 collected（525 passed + 1 skipped）；conftest.py 统一建/删测试库
 
 frontend/src/
 ├── App.vue              # 主布局 (暗侧边栏 + 全局搜索 + toast + 用户菜单)
