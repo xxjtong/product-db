@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     IP2REGION_XDB: str = "data/ip2region_v4.xdb"
     LOGIN_RATE_LIMIT: int = 10  # max failed attempts per window
     LOGIN_RATE_WINDOW: int = 300  # window in seconds
+    # 注册限流（按 IP 的**尝试**次数，不分成败）：挡的是批量注册账号 / 用户名枚举。
+    # 正常用户一小时内不会注册 5 次，所以额度给小一点不影响使用。
+    REGISTER_RATE_LIMIT: int = 5
+    REGISTER_RATE_WINDOW: int = 3600
     # 可信反向代理列表：只有直连对端是这些地址时，才采信 X-Forwarded-For /
     # X-Real-IP。否则客户端自带一个 XFF 就能改变限流 key（绕过全局限流与登录
     # 爆破限流）并污染 login_logs 的 IP/地区审计。默认是本机 nginx。

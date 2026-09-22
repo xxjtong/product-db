@@ -1,5 +1,6 @@
 """AI Product Assistant — SSE chat with direct LLM + tool calling + conversation persistence."""
 from __future__ import annotations
+import asyncio
 import json
 import logging
 import re
@@ -26,6 +27,10 @@ from app.schemas.ai import AiChatRequest
 router = APIRouter()
 
 MAX_CONTEXT = 20  # max messages to include in context
+
+# 本轮回答没能写完时补的占位回复（见 ai_chat 的 generate）：保证 user/assistant 成对，
+# 占用极小但明确 —— 下次接着聊时不会出现两条连续 user 让模型答非所问。
+_INTERRUPTED_REPLY = "[回复中断] 本轮回答未完成，请重新提问。"
 
 
 def _get_ai_setting(db: Session, key: str, default: str) -> str:
@@ -810,22 +815,41 @@ async def ai_chat(data: AiChatRequest, db: Session = Depends(get_db), user=Depen
         start_time = time.time()
         tokens = {"in": 0, "out": 0}
         success = True
+        replied = False  # run_agent 是否已把 assistant 回复写进库
         try:
             async for event in run_agent(messages, sse_db, cid, user_id=uid):
                 event["conversation_id"] = cid
                 if event.get("event") == "done" and event.get("tokens"):
                     tokens = event["tokens"]
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            replied = True
             # Update conversation timestamp
             sse_conv = sse_db.get(AIConversation, cid)
             if sse_conv:
                 sse_conv.updated_at = datetime.now(timezone.utc)
                 sse_db.commit()
+        except asyncio.CancelledError:
+            # 客户端断开（关页面/切走）会取消生成器，run_agent 写不到 assistant。
+            # 交给 finally 补占位并记失败，然后原样抛出（生命周期由 ASGI 处理）。
+            success = False
+            raise
         except Exception as e:
             success = False
             logging.getLogger("uvicorn").error(f"AI chat error: {e}", exc_info=True)
             yield f"data: {json.dumps({'event': 'error', 'text': 'AI 服务暂时不可用，请稍后重试'}, ensure_ascii=False)}\n\n"
         finally:
+            # user 消息在生成器启动前就已落库，若 assistant 最终没写成，历史里会留下
+            # 一条没有回复的孤立 user 消息：下次接话时上下文变成两条连续 user
+            # （模型容易答非所问），界面上看也像「回复凭空丢了」。这里补占位保证成对。
+            if not replied:
+                try:
+                    save_message(cid, "assistant", content=_INTERRUPTED_REPLY,
+                                 db=sse_db, commit=False)
+                    sse_db.commit()
+                except Exception as e:
+                    sse_db.rollback()
+                    logging.getLogger("uvicorn").warning(
+                        "写入中断占位回复失败 conv=%s: %s", cid, e)
             # Persist usage log via SQLAlchemy session (before close)
             duration = int((time.time() - start_time) * 1000)
             try:

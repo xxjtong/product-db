@@ -53,6 +53,9 @@ def list_users(search: str = "", db: Session = Depends(get_db), user=Depends(get
 def create_user(data: CreateUserRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(403, "Admin only")
+    # 密码下限与 register / reset_user_password 保持一致（此前 admin 这条路可以不设限）
+    if len(data.password) < 8:
+        raise HTTPException(400, "密码至少8位")
     if db.query(User).filter_by(username=data.username).first():
         raise HTTPException(400, "用户名已存在")
     u = User(username=data.username, password_hash=hash_password(data.password),
@@ -78,6 +81,9 @@ def update_user(uid: int, data: UpdateUserRequest, db: Session = Depends(get_db)
     if "can_view_cost" in data.model_fields_set:
         u.can_view_cost = data.can_view_cost
     if data.password:
+        # 与 register / reset_user_password 同一口径：太短的密码不该从这条路溜进来
+        if len(data.password) < 8:
+            raise HTTPException(400, "密码至少8位")
         u.password_hash = hash_password(data.password)
         # 同 reset_user_password：改密后旧 token 立即作废
         u.token_version = (u.token_version or 0) + 1

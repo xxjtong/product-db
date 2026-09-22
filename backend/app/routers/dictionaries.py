@@ -6,6 +6,7 @@ from app.utils.helpers import get_or_404, apply_partial_update
 from app.models.dictionary import (Manufacturer, DictCommMethod, DictCommProtocol,
                                    DictPowerSupply, DictSensorMetric)
 from app.auth import get_current_user, filter_by_ownership, check_ownership, require_admin
+from app.services.product_helpers import assert_dict_not_referenced
 from app.schemas.dictionary import (ManufacturerCreate, ManufacturerUpdate,
     CommMethodCreate, CommMethodUpdate, CommProtocolCreate, CommProtocolUpdate,
     PowerSupplyCreate, PowerSupplyUpdate, SensorMetricCreate, SensorMetricUpdate)
@@ -51,6 +52,7 @@ def update_manufacturer(mfg_id: int, data: ManufacturerUpdate, db: Session = Dep
 def delete_manufacturer(mfg_id: int, db: Session = Depends(get_db), user=Depends(require_admin)):
     m = get_or_404(db, Manufacturer, mfg_id)
     check_ownership(m, user)
+    assert_dict_not_referenced(db, Manufacturer, mfg_id, "厂商")
     db.delete(m)
     db.commit()
     return {"ok": True}
@@ -131,6 +133,7 @@ def update_comm_method(item_id: int, data: CommMethodUpdate, db: Session = Depen
 def delete_comm_method(item_id: int, db: Session = Depends(get_db), user=Depends(require_admin)):
     item = get_or_404(db, DictCommMethod, item_id, "Not found")
     check_ownership(item, user)
+    assert_dict_not_referenced(db, DictCommMethod, item_id, "通讯方式")
     db.delete(item); db.commit()
     return {"ok": True}
 
@@ -151,6 +154,7 @@ def update_comm_protocol(item_id: int, data: CommProtocolUpdate, db: Session = D
 def delete_comm_protocol(item_id: int, db: Session = Depends(get_db), user=Depends(require_admin)):
     item = get_or_404(db, DictCommProtocol, item_id, "Not found")
     check_ownership(item, user)
+    assert_dict_not_referenced(db, DictCommProtocol, item_id, "通讯协议")
     db.delete(item); db.commit()
     return {"ok": True}
 
@@ -171,6 +175,7 @@ def update_power_supply(item_id: int, data: PowerSupplyUpdate, db: Session = Dep
 def delete_power_supply(item_id: int, db: Session = Depends(get_db), user=Depends(require_admin)):
     item = get_or_404(db, DictPowerSupply, item_id, "Not found")
     check_ownership(item, user)
+    assert_dict_not_referenced(db, DictPowerSupply, item_id, "供电方式")
     db.delete(item); db.commit()
     return {"ok": True}
 
@@ -191,5 +196,6 @@ def update_sensor_metric(item_id: int, data: SensorMetricUpdate, db: Session = D
 def delete_sensor_metric(item_id: int, db: Session = Depends(get_db), user=Depends(require_admin)):
     item = get_or_404(db, DictSensorMetric, item_id, "Not found")
     check_ownership(item, user)
+    assert_dict_not_referenced(db, DictSensorMetric, item_id, "传感指标")
     db.delete(item); db.commit()
     return {"ok": True}

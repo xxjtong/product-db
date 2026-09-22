@@ -22,6 +22,44 @@ def build_pinyin(text: str) -> str:
     return "".join(lazy_pinyin(text)).lower()
 
 
+def assert_dict_not_referenced(db: Session, model, item_id: int, label: str) -> None:
+    """删除字典项/供应商之前，检查是否仍被产品数据引用；有引用则抛 409。
+
+    必须先查：这些引用多半是 `ON DELETE CASCADE`（产品映射表），直接删会**静默**
+    删掉产品的通讯方式/协议/供电/传感指标 —— 产品行看着没动，明细却少了一条；
+    厂商/供应商则是 `SET NULL`，会把产品的归属静默清空。两者都不该在无提示下发生。
+    """
+    from fastapi import HTTPException
+    from app.models.dictionary import (Manufacturer, DictCommMethod, DictCommProtocol,
+                                       DictPowerSupply, DictSensorMetric)
+
+    if model is Manufacturer:
+        count = db.query(Product).filter(Product.manufacturer_id == item_id).count()
+        detail = "产品归属"
+    elif model is Supplier:
+        count = db.query(Product).filter(Product.supplier_id == item_id).count()
+        detail = "产品归属"
+    elif model is DictCommMethod:
+        count = db.query(ProductCommMethod).filter_by(method_id=item_id).count()
+        detail = "产品通讯方式"
+    elif model is DictCommProtocol:
+        count = db.query(ProductCommProtocol).filter_by(protocol_id=item_id).count()
+        detail = "产品通讯协议"
+    elif model is DictPowerSupply:
+        count = db.query(ProductPowerSupply).filter_by(power_id=item_id).count()
+        detail = "产品供电方式"
+    elif model is DictSensorMetric:
+        count = db.query(ProductSensorCapability).filter_by(metric_id=item_id).count()
+        detail = "产品传感指标"
+    else:
+        return
+
+    if count:
+        raise HTTPException(
+            409, f"该{label}已被 {count} 条{detail}引用，请先从产品上解除引用再删除",
+        )
+
+
 def get_name_maps(db: Session):
     """Return (category_map, mfg_map, supplier_map) with 30s TTL cache."""
     import time as _time

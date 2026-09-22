@@ -481,12 +481,14 @@ def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(g
         "supplier_id", "unit", "base_price", "cost_price", "description", "image_url",
         "product_url", "status", "parent_id"])
 
-    if data.specs:
-        p.specs = data.specs
-    if data.urls:
-        p.urls = data.urls
-    if data.custom_fields:
-        p.custom_fields = data.custom_fields
+    # JSON 类字段用 model_fields_set 判定「是否显式传了」：原来写 `if data.specs:`
+    # 是真值判断，传空 dict 会被当成「没传」，于是这些字段只能改、不能清空。
+    if "specs" in data.model_fields_set:
+        p.specs = data.specs or {}
+    if "urls" in data.model_fields_set:
+        p.urls = data.urls or {}
+    if "custom_fields" in data.model_fields_set:
+        p.custom_fields = data.custom_fields or {}
 
     p.pinyin_search = build_pinyin(f"{p.name} {p.model or ''}")
     p.updated_at = datetime.now(timezone.utc)

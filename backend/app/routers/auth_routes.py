@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.auth import hash_password, verify_password, create_token, get_current_user, client_ip
+from app.services import rate_limit
 from app.models.user import User
 from app.models.login_log import LoginLog
 from app.schemas.auth import (
@@ -148,16 +149,11 @@ def _lookup_ip_region(ip: str) -> str:
 
 
 def _check_rate_limit(ip: str, db: Session) -> bool:
-    """Return True if rate limit exceeded."""
-    from datetime import timedelta
-    from app.models.login_log import LoginLog
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=settings.LOGIN_RATE_WINDOW)
-    count = db.query(LoginLog).filter(
-        LoginLog.ip_address == ip,
-        LoginLog.success == False,
-        LoginLog.created_at >= cutoff,
-    ).count()
-    return count >= settings.LOGIN_RATE_LIMIT
+    """该 IP 的登录失败次数是否已达上限（实现见 services/rate_limit）。"""
+    from app.services import rate_limit
+    return rate_limit.is_rate_limited(
+        db, ip, limit=settings.LOGIN_RATE_LIMIT, window=settings.LOGIN_RATE_WINDOW,
+    )
 
 
 @router.post("/auth/login", response_model=TokenResponse)
@@ -166,15 +162,18 @@ def login(data: LoginRequest, request: Request, db: Session = Depends(get_db)):
     if _check_rate_limit(ip, db):
         raise HTTPException(429, "登录尝试过于频繁，请稍后再试")
     user = db.query(User).filter_by(username=data.username).first()
+    user_agent = request.headers.get("User-Agent", "")
 
     if not user or not verify_password(data.password, user.password_hash):
-        db.add(LoginLog(user_id=None, ip_address=ip, success=False,
-                        user_agent=request.headers.get("User-Agent", ""),
-                        region=_lookup_ip_region(ip)))
-        db.commit()
+        rate_limit.record_failure(db, ip=ip, user_agent=user_agent,
+                                  region=_lookup_ip_region(ip))
         raise HTTPException(401, "用户名或密码错误")
 
     if not user.is_active:
+        # 禁用账户的登录尝试也要落审计并计入失败计数：此前直接 403 不写 login_logs，
+        # 导致审计链断裂 —— 管理员既看不到有人在反复尝试已禁用的账户，限流也数不到。
+        rate_limit.record_failure(db, ip=ip, user_id=user.id, user_agent=user_agent,
+                                  region=_lookup_ip_region(ip))
         raise HTTPException(403, "账户已被禁用")
 
     # Auto-upgrade legacy SHA256 hash to bcrypt
@@ -183,7 +182,7 @@ def login(data: LoginRequest, request: Request, db: Session = Depends(get_db)):
 
     region = _lookup_ip_region(ip)
     db.add(LoginLog(user_id=user.id, ip_address=ip, region=region, success=True,
-                    user_agent=request.headers.get("User-Agent", "")))
+                    user_agent=user_agent))
     user.last_login = datetime.now(timezone.utc)
     db.commit()
 
@@ -239,6 +238,13 @@ def registration_status(db: Session = Depends(get_db)):
 @router.post("/auth/register")
 def register(data: RegistrationRequest, request: Request, db: Session = Depends(get_db)):
     from app.models.system_setting import SystemSetting
+    ip = client_ip(request)
+    # 注册是匿名可达的写接口：按 IP 限制**尝试**次数（不分成败），挡批量注册与用户名枚举。
+    # 不能塞进 login_logs 计数 —— 那张表是登录审计，且与登录失败共用一个桶会误伤正常登录。
+    if rate_limit.check_and_hit(f"register:{ip}",
+                                limit=settings.REGISTER_RATE_LIMIT,
+                                window=settings.REGISTER_RATE_WINDOW):
+        raise HTTPException(429, "注册尝试过于频繁，请稍后再试")
     s = db.query(SystemSetting).filter_by(key="registration_open").first()
     if not s or s.value != "true":
         raise HTTPException(403, "注册功能未开放")
@@ -253,11 +259,9 @@ def register(data: RegistrationRequest, request: Request, db: Session = Depends(
     db.add(u)
     db.commit()
     db.refresh(u)
-    ip = client_ip(request)
-    db.add(LoginLog(user_id=u.id, ip_address=ip, success=True,
-                    user_agent=request.headers.get("User-Agent", ""),
-                    region=_lookup_ip_region(ip)))
-    db.commit()
+    # 注册成功**不写 login_logs**：那张表是登录审计（登录成功/失败），注册既不是登录
+    # 也不是登录失败。此前记一条 success=True，既污染审计口径，又让人误以为注册在
+    # 「登录失败计数」里被算过——实际它反而绕过了登录限流。
     token = create_token(u.id, u.username, u.token_version)
     return {"token": token, "user": u.to_dict()}
 

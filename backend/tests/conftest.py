@@ -5,6 +5,7 @@
 会让 app.database 绑定到真实库。所有 app 相关导入一律放进函数内部（延迟导入）。
 """
 from sqlalchemy import text
+import pytest
 
 # 非 ORM 表：product_categories 靠裸 SQL 建，不在 Base.metadata 里。
 # FK 必须指向 device_categories（品类表的真实表名）。老夹具写的是 REFERENCES categories(id)
@@ -45,3 +46,17 @@ def drop_test_schema():
         conn.execute(text("DROP TABLE IF EXISTS product_categories"))
         conn.commit()
     Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture(autouse=True)
+def _reset_memory_rate_limit():
+    """清掉进程内限流计数（services/rate_limit 的原语二）。
+
+    内存计数**不随测试库重建而清零**，而所有用例的客户端 IP 都是同一个
+    "testclient" —— 不清就会跨用例串扰（前一个用例用满额度，后一个第一条就被 429）。
+    """
+    from app.services import rate_limit
+
+    rate_limit.reset()
+    yield
+    rate_limit.reset()

@@ -4,6 +4,7 @@ from app.database import get_db
 from app.utils.helpers import get_or_404
 from app.models.supplier import Supplier
 from app.auth import get_current_user, filter_by_ownership, check_ownership, require_admin
+from app.services.product_helpers import assert_dict_not_referenced
 from app.utils.escape import escape_like, LIKE_ESCAPE
 from app.utils.helpers import apply_partial_update
 from app.schemas.supplier import SupplierCreate, SupplierUpdate
@@ -68,6 +69,8 @@ def update_supplier(supplier_id: int, data: SupplierUpdate, db: Session = Depend
 def delete_supplier(supplier_id: int, db: Session = Depends(get_db), user=Depends(require_admin)):
     s = get_or_404(db, Supplier, supplier_id, "Supplier not found")
     check_ownership(s, user)
+    # products.supplier_id 是 ON DELETE SET NULL：直接删会把产品的供应商静默清空
+    assert_dict_not_referenced(db, Supplier, supplier_id, "供应商")
     db.delete(s)
     db.commit()
     return {"ok": True}
