@@ -25,6 +25,7 @@ export function useFileDrop(onFileAdded?: (file: File) => void) {
   const attachedFiles = ref<FileAttachment[]>([])
   const dragOver = ref(false)
   const imagePreview = ref('')
+  let pasteSeq = 0   // 粘贴图片的命名序号
 
   function addFile(file: File) {
     // 同一个文件只挂一次：双击上传按钮、change 与 drop 同时触发、或先后选中同一个文件，
@@ -82,7 +83,10 @@ export function useFileDrop(onFileAdded?: (file: File) => void) {
         e.preventDefault()
         const blob = item.getAsFile()
         if (!blob) continue
-        addFile(new File([blob], 'paste.' + (item.type.split('/')[1] || 'png'), { type: item.type }))
+        // 每张粘贴图片给个递增名字：都叫 paste.png 时 chip 难分辨，
+        // 而且同名同尺寸会被上面的去重规则误判成重复
+        const ext = item.type.split('/')[1] || 'png'
+        addFile(new File([blob], `paste-${++pasteSeq}.${ext}`, { type: item.type }))
         break
       }
     }
