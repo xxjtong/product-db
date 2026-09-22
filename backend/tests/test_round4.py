@@ -1229,6 +1229,48 @@ class TestAgentQuickReplies:
 
 
 # ============================================================
+# 提示词口径统一 —— R67
+# ============================================================
+class TestPromptFocus:
+    """四个提示词统一口径：圈定业务 → 越界一句话拒绝 → 必须查数据不猜 → 直给结论。
+    R67 梳理并落库；这组用例守住口径不被后续编辑改回去。"""
+
+    KEYS = ("ai_system_prompt", "ai_keyword_prompt", "ai_extract_prompt", "agent_prompt")
+
+    def test_every_prompt_scopes_the_business(self):
+        from app.routers.admin_routes import _PROMPT_DEFAULTS
+        for k in self.KEYS:
+            p = _PROMPT_DEFAULTS[k]
+            assert "产品" in p, k
+            assert any(w in p for w in ("无关", "只处理", "只解析", "只服务")), k
+
+    def test_ai_prompts_require_grounding_and_no_filler(self):
+        from app.routers.admin_routes import _PROMPT_DEFAULTS
+        s = _PROMPT_DEFAULTS["ai_system_prompt"]
+        for phrase in ("不猜测", "不编造", "不复述问题", "不寒暄", "不提工具名称"):
+            assert phrase in s, phrase
+        e = _PROMPT_DEFAULTS["ai_extract_prompt"]
+        assert "不要编造" in e and "不要解释" in e
+        k = _PROMPT_DEFAULTS["ai_keyword_prompt"]
+        assert "禁止编造" in k and "只返回 JSON" in k
+
+    def test_agent_prompt_efficiency_rules(self):
+        from app.routers.admin_routes import _PROMPT_DEFAULTS
+        a = _PROMPT_DEFAULTS["agent_prompt"]
+        assert "直给结论" in a
+        assert "最多问一个问题" in a
+        assert "不要凭记忆回答" in a
+
+    def test_keyword_prompt_has_no_third_copy(self):
+        """ai.py 的兜底必须与共享默认值同源（此前那里藏着第三份独立文案）。"""
+        import inspect
+        from app.routers import ai as ai_mod
+        src = inspect.getsource(ai_mod)
+        assert '_PROMPT_DEFAULTS["ai_keyword_prompt"]' in src
+        assert "你是一个产品数据库搜索助手" not in src
+
+
+# ============================================================
 # Agent: 提示词里挡住「输出非本用户的记忆」—— R66
 # ============================================================
 class TestAgentPromptMemoryFence:

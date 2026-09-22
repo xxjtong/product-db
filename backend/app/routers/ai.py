@@ -475,35 +475,9 @@ async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = No
         db_ctx = _build_db_context(db)
 
         kw_model = _get_ai_setting(db, "ai_keyword_model", "deepseek-chat")
-        kw_prompt = _get_ai_setting(db, "ai_keyword_prompt",
-            "【范围】只解析 IoT/设施管理产品相关的查询；与产品无关的输入（闲聊、写作、通用问题）一律返回空结果 keywords=[]、matches={}，不要联想扩展。\n"
-            "你是一个产品数据库搜索助手。完成两个任务：\n"
-            "1. 提取搜索关键词（最多4个）\n"
-            "2. 从产品列表中为每个关键词匹配最合适的产品（返回产品ID）\n\n"
-            "【核心规则】\n"
-            "查看数据库中的产品名称/型号/描述/品类标签，提取真实存在的关键词。\n"
-            "category字段: 仅当用户明确说出品类名时才填，不要从产品名推测。\n"
-            "重要：提取用户实际描述的产品关键词（最多4个），不要自己凭空扩展场景。\n\n"
-            "【产品匹配规则 — 按优先级】\n"
-            "1. 优先返回产品名称/型号中包含关键词的产品（精确匹配）\n"
-            "2. 其次返回品类标签匹配的产品\n"
-            "3. 最后才考虑仅在描述中提到关键词的产品\n"
-            "关键区分：用户搜\"网关\"要的是网关设备（如室内型基站网关、室外型基站网关），而不是描述里提到\"兼容网关\"的其他品类产品（如开关面板、传感器）\n"
-            "多关键词组合搜索（如\"lorawan网关\"→拆为lorawan+网关）：优先返回同时满足所有关键词的产品\n"
-            "- 每个关键词最多匹配10个产品，按匹配度排序\n"
-            "- 只返回产品列表中真实存在的 [ID:xxx] 编号\n"
-            "- 未找到匹配则返回空数组 []\n\n"
-            "【JSON字段】\n"
-            "- keywords: string[] — 产品关键词(最多4个)\n"
-            "- matches: object — 每个关键词对应的匹配产品ID数组\n"
-            "- brand: string|null — 品牌/厂商名(必须在数据库厂商列表中找到)\n"
-            "- category: string|null — 品类名(仅用户明确说出时填)\n"
-            "- comm_method: string|null — 通讯方式\n"
-            "- protocol: string|null — 协议\n"
-            "- power: string|null — 供电方式\n"
-            "- min_price: number|null, max_price: number|null — 价格区间\n"
-            "- sort_by: \"price_asc\"|\"price_desc\"|null\n\n"
-            "只返回JSON，无其他内容。")
+        # 兜底用共享默认值：此前这里藏了**第三份**独立文案，与 _PROMPT_DEFAULTS 那份不一致，
+        # 一旦库里没这行就会用上过时版本（R67 统一）
+        kw_prompt = _get_ai_setting(db, "ai_keyword_prompt", _PROMPT_DEFAULTS["ai_keyword_prompt"])
         kw_system = f"{kw_prompt}\n\n{db_ctx}"
         extract_prompt = [
             {"role": "system", "content": kw_system},
