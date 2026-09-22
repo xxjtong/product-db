@@ -2,7 +2,48 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-22, R72)
+## 最新变更 (2026-09-22, R73)
+
+### R73: 审批状态机收尾 + `/ai/chat` 上下文分档（首轮全量、之后精简）(2026-09-22)
+
+**① 审批等待不再占用线程**（`approval_manager.wait_for_decision`）
+
+原实现 `await loop.run_in_executor(None, task.event.wait, TIMEOUT_SECONDS)` —— 默认线程池里
+一个线程被占住直到超时；协程被取消（客户端断开）**并不会取消那个线程**（ThreadPoolExecutor
+无法取消已提交任务）。实测：取消后 `threading.active_count()` +1，高频断线会把线程池占满。
+
+改为 `asyncio.Event` + `asyncio.wait_for`：协程可取消，断开即释放。
+配套三点：
+- 新增**竞态保护**：`create → decide → wait` 这个极短窗口内 `task.result` 已存在时直接取结果，否则会为一个已 set 的事件傻等到超时
+- `get_pending` 改用 `result is None` 判断（不再依赖 `threading.Event.is_set`），`threading` 依赖整体移除
+- 保留 R64 的语义：取消时标 `detached` 而不是清任务（否则界面上的待审批凭空消失、再点授权会 404）
+
+**② 过期审批后台回收**（`reaper_loop`）
+
+原先只在 `create()` 里顺带跑一次 `evict_stale()` —— **长时间没有新审批创建的实例上，过期任务会一直挂在内存里**。
+现在 `main.py` 的 lifespan 起一个后台循环（60s 一轮，关闭时 cancel），单轮异常只记日志、不让循环退出。
+
+**③ `/ai/chat` 的 DB 上下文分档**（问题 3）
+
+`_build_db_context` 原先**每轮**都把全部 396 个产品的描述+specs 塞进关键词提取（Round 0）的
+system prompt —— 实测单轮 input 达 **51.7k tokens**（R67 记录，今天复测 52,662）。
+
+改为两档：
+
+| 档 | 何时用 | 内容 |
+|---|---|---|
+| `full=True` | **本会话首轮** | 词表 + 全部产品 `[ID]` 名称/型号/描述/specs（冷启动选型：模型直接把用户需求对上产品 ID） |
+| `full=False` | 之后各轮 | 只有词表（品类/厂商/通讯方式/协议/供电/传感指标）+ 提示「需要具体产品请调用 search_products」 |
+
+- 判断依据：`history = get_messages_for_context(conv.id, db)`，为空即首轮
+- 两档**分开缓存**（同一函数属性缓存会串档）
+- 后续轮的产品由 `search_products` 工具（SQL 检索）给出，而不是每轮重发整库
+
+**测试**：backend **623 passed**（1 skipped）。新增 `tests/test_round9.py` 7 条（取消不留线程 /
+决策唤醒 / 决策早于等待 / reaper 回收 / reaper 抗异常 / pending 过滤）+ `tests/test_round10.py`
+5 条（全量档含产品、精简档不含、缓存不串档、精简确实更小、首轮 True 次轮 False）。
+
+## 上一版 (2026-09-22, R72)
 
 ### R72: 生产→本机数据同步 + 每日备份纳入 uploads (2026-09-22)
 
