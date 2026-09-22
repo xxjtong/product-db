@@ -189,6 +189,17 @@ ssh -p 28793 tong@124.221.178.161 \
 
 修改后：`sudo nginx -t && sudo systemctl reload nginx`
 
+### Agent SSE 的专用 location（R64）
+
+`/product-db/api/agent/` 单独一个 location，其余走通用的 `/product-db/`：
+
+| 指令 | 为什么 |
+|------|--------|
+| `proxy_buffering off` | SSE 必须即时下发。后端也回了 `X-Accel-Buffering: no`（nginx 据此关掉该响应的缓冲并把该头吞掉），这里显式再关一次做兜底 |
+| `proxy_read_timeout 300s` | 对齐后端 `HERMES_TIMEOUT=300s`。默认只有 60s，长时间工具执行期间一个字节都不下发时会把连接掐断 |
+| `proxy_http_version 1.1` + `Connection ""` | 打开到上游的 keepalive |
+| 不加 `proxy_intercept_errors` | SSE 出错要让上游错误原样返回，而不是被换成 HTML 维护页（对 `text/event-stream` 客户端等于收到一坨解析不了的东西） |
+
 ## systemd 配置
 
 ### 主服务 `product-db.service`
@@ -336,7 +347,9 @@ for ip, c in sqlite3.connect('product_db.db').execute('SELECT ip_address, COUNT(
   - ⚠️ 早先本节写的是 `/opt/product-db/app.log`，**那是错的**：日志路径原本是相对路径 `"app.log"`，落点取决于进程 CWD。历史上 CWD 变过，日志因此散落在项目根、`backend/`、`frontend/` 三处，且残留文件是 644（world-readable）。
   - 2026-09 已改为基于 `backend/` 的绝对路径（`backend/app/main.py` 的 `LOG_FILE`），此后只有 `backend/app.log` 会更新。旧位置的文件是历史残留，不会被 loguru 的 retention 接管，可手工删除。
 - **systemd 日志**: `journalctl -u product-db -f`
-  - ⚠️ 后端代码里用 stdlib `logging.getLogger(...)` 的地方（**23 处 / 10 个文件**，含登录地区查询、AI、报价单等）记录**只在这里**，不进 `app.log`：loguru 只接管自己的 logger。排查这类代码的告警时只看 `app.log` 会误判为「没有日志」。
+  - 后端代码里用 stdlib `logging.getLogger(...)` 的地方（**23 处 / 10 个文件**，含登录地区查询、AI、报价单等）原先**只在这里**（loguru 只接管自己的 logger），INFO 级甚至什么都不输出 —— 排查时只看 `app.log` 会误判为「没有日志」。
+  - **2026-09-22（R64）起已桥接**：`main.py` 的 `_LoguruBridge` 挂在 `app` 父 logger 上，`app.*` 的 stdlib 日志（含 INFO）都会同时进 `app.log`；uvicorn 自己的访问日志不受影响（logger 名是 `uvicorn.*`，不冒泡到这里）。
+  - 该桥接是靠 logger 名 `app` 生效的：**新模块请放在 `app.` 包下并沿用 `logging.getLogger(__name__)`**，否则不会进 `app.log`。
     （统计口径：`grep -rho 'logging.getLogger' backend/app --include='*.py' | wc -l`）
 - **Nginx 日志**: `/var/log/nginx/access.log`, `/var/log/nginx/error.log`
 - **备份日志**: `/opt/product-db-backups/db/backup.log`（每日备份脚本写入，超过 1MB 自动截断）

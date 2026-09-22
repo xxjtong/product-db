@@ -2,7 +2,60 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-22, R63)
+## 最新变更 (2026-09-22, R64)
+
+### R64: SSE 出口加固（三处静默失效）+ stdlib 日志接入 loguru (2026-09-22)
+
+**起因**：复核「后端 SSE 输出是否已生效、有无优化项」。
+
+**结论：SSE 一直是生效的** —— 线上实测（走零 LLM 成本的「测试审批」钩子）：
+
+| 证据 | 实测值 |
+|------|--------|
+| `Content-Type` | `text/event-stream; charset=utf-8` |
+| `Transfer-Encoding` | `chunked`（不是 Content-Length 整体缓冲） |
+| 首个事件到达 | **164ms** —— nginx 没攒着（后端 `X-Accel-Buffering: no`，nginx 会吞掉该头） |
+| 4s 超时中断 | 只收到 377 字节，流一直开着 |
+| gzip | 全局 `gzip on`，但 `gzip_types` 是注释状态（默认只压 `text/html`）→ SSE 不被压缩 ✓ |
+
+**修掉的三处静默失效**
+
+1. **客户端能关掉流式**：`stream` 原先跟着客户端传下来的值走。本地实测（stub 非 SSE 响应）
+   `_relay_hermes_sse` 把整段 JSON 原样透传，输出里 `data: ` 前缀行数为 **0** → 前端一行都
+   解析不到，气泡永远空白且等不到 `[DONE]`。改为**服务端固定 `stream=True`**（`AgentChatRequest`
+   不再收这个字段，与 R60 的 model 同理；多传不会 422 —— pydantic 默认忽略未知字段），
+   并且上游 `content-type` 不含 `text/event-stream` 时直接回 error 事件，不再把 JSON 当 SSE 行透传。
+2. **中断被记成「成功 + 0 token」**：`_stream_with_usage` 的 `except Exception` 抓不到
+   `CancelledError`（BaseException）→ 记 `success=True`；而 Hermes 的 usage 块在流末尾，
+   用户点「停止」时通常还没到，于是账面上「成功但没有 token」，真实成本被记没。
+   改为 `success=False` 并把原因写进 `error` 字段（本地实测中断/上游异常/正常三条路径）。
+3. **客户端一断，待审批任务被静默 pop**：`wait_for_decision` 的 `finally` 在取消时也会执行，
+   线上实测中断后 `POST /agent/approval/{ee53cc1e520f}` → **404**，界面上这条待审批凭空消失。
+   改为**取消时不清理**并记 warning，由 `create()` 里的 `_evict_stale()` 兜底回收超过
+   `2×TIMEOUT`（240s）的任务 —— 否则队列只增不减。
+
+**顺带两处**
+
+- **异常留痕**：`_call_hermes` 的 `except` 原先什么都不记（线上只有一句
+  「Agent stream interrupted」），现在全部 `logger.exception`（连接失败 / HTTP 异常 / 未预期）。
+- **stdlib 日志接进 loguru**：`agent.py` 等二十来处用的是 `logging.getLogger(__name__)`，
+  **不经过 loguru** —— INFO 级默认不落盘、WARNING 级只进 journalctl（journalctl 实测查不到
+  `agent_chat: proxying`、`ApprovalTask created`）。`main.py` 新增 `_LoguruBridge` 挂在 `app`
+  父 logger 上，`app.*` 的日志从此进 `app.log`；uvicorn 访问日志不受影响（实测只转发了 `app.*` 两条）。
+- **连接池复用**：agent 代理原先每个请求新建 `httpx.AsyncClient`，改为模块级复用，
+  应用关闭时由 `main.py` 的 lifespan 释放。
+
+**测试**：backend **543 passed** (1 skipped，+6：stream 固定 / 非 SSE 报错 / 中断记账 /
+上游异常记账 / 取消保留任务 / 超期回收)；顺带修掉 `test_agent_chat_connection_error` 的假用例
+（原先挂的是 async 函数，实际抛出的是「coroutine 当上下文用」的 AttributeError，测不到连接失败）。
+
+**nginx（需 sudo，手工执行）**：给 `/product-db/api/agent/` 单独一个 location ——
+`proxy_buffering off` + `proxy_read_timeout 300s` + `proxy_http_version 1.1`
+（对齐后端 `HERMES_TIMEOUT=300s`；默认 60s 会在长时间工具执行、一个字节都不下发时掐断连接），
+并**不加** `proxy_intercept_errors`（SSE 出错要让上游错误原样返回，而不是换成 HTML 维护页）。
+新配置已放在服务器 `/tmp/product-db.nginx.new`（与线上只差这一个 location 块）。
+
+## 上一版 (2026-09-22, R63)
 
 ### R63: 把 Hermes 的工具进度事件显示出来（评估"能否优化 SSE"后的落地项）(2026-09-22)
 
