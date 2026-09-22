@@ -237,6 +237,11 @@ RestartSec=3
 WantedBy=multi-user.target
 ```
 
+> ⚠️ **单 worker 是隐含前提**：`ExecStart` 不带 `--workers`，即单进程运行。
+> `app/services/rate_limit.py` 的「请求频次计数」（注册限流用）是**进程内**滑动窗口 ——
+> 一旦改成多 worker / 多机，每个进程各有一份计数，等于额度被放大 N 倍，必须先换成
+> 共享存储（Redis / DB）。登录用的「失败尝试计数」落在 `login_logs` 表里，不受此限。
+
 ### ⚠️ 权限加固 drop-in（必做，否则新文件的默认权限是 644）
 
 应用以 `tong` 运行、进程 umask 默认 `0022`，它创建的文件（SQLite 的 `-wal`/`-shm`、轮转日志、uploads 新文件）都是 **644 = world-readable**。该实例存在 `debian` / `lighthouse` / `tong` 三个本地账号，等于生产库与日志对它们可读。

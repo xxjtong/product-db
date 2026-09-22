@@ -2,7 +2,51 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-22, R67)
+## 最新变更 (2026-09-22, R68)
+
+### R68: 限流抽成公共模块 + 审计链与数据一致性修复 (2026-09-22)
+
+**起因**：业务逻辑通盘审查后，按优先级修安全审计链断裂（#1/#2/#3）与数据一致性（#4/#5/#7）。
+其中限流按要求抽成**独立模块**供登录、注册等匿名接口共用。
+
+**新增 `app/services/rate_limit.py`（限流唯一入口）**
+
+两种原语，按语义选用，**不要混用同一个桶**：
+
+| 原语 | 存储 | 用途 | API |
+|---|---|---|---|
+| 失败尝试计数 | DB（`login_logs`） | 登录 —— 计数随库持久化、重启不清零，且与登录审计同源 | `count_failures` / `is_rate_limited` / `record_failure` |
+| 请求频次计数 | 进程内滑动窗口 | 注册 —— 要挡的是「批量创建账号」，**成功也是刷量**，不能只数失败 | `hit` / `count` / `check_and_hit` / `reset` |
+
+`auth_routes._check_rate_limit` 保留为薄封装（转调 `rate_limit.is_rate_limited`），
+登录路径其余不动 —— 现有 3 个限流回归用例（含伪造 XFF 不得重置桶）全部继续通过。
+
+> ⚠️ 原语二是**进程内**实现，前提是单进程部署（uvicorn 单 worker，见 DEPLOY.md）。
+> 上多 worker / 多机必须换成共享存储，否则每个 worker 各有一份计数。
+
+**逐条修复**
+
+| # | 问题 | 修法 |
+|---|---|---|
+| 1 | 注册无限流、可批量建号；且注册成功写了一条 `success=True` 的 `login_logs`（污染登录审计口径，还让人误以为它被登录限流算过） | 注册入口加 `check_and_hit("register:{ip}")`（新配置 `REGISTER_RATE_LIMIT=5` / `REGISTER_RATE_WINDOW=3600`）；**删掉**成功时的 `login_logs` 写入。注册失败**不**记登录失败桶 —— 否则正常用户注册一次就少一次登录机会 |
+| 2 | 禁用账户登录直接 403、不写审计：管理员看不到有人在反复试已禁用账户，限流也数不到 | 该分支补 `rate_limit.record_failure(user_id=user.id)`，审计与限流都覆盖 |
+| 3 | `/ai/chat` 的 user 消息在生成器启动前就落库，流中断后留下孤立 user 消息（下次接话上下文变成两条连续 user，界面像「回复丢了」） | `generate()` 加 `replied` 标记 + 单独捕 `asyncio.CancelledError`；`finally` 里若 assistant 没写成则补占位 `[回复中断] 本轮回答未完成，请重新提问。`，保证 user/assistant 成对；同时把「客户端断开」从 `success=True` 改为记失败 |
+| 4 | `update_product` 用真值判断（`if data.specs:`），传空 dict 被当成「没传」→ specs/urls/custom_fields **只能改不能清空** | 改用 `model_fields_set` 判定「是否显式传入」，显式传 `{}` 即清空；不传的字段仍不动（partial update 契约不变） |
+| 5 | 字典/供应商删除前不查引用：映射表是 `ON DELETE CASCADE`，删字典会**静默删掉产品的通讯方式/协议/供电/传感指标**；厂商/供应商是 `SET NULL`，静默清空归属 | 新增 `product_helpers.assert_dict_not_referenced()`，6 个 delete（5 字典 + 供应商）统一前置校验，有引用回 **409** + 可读文案（与 `delete_product` 的 409 口径一致）。前端各删除路径本就有 `catch → showToast`，无需改 |
+| 7 | `POST /admin/users`、`PUT /admin/users/{id}` 改密**无长度校验**，而 register / reset_user_password 都有 ≥8 | 两处补 ≥8 校验，全项目密码策略统一 |
+
+**测试**：backend **579 passed**（1 skipped）。新增 `tests/test_round5.py` 22 条：
+限流模块两种原语（按 IP 分桶 / 超限后不再计数 / 窗口滑出 / reset）、注册限流与审计口径、
+禁用账户审计与限流、流中断补占位（正常路径不补）、JSON 字段可清空而漏传不动、
+5 类引用 409 与无引用可删、admin 建号改密密码下限。
+`tests/conftest.py` 加 autouse fixture 每个用例前后 `rate_limit.reset()` ——
+内存计数不随测试库重建清零，而所有用例客户端 IP 都是同一个 `testclient`，不清会串扰。
+
+**未做（本轮范围外，仍挂在遗留清单）**：审批线程不可取消（`approval_manager` 的
+`run_in_executor` 在断开后仍阻塞到 120s 超时）、`/ai/chat` 单轮 51.7k input 收敛、
+`create_quotation` 在两个端点的审批语义不一致、导入无幂等键、`suggest_solution` 的 N+1。
+
+## 上一版 (2026-09-22, R67)
 
 ### R67: 四个提示词统一口径 + 同步落库 (2026-09-22)
 

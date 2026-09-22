@@ -34,7 +34,7 @@ npx vite --host 0.0.0.0 --port 5173
 ## 测试
 
 ```bash
-# Backend（558 用例：557 passed + 1 skipped，数量随迭代变化）
+# Backend（580 用例：579 passed + 1 skipped，数量随迭代变化）
 cd backend && venv/bin/python -m pytest tests/ -v
 
 # Frontend
@@ -74,7 +74,7 @@ product-db/
 │   │   ├── routers/             # API 路由 (14 个模块：含 agent / product_import / product_files)
 │   │   ├── services/            # 业务逻辑
 │   │   └── schemas/             # Pydantic 请求/响应模型
-│   ├── tests/                   # pytest 测试，558 用例（557 passed + 1 skipped）
+│   ├── tests/                   # pytest 测试，580 用例（579 passed + 1 skipped）
 │   └── alembic/                 # 数据库迁移
 ├── frontend/
 │   ├── src/
