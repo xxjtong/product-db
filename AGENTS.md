@@ -2,7 +2,41 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-22, R73)
+## 最新变更 (2026-09-22, R74)
+
+### R74: 二档批量清理（schema / 分页 / 唯一性 / 记账 / 死代码）(2026-09-22)
+
+R68 审查清单「二档」的批量处理。逐条先核实现状，**该改的改、已消失或已有兜底的说明理由不改**。
+
+**改了的**
+
+| 项 | 改动 |
+|---|---|
+| 过时注释 ×2 | `quotations.py` / `solutions.py` 仍写「生产未启用 SQLite 外键」——R57 起已强制开启。改为准确表述：bulk DELETE 绕过的是 **ORM 的 cascade 层**，与是否启用外键无关 |
+| `PUT /quotations/{id}/bom` 收裸 `dict` | 改收 `QuotationBOMSave`（新增 schema）：类型不符明确 **422**（原先靠 `number_or` 逐个静默兜底），前端契约也可见了。前端提交的字段名与之完全一致，无需改前端 |
+| 字典字段只能改不能清 | `_dict_update` 改为「显式传 `null` 即清空」，但 **NOT NULL 列仍跳过**（写进去会撞约束报 500） |
+| 字典列表全表读入再切片 | `_dict_list_filtered` 改 SQL 分页，返回 `(items, total)` |
+| 同品类 `spec_key` 可重复 | create / update 都加唯一性校验 → **400**（它既是 specs 字典的键、也是前端表单字段名，重复会让两套定义互相覆盖） |
+| `/ai/chat` 中断轮 token 记 0 | `run_agent` 新增 `usage_sink`：用量在 `done` **之前**就写进调用方给的 dict，中断时也能记上已跑完的轮次 |
+| `AGENT_TOOLS` 是死声明 | 删除（Hermes 0.21.4 不读请求体 `tools`，R65 实测），原地留注释说明并指向 git 历史 |
+
+**核实后决定不改的**
+
+| 项 | 理由 |
+|---|---|
+| `delete_user` 硬删除 | R57 起外键已强制，`created_by` 与日志都是 `SET NULL`，硬删**不再产生孤儿** —— 原来的问题已消失 |
+| `product_files` 磁盘删除失败只记 warning | 有 `cleanup-uploads` 兜底（清「未被 DB 引用且超 7 天」的文件），不是漏网 |
+| `system_settings` key 无白名单 | 端点已是 `require_admin`，加白名单会挡住后台新增配置键的灵活性，收益不足 |
+| 注册开关 TOCTOU | 最坏是「关闭注册」瞬间多进一个号；`users.username` 唯一约束兜底，不产生脏数据 |
+| `ai.py` 模块级缓存无锁 | asyncio 单线程，最坏是并发首次各算一遍，无数据错误 |
+| `re.search(r'\{.*\}')` 贪婪 | 多 JSON 段时解析失败会走已有 fallback；贪婪对「单个 JSON」这个实际场景是正确的 |
+
+**测试**：backend **636 passed**（1 skipped）。新增 `tests/test_round11.py` 13 条：
+BOM 类型不符 422 / 缺字段用默认 / qty=0 保留 / 未知字段忽略、可空字段可清空而 NOT NULL 保持原值、
+字典分页（per_page 生效且 total 是全量）、spec_key create/update 撞车 400 而跨品类允许、
+用量 sink 在 `done` 前已写入、`AGENT_TOOLS` 确已移除。
+
+## 上一版 (2026-09-22, R73)
 
 ### R73: 审批状态机收尾 + `/ai/chat` 上下文分档（首轮全量、之后精简）(2026-09-22)
 
