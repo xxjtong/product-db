@@ -61,7 +61,7 @@
             </div>
             <!-- 工具步骤放在正文之前：与流式期间的位置一致，回答完成时不会跳一下 -->
             <template v-else>
-              <div v-if="m.steps?.length" class="agent-tool-steps">
+              <div v-if="m.steps?.length" :ref="pinStepsBottom" class="agent-tool-steps">
                 <div v-for="(s, si) in m.steps" :key="si" :title="s.label">
                   <span class="agent-tool-emoji">{{ s.emoji }}</span>{{ s.label }}
                 </div>
@@ -557,7 +557,7 @@ async function send(question?: string) {
               emoji: chunk.emoji || '🛠',
               label: chunk.label || chunk.tool || '执行中',
             }].slice(-5)
-            // 单行横向滚动，把最新一条滚进可视区
+            // 窗口只有一个行高，纵向滚到最新一条
             nextTick(scrollStepsToEnd)
             scrollDown()
             continue
@@ -657,10 +657,16 @@ function scrollDown() {
   })
 }
 
-/** 工具步骤是单行横向滚动：新增一条后把最新一条滚进可视区 */
+/** 工具步骤是"一个行高的窗口"：新增一条后纵向滚到最新那条 */
 function scrollStepsToEnd() {
   const el = streamStepsEl.value
-  if (el) el.scrollLeft = el.scrollWidth
+  if (el) el.scrollTop = el.scrollHeight
+}
+
+/** 历史回放时挂载就要对齐到最新一条（稳定函数引用 → 只在挂载时调用一次） */
+function pinStepsBottom(el: any) {
+  const node = el as HTMLElement | null
+  if (node) node.scrollTop = node.scrollHeight
 }
 
 // ── Lifecycle ──────────────────────────────────────────
@@ -683,6 +689,9 @@ onMounted(async () => {
 watch(streaming, (val) => {
   if (!val) nextTick(() => inputEl.value?.focus())
 })
+
+// 工具步骤窗口只有一个行高，新步骤进来纵向滚到最新一条
+watch(() => toolSteps.value.length, () => nextTick(scrollStepsToEnd))
 </script>
 
 <style scoped>
@@ -802,31 +811,26 @@ watch(streaming, (val) => {
   max-width: 600px;
 }
 
-/* 工具执行步骤：单行横向排列，放不下就横向滚动（不换行） */
+/* 工具执行步骤：只有一个行高的窗口，纵向滚动（不换行、不横向滚） */
 .agent-tool-steps {
   display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 14px;
+  flex-direction: column;
+  gap: 0;
+  height: 20px;            /* 只露一行，其余靠上下滚动 */
+  overflow-y: auto;
+  overflow-x: hidden;
   margin-bottom: 6px;
   font-size: 12px;
+  line-height: 20px;
   color: var(--color-text-secondary);
   opacity: .85;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
+  scrollbar-width: none;   /* 单行窗口里藏掉滚动条，别把内容挤窄 */
 }
 .agent-tool-steps::-webkit-scrollbar {
-  height: 4px;
-}
-.agent-tool-steps::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 2px;
+  display: none;
 }
 .agent-tool-steps > div {
-  flex: 0 0 auto;
-  max-width: 78%;
+  flex: 0 0 20px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
