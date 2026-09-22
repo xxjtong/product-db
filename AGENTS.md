@@ -76,6 +76,17 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 **测试**：backend **546 passed** (1 skipped，+3：停止标记区分记账 / `/agent/stop` 记录与空 id 拒绝 /
 detached 任务被 409 拒绝)。
 
+**线上实测（2026-09-22）**
+
+| 验证 | 方式 | 结果 |
+|------|------|------|
+| 断开真的中断上游 | 生产 `gateway.log` | `SSE client disconnected; interrupted agent task` 从 10 条 → **11 条**，新的一条就是我这次中断产生的（12:11:52） |
+| 「用户主动停止」记账 | 真实对话中途 abort | `ai_usage_logs` 记下 `success=0, tokens=0, error=用户主动停止`（不再是「成功 + 0 token」） |
+| 失效审批不再假装成功 | 断开后点授权 | **409** `该审批已失效（发起它的对话已中断），请重新发起任务`（修复前 200 + 界面显示「已授权」） |
+| 失效任务不再列出 | `GET /agent/approvals` | 列表为空（detached 被排除） |
+| 点停止先通知后端 | 浏览器打桩假 SSE（**零 token**） | 先 `POST /agent/stop`，其 `stream_id` 与 `/agent/chat` 的 `X-Stream-Id` 一致 |
+| 停止后的界面 | 同上（假流响应 abort） | 气泡 `内容到一半<br><br><i>[已停止]</i>`、按钮回到「发送」、遗留审批卡两个按钮均置灰并显示失效提示 |
+
 **nginx（已生效，2026-09-22 手工执行）**：给 `/product-db/api/agent/` 单独一个 location ——
 `proxy_buffering off` + `proxy_read_timeout 300s` + `proxy_http_version 1.1`
 （对齐后端 `HERMES_TIMEOUT=300s`；默认 60s 会在长时间工具执行、一个字节都不下发时掐断连接），
