@@ -408,6 +408,15 @@ def _redact_secrets(text: str) -> str:
     return re.sub(r"(?i)(--password\s+)(\S+)", r"\1***", text)
 
 
+def _parse_sse_data(raw: str) -> dict:
+    """Hermes 的事件载荷解析成 dict；任何异常都退化成空 dict（宁可丢事件，不要炸流）。"""
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        data = {}
+    return data if isinstance(data, dict) else {}
+
+
 def _tool_progress_payload(raw: str) -> str:
     """把 Hermes 的 `hermes.tool.progress` 规范化成前端认识的事件（并脱敏）。
 
@@ -417,12 +426,7 @@ def _tool_progress_payload(raw: str) -> str:
     实测同一次工具调用会发两条事件，其中一条只带 `tool` 名、没有 label ——
     那种没有可读文本的返回空串，由调用方丢弃（否则 UI 上会挂一个光秃秃的图标）。
     """
-    try:
-        data = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        data = {}
-    if not isinstance(data, dict):
-        data = {}
+    data = _parse_sse_data(raw)
     label = _redact_secrets(str(data.get("label") or "")).strip()[:160]
     if not label:
         return ""
@@ -437,12 +441,36 @@ def _tool_progress_payload(raw: str) -> str:
     )
 
 
+def _status_payload(raw: str) -> str:
+    """把 Hermes 的 `hermes.status` 规范化成前端认识的事件（0.21.4 新增）。
+
+    源码注释写明它的用途是"让客户端知道流为什么静默，而不是看着一个死掉的 socket"：
+    provider 等待、自动恢复倒计时、模型降级切换。文本可能带上游错误细节 → 同样脱敏 + 截断，
+    没有可读文本的丢掉。
+    """
+    data = _parse_sse_data(raw)
+    text = _redact_secrets(str(data.get("text") or "")).strip()[:160]
+    if not text:
+        return ""
+    return json.dumps(
+        {"type": "status", "kind": str(data.get("kind") or ""), "text": text},
+        ensure_ascii=False,
+    )
+
+
+# Hermes 自己的事件名前端不认识 → 统一转成 {"type": …} 的 data 帧。
+# 其余行（含普通 chat.completion.chunk）原样透传 —— 前端本来就忽略 `event:` 行。
+_EVENT_NORMALIZERS = {
+    "hermes.tool.progress": _tool_progress_payload,
+    "hermes.status": _status_payload,
+}
+
+
 async def _relay_hermes_sse(resp):
     """把 Hermes 的 SSE 行转发给前端。
 
-    只在中间做一件事：把 `event: hermes.tool.progress` 转成前端认识的
-    `data: {"type":"tool_progress",…}`（顺带脱敏、丢掉无可读文本的）；其余行原样透传 ——
-    前端本来就会忽略 `event:` 行。
+    中间只做一件事：把 `event: hermes.tool.progress` / `hermes.status` 按
+    `_EVENT_NORMALIZERS` 规范化（顺带脱敏、丢掉无可读文本的）。
     """
     pending_event = None
     async for line in resp.aiter_lines():
@@ -450,8 +478,9 @@ async def _relay_hermes_sse(resp):
             pending_event = line[7:].strip()
             yield line + "\n"
             continue
-        if pending_event == "hermes.tool.progress" and line.startswith("data: "):
-            payload = _tool_progress_payload(line[6:])
+        normalizer = _EVENT_NORMALIZERS.get(pending_event) if pending_event else None
+        if normalizer and line.startswith("data: "):
+            payload = normalizer(line[6:])
             if payload:
                 yield "data: " + payload + "\n"
             pending_event = None

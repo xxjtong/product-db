@@ -1231,6 +1231,54 @@ class TestAgentQuickReplies:
 # ============================================================
 # Agent: SSE 出口加固 —— R64
 # ============================================================
+class TestAgentStatusEvent:
+    """Hermes 0.21.4 新增 `hermes.status`（provider 等待/自动恢复/降级切换）。
+    源码注释写明用途是"让客户端知道流为什么静默"，所以要转给前端（脱敏 + 截断）。"""
+
+    def test_status_is_normalized(self):
+        from app.routers.agent import _status_payload
+        payload = json.loads(_status_payload(json.dumps(
+            {"kind": "provider_wait", "text": "正在等待 provider 响应（已重试 1/3）"})))
+        assert payload == {"type": "status", "kind": "provider_wait",
+                           "text": "正在等待 provider 响应（已重试 1/3）"}
+
+    def test_status_is_redacted_and_truncated(self):
+        from app.routers.agent import _status_payload
+        payload = json.loads(_status_payload(json.dumps(
+            {"kind": "x", "text": 'fallback: Authorization: Bearer eyJhbGciOi.JWT.SIG' + "y" * 400})))
+        assert "eyJhbGciOi.JWT.SIG" not in payload["text"]
+        assert "Bearer ***" in payload["text"]
+        assert len(payload["text"]) <= 160
+
+    def test_status_without_text_is_dropped(self):
+        from app.routers.agent import _status_payload
+        assert _status_payload('{"kind": "idle"}') == ""
+        assert _status_payload("not json") == ""
+
+    @patch("httpx.AsyncClient.stream")
+    def test_relay_normalizes_status_and_keeps_other_events(self, mock_stream, auth_headers):
+        TestAgentToolProgress._stub(mock_stream, [
+            "event: hermes.status",
+            'data: {"kind":"auto_recovery","text":"模型降级到 deepseek-flash"}',
+            "",
+            "event: something.else",
+            'data: {"foo": "bar"}',
+            "",
+            "data: [DONE]",
+            "",
+        ])
+
+        resp = client.post("/product-db/api/agent/chat", json={
+            "messages": [{"role": "user", "content": "hi"}],
+        }, headers=auth_headers)
+
+        assert resp.status_code == 200
+        assert '"type": "status"' in resp.text
+        assert "模型降级到 deepseek-flash" in resp.text
+        assert '"foo": "bar"' in resp.text       # 别的 event 名不误伤
+        assert "tool_progress" not in resp.text
+
+
 class TestAgentStreamHardening:
     """三个「静默失效」的收口：
 

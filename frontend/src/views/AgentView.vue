@@ -67,6 +67,7 @@
                 </div>
               </div>
               <div class="agent-msg-text" v-html="renderMd(m.content as string)" />
+              <div v-if="m._warning" class="agent-msg-warning">⚠️ {{ m._warning }}</div>
             </template>
             <div v-if="m._approval?.status === 'pending'">
               <div class="agent-approval-btns">
@@ -96,9 +97,11 @@
             </div>
             <div class="agent-msg-text">
               <span v-if="streamText" v-html="renderMd(streamText)" />
-              <span v-else-if="!toolSteps.length" class="ai-loading">思考中</span>
+              <span v-else-if="!toolSteps.length && !streamStatus" class="ai-loading">思考中</span>
               <span class="ai-cursor">▊</span>
             </div>
+            <!-- Hermes 的状态说明：它比"思考中"更能解释为什么没动静（provider 等待/降级等） -->
+            <div v-if="streamStatus" class="agent-status-hint">{{ streamStatus }}</div>
           </div>
         </div>
 
@@ -183,6 +186,8 @@ interface Message {
   tokens?: string
   fileUrls?: { name: string; url: string }[]
   steps?: ToolStep[]   // 本轮 agent 执行过的工具（R63：来自 hermes.tool.progress）
+  // 回答不完整/异常时的说明（R64：Hermes 收尾帧的 finish_reason=length/error）
+  _warning?: string
   // stale：连接已断，这张审批卡再也送不出去了（R64 起置灰，不再假装点了就生效）
   _approval?: { task_id: string; tool_name: string; status: 'pending' | 'approved' | 'rejected'; stale?: boolean }
 }
@@ -223,6 +228,8 @@ const streamText = ref('')
 const streaming = ref(false)
 // 本轮流式请求的 id：跟 X-Stream-Id 一起发给后端，用户点「停止」时用它回传"是主动停的"
 const activeStreamId = ref('')
+// 流式期间 Hermes 的状态说明（provider 等待/自动恢复/降级切换，hermes.status 事件）
+const streamStatus = ref('')
 // 本轮已执行的工具步骤（Hermes 的 hermes.tool.progress，经后端规范化）
 const toolSteps = ref<ToolStep[]>([])
 const streamStepsEl = ref<HTMLElement | null>(null)
@@ -523,10 +530,14 @@ async function send(question?: string) {
   streamText.value = ''
   streaming.value = true
   toolSteps.value = []
+  streamStatus.value = ''
   activeStreamId.value = newStreamId()
   abortCtrl = new AbortController()
   let fullContent = ''
   let tokenUsage = { prompt: 0, completion: 0, total: 0 }
+  let finishReason = ''
+  let streamError = ''
+  let finishExtras: any = null
 
   try {
     const token = localStorage.getItem('token')
@@ -580,6 +591,13 @@ async function send(question?: string) {
             continue
           }
 
+          // Hermes 的状态说明（0.21.4 的 hermes.status 事件）：provider 等待、自动恢复、
+          // 模型降级切换 —— 用来解释"流为什么静默"，否则用户只看到一个不动的光标
+          if (chunk.type === 'status') {
+            streamStatus.value = chunk.text || ''
+            continue
+          }
+
           // Human-in-the-loop: intercept approval_required → inline message
           if (chunk.type === 'approval_required') {
             // Save current assistant message if any
@@ -609,8 +627,22 @@ async function send(question?: string) {
           if (delta) {
             fullContent += delta
             streamText.value = fullContent
+            streamStatus.value = ''   // 正文来了，状态说明让位
             scrollDown()
           }
+          // 收尾帧（最后一个 chunk）会带 finish_reason 与 usage；长度上限/失败时还会带
+          // error 与 hermes.{partial,completed}（0.21.4）—— 以前这些全被忽略，
+          // 于是被截断或被上游掐断的回答会当成正常回答展示
+          const fr = chunk.choices?.[0]?.finish_reason
+          if (fr) finishReason = String(fr)
+          if (chunk.error) {
+            streamError = typeof chunk.error === 'string'
+              ? chunk.error
+              : String((chunk.error as any)?.message || chunk.error)
+          } else if (chunk.hermes?.error) {
+            streamError = String(chunk.hermes.error)
+          }
+          if (chunk.hermes) finishExtras = chunk.hermes
           if (chunk.usage) {
             tokenUsage.prompt = chunk.usage.prompt_tokens || 0
             tokenUsage.completion = chunk.usage.completion_tokens || 0
@@ -643,16 +675,19 @@ async function send(question?: string) {
     return
   }
 
-  if (fullContent) {
+  const warning = buildFinishWarning(finishReason, streamError, finishExtras)
+  if (fullContent || warning) {
     const tk = tokenUsage.total
     messages.value.push({
       role: 'assistant',
       content: fullContent,
       tokens: tk ? `${tk.toLocaleString()} tokens (入 ${tokenUsage.prompt.toLocaleString()} + 出 ${tokenUsage.completion.toLocaleString()})` : undefined,
       steps: stepsOf(),
+      _warning: warning || undefined,
     })
   }
   streamText.value = ''
+  streamStatus.value = ''
   streaming.value = false
   saveMessages()
   bumpChat()
@@ -695,6 +730,22 @@ function markPendingApprovalsStale() {
   for (const m of messages.value) {
     if (m._approval?.status === 'pending') m._approval.stale = true
   }
+}
+
+/**
+ * 把收尾帧的 finish_reason / error / hermes extras 翻成一句给用户看的话。
+ * 以前这些字段全被忽略：被截断或被上游掐断的回答会当成正常回答展示（R64）。
+ */
+function buildFinishWarning(finishReason: string, error: string, extras: any): string {
+  const detail = error ? `：${String(error).slice(0, 200)}` : ''
+  if (finishReason === 'length') {
+    return `回答被截断（超出单次输出上限）${detail}，可以让它接着往下说`
+  }
+  if (finishReason === 'error' || error) return `本轮回答未正常结束${detail}`
+  if (extras && (extras.partial === true || extras.completed === false)) {
+    return '回答可能不完整（上游提前结束）'
+  }
+  return ''
 }
 
 /** 给消息带上本轮工具步骤；没有就不带（避免 localStorage 里存空数组） */
@@ -1045,6 +1096,22 @@ watch(() => toolSteps.value.length, () => nextTick(scrollStepsToEnd))
   padding: 6px 14px 0;
   font-size: 12px;
   color: var(--color-text-secondary);
+}
+/* 回答被截断/上游异常：必须让用户看出来这不是完整结论 */
+.agent-msg-warning {
+  margin: 6px 14px 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+}
+/* Hermes 的状态说明（provider 等待/自动恢复/降级） */
+.agent-status-hint {
+  padding: 4px 14px 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  opacity: .85;
 }
 .agent-msg-meta {
   font-size: 11px;

@@ -2,7 +2,51 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-22, R64)
+## 最新变更 (2026-09-22, R65)
+
+### R65: 适配 Hermes 0.21.4 —— 接住「状态说明」与「不完整回答」两个新信号 (2026-09-22)
+
+**起因**：Hermes 已升级到 **0.21.4 (2026.9.21)**（生产 commit `439eb0395e`，`/health/detailed`
+报 `version: 0.21.4`，平台 feishu + api_server 均 connected）。评估新版本/新 API 有无优化项。
+
+**先确认没被打断**（都实测过）：`hermes.tool.progress` 仍在且字段不变（多出 `toolCallId`/`status`）；
+流式收尾帧仍带顶层 `usage`；断开即中断上游的逻辑不变。
+
+**本次落地（两个"如实呈现"）**
+
+1. **`hermes.status` 事件转给前端**（0.21.4 新增）：源码注释写明它的用途是"让客户端知道流为什么
+   静默，而不是看着一个死掉的 socket"（provider 等待 / 自动恢复倒计时 / 模型降级切换）。
+   后端按 `_EVENT_NORMALIZERS` 表统一规范化成 `data: {"type":"status",…}`（脱敏 + 截断 160 字，
+   无可读文本丢弃 —— 与 tool.progress 同一套）；前端在流式气泡下方显示这行状态，
+   正文一到就让位，没有状态时仍显示原来的"思考中"。
+2. **截断 / 失败不再当成正常回答**：新版本收尾帧带 `finish_reason`（`stop`/`length`/`error`）
+   + `error` + `hermes.{completed,partial,failed,error_code}`（`_finish_reason` / `_hermes_extras`），
+   我们此前只读 `delta.content`，会把被截断或被上游掐断的回答当完整结论展示。
+   现在前端据此给气泡挂一条警示（`_warning`），并在"有警示但一个字都没回来"时也渲染气泡。
+
+**评估后不做的（附理由，避免后人重复调研）**
+
+- **成本**：不再把"每轮 15.8k 系统提示词"当大头 —— Hermes 自己的 `state.db/session_model_usage`
+  显示**prompt 缓存已生效**：今日 352 次调用 input 1.75M，**cache_read 36.7M**；
+  真正可省的是 **reasoning tokens（11.1 万/天，约占输出侧 1/3）**，靠请求体
+  `model_options: {"reasoning": {"enabled": false}}`（我们从 `delta.reasoning_content` 根本不展示）。
+  今日估算成本仅 **$0.43**（≈$0.0012/次），所以迁 `previous_response_id` 的收益有限。
+- **`AGENT_TOOLS` 是装饰**：新版本 chat/completions **没有把请求体的 `tools` 传给 agent**
+  （`tools` 只出现在幂等指纹的字段列表里）→ 我们发的那 4 个工具声明 Hermes 没看。
+- **工具面收窄**：`GET /v1/toolsets` 实测 12 个启用 / 17 个关闭、19 个工具在提示词里；
+  其中 `web_search`/`web_extract`/`execute_code`/`delegate_task`/`memory`/`session_search`
+  对产品库场景非必需，却都是提示注入面。但请求体**没有**按次收窄的参数 → 只能在 Hermes 配置里
+  收窄，而它与飞书入口共用同一 profile，**需另建 profile 才安全**（单独立项）。
+- **`X-Hermes-Session-Key`（每会话记忆范围）**：新版本启用了 memory/session_search/skills，
+  不传 key 时的记忆范围**尚未验证** → 待确认后再决定是否传 per-user key 做隔离。
+- **`/health/detailed`**（version/platforms/active_agents/readiness）：运维可见性，待接。
+- **runs 专属**（`Idempotency-Key` 24h 幂等、`/v1/runs/{id}/steer`、`/v1/artifacts/*`）：
+  仅当将来迁到 runs API 才有意义。
+
+**测试**：backend **550 passed** (1 skipped，+4：status 规范化 / 脱敏截断 / 空文本丢弃 /
+中继时只转 status 不误伤其它 event)。
+
+## 上一版 (2026-09-22, R64)
 
 ### R64: SSE 出口加固（三处静默失效）+ stdlib 日志接入 loguru (2026-09-22)
 
