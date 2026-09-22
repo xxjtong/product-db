@@ -2,7 +2,61 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-22, R62)
+## 最新变更 (2026-09-22, R63)
+
+### R63: 把 Hermes 的工具进度事件显示出来（评估"能否优化 SSE"后的落地项）(2026-09-22)
+
+**起因**：要"整备升级 Hermes，新版支持 SSE 输出，看看 product-db 的 agent 能否优化"。
+评估结论（先纠正三个前提）：
+
+1. **SSE 早就是现状** —— `/agent/chat` 一直是 `StreamingResponse(text/event-stream)`
+   逐行透传，前端 `reader.read()` 增量渲染（R58 实测 TTFB 0.08s）。
+2. **文档描述的能力当前版本就有**：装的是 `v0.20.0 (2026.8.3)`，`GET /v1/capabilities` 实测返回
+   `chat_completions_streaming / responses_api / run_submission / run_status / run_events_sse /
+   run_stop / run_approval_response / tool_progress_events / approval_events /
+   session_resources / session_chat_streaming / session_continuity_header: X-Hermes-Session-Id`，
+   `POST /v1/runs` 返回 400（端点存在）——**升级不是这些优化的前提**。
+3. **我们真正丢的是"非 content 事件"**：抓真实流（"列出产品库里 5 个产品"）得到
+   `chunk:content ×395` + **`event: hermes.tool.progress ×2`** + `chunk:role ×1` +
+   带 usage 的收尾块 + `[DONE]`。前端只认 `delta.content`，那两条工具进度全被丢掉
+   —— 这就是"工具执行期间界面一片空白、用户以为卡住"的原因。
+
+**本次落地：工具进度可视化**
+
+- 后端新增 `_relay_hermes_sse()`：把 `event: hermes.tool.progress` 规范化成前端认识的
+  `data: {"type":"tool_progress","tool","emoji","label"}`；其余行原样透传（别的 event 名不误伤）
+- **脱敏**：实测 label 是**完整 shell 命令**，里面含调用方 JWT
+  （`-H "Authorization: Bearer eyJ…"`）→ `_redact_secrets()` 抹掉 Bearer 与显式命名的凭据
+  （`token=` / `api_key=` / `password=` / `-p=` / `--password`）；
+  `ssh -p 28793`、`docker -p8080:80` 这类正常参数**保留**（有专门用例守着，避免把命令遮花）
+- label 截断 160 字符；**实测同一次工具调用会多发一条只带 tool 名、没有 label 的事件，
+  那种直接丢弃**（否则 UI 上挂个光秃秃的图标）
+- 前端：流式期间显示步骤（此时不再显示"思考中"），回答完成后步骤随消息保留（最多 5 步），
+  单行省略、完整命令放 `title`
+- 布局：工具步骤统一放在**正文之前**（第一版流式时在上、完成后在下方，会跳一下，已修）
+
+**实测**
+
+| 层面 | 证据 |
+|------|------|
+| 线级（服务端抓 body） | 2 条 tool_progress 规范化成功；`Bearer ***` 出现、**`eyJ` 一次都没出现**；395 条 content 照旧 |
+| UI（浏览器实操） | 工具进度在 **2.0s** 出现（此时回答文字尚未出现）→ 回答在 5.2s 才结束；完成后步骤保留 |
+| 泄漏检查 | 整页 HTML（118KB）检索 `eyJhbGciOi` **未命中**；4 处 `Bearer` 全部是 `Bearer ***` |
+| DOM 顺序 | `["agent-tool-steps","agent-msg-text","agent-msg-meta"]` —— 步骤在正文之前 |
+| 重复渲染 | 历史对话回放后用户消息 1 条、文字完整（改动模板时差点踩 `v-if/v-else` 配对坑，已用 `v-else` + `template` 包住） |
+
+**测试**：backend **537 passed**（+11：脱敏 5 例 / 正常参数不误伤 / 垃圾与空 label / 截断 /
+规范化转发 / 其它 event 不误伤），frontend 98 passed，vue-tsc 0 errors。
+
+**评估里其它可选优化（本次未做，价值已确认）**：
+- `POST /v1/runs/{id}/stop` 替代"靠断开连接"停止；`GET /v1/runs/{id}/events`（缓冲 5 分钟）支持断线/换页重连不丢回复
+- 会话连续性（`X-Hermes-Session-Id` / `previous_response_id`）—— 现在每轮重发全部历史，
+  带 1 次工具调用的单轮实测 **33,934 prompt tokens**，带 1 张小图 **53,659**
+- 原生审批事件（`approval_events` + `run_approval_response`）—— 现在的审批只有 `"测试审批"` 自测钩子
+- 升级本身：上游最新 `v2026.9.21`，本机落后 8 个 tag；建议用 `hermes profile create` 起隔离
+  profile 在另一端口先验，再切正式（同一套 Hermes 还在跑飞书入口，别直接影响它）
+
+## 历史变更 (2026-09-22, R62)
 
 ### R62: 上传链路逐个入口复测 —— 修围栏误伤附件读取 + 粘贴图片命名 (2026-09-22)
 
@@ -2053,7 +2107,7 @@ E2E 新增 17 测试 (`error-scenarios.spec.ts`):
 | XSS | DOMPurify (所有 v-html 已清洗) |
 | SSRF | validate_url() + 手动重定向验证 |
 | Logging | loguru (structured + rotation) |
-| Testing | pytest 527 collected（526 passed + 1 skipped）+ vitest 98 tests + Playwright 96 tests |
+| Testing | pytest 538 collected（537 passed + 1 skipped）+ vitest 98 tests + Playwright 96 tests |
 | Deployment | systemd + nginx + rsync（`deploy/` 下备份/探针/就绪门控脚本；`docker-compose.yml` 是早期实验、**非生产路径**） |
 
 ## 开发命令
@@ -2129,7 +2183,7 @@ backend/app/
 │   ├── helpers.py       # apply_partial_update
 │   └── escape.py        # SQL LIKE 转义
 ├── schemas/             # Pydantic 请求/响应模型
-└── tests/               # pytest 527 collected（526 passed + 1 skipped）；conftest.py 统一建/删测试库
+└── tests/               # pytest 538 collected（537 passed + 1 skipped）；conftest.py 统一建/删测试库
 
 frontend/src/
 ├── App.vue              # 主布局 (暗侧边栏 + 全局搜索 + toast + 用户菜单)
