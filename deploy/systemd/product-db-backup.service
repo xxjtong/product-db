@@ -1,5 +1,5 @@
 [Unit]
-Description=product-db 每日数据库快照
+Description=product-db 每日备份（数据库快照 + uploads 快照）
 Documentation=file:/opt/product-db/DEPLOY.md
 After=network.target
 
