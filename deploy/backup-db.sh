@@ -45,6 +45,20 @@ log() {
   printf '%s\n' "$msg" >> "$LOGFILE"
 }
 
+# 列快照，**新的在前**，按名字排（名字就是 YYYYmmdd_HHMMSS，字典序即时间序）。
+#
+# ⚠️ 绝不能用 `ls -1t` 排快照目录：`rsync -a` 含 `-t`，会把**源目录的 mtime** 盖到目标
+# 快照目录上 → 同一源目录下建出来的快照，mtime 全是同一个值（源目录那个），按 mtime 排序
+# 等于乱序。2026-09-22 实测：KEEP=3、连跑三次后，刚生成的 20260922_185709 被当成「旧快照」
+# 删掉，而 17:13 那份留着 —— 份数检查还照样显示 3，完全看不出来。
+# db 快照是**文件**、mtime 属自己（`ls -1t` 能正确排序），但为一致性也走名字排序。
+# 内层 `|| true` 不能省：`set -o pipefail` 下「一个快照都还没有」（glob 不匹配 → ls 返回 1）
+# 会让函数返回非 0，调用处 `PREV="$(...)"` 是个裸赋值 → 直接打断整个脚本。
+# 「没有快照」是合法状态，应当返回空列表而不是失败。
+list_snapshots_desc() {
+  { ls -1d "$@" 2>/dev/null || true; } | LC_ALL=C sort -r
+}
+
 # --- 前置检查 ---
 [ -f "$DB" ]                  || { log "ERROR 数据库不存在: $DB"; exit 1; }
 command -v sqlite3 >/dev/null || { log "ERROR 缺少 sqlite3"; exit 1; }
@@ -81,7 +95,7 @@ for spec in "products:1" "users:1" "ai_conversations:0"; do
   min="${spec##*:}"
   n="$(sqlite3 "$TMP" "SELECT COUNT(*) FROM $tbl;" 2>/dev/null || echo -1)"
   if [ "$n" -lt "$min" ]; then
-    log "ERROR 表 $tbl 行数异常: $n（期望 >= $min）"
+    log "ERROR 表 ${tbl} 行数异常: ${n}（期望 >= ${min}）"
     rm -f "$TMP" "$TMP-wal" "$TMP-shm"
     exit 1
   fi
@@ -93,7 +107,7 @@ mv "$TMP" "$OUT"
 log "快照完成: $(basename "$OUT")  $(du -h "$OUT" | cut -f1)"
 
 # --- 保留策略：只留最新 KEEP 份 ---
-ls -1t "$DEST"/$PATTERN 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r old; do
+list_snapshots_desc "$DEST"/$PATTERN | tail -n +$((KEEP + 1)) | while read -r old; do
   rm -f -- "$old" && log "  清理旧快照 $(basename "$old")"
 done
 
@@ -113,7 +127,7 @@ else
   # --link-dest 指向上一个快照：未变的文件在新快照里是硬链接，几乎不占额外空间，
   # 而每份快照仍是**完整镜像** ——「今天误删了文件」可以从昨天那份捞回来。
   # （旧的手动命令是单目录 --delete 镜像，源里删掉的在备份里也没了，等于没有历史。）
-  PREV="$(ls -1dt "$UP_DEST"/*/ 2>/dev/null | head -1 || true)"
+  PREV="$(list_snapshots_desc "$UP_DEST"/*/ | head -1)"
   LINK_OPT=""
   [ -n "$PREV" ] && LINK_OPT="--link-dest=$PREV"
   if rsync -a --delete $LINK_OPT "$UPLOADS/" "$UP_OUT/" >>"$LOGFILE" 2>&1; then
@@ -125,7 +139,7 @@ else
   fi
 
   # 保留策略：只留最新 KEEP 份快照目录
-  { ls -1dt "$UP_DEST"/*/ 2>/dev/null || true; } | tail -n +$((KEEP + 1)) | while read -r old; do
+  list_snapshots_desc "$UP_DEST"/*/ | tail -n +$((KEEP + 1)) | while read -r old; do
     rm -rf -- "$old" && log "  清理旧 uploads 快照 $(basename "$old")"
   done
   log "uploads 快照份数: $(find "$UP_DEST" -maxdepth 1 -mindepth 1 -type d | wc -l)  保留上限: $KEEP"
@@ -136,7 +150,7 @@ fi
 # 但**绝不因为它失败去删本地快照** —— 本地才是主副本。
 off_rc=0
 if [ "$OFFSITE_ENABLED" != "1" ]; then
-  log "跳过异地副本（OFFSITE_ENABLED=$OFFSITE_ENABLED）"
+  log "跳过异地副本（OFFSITE_ENABLED=${OFFSITE_ENABLED}）"
 elif ! command -v rsync >/dev/null; then
   log "ERROR 跳过异地副本：缺少 rsync"
   off_rc=1
@@ -147,7 +161,7 @@ else
   OFF_REMOTE_UP="$OFFSITE_DIR/uploads-snapshots"
 
   if ! $OFF_SSH "$OFF_TARGET" "mkdir -p '$OFF_REMOTE_DB' '$OFF_REMOTE_UP'"; then
-    log "ERROR 异地副本失败：连不上 $OFF_TARGET（本地快照已保留）"
+    log "ERROR 异地副本失败：连不上 ${OFF_TARGET}（本地快照已保留）"
     off_rc=1
   else
     if rsync -a -e "$OFF_SSH" "$OUT" "$OFF_TARGET:$OFF_REMOTE_DB/" >>"$LOGFILE" 2>&1; then
@@ -160,8 +174,9 @@ else
 
     if [ -n "$UP_OUT" ] && [ -d "$UP_OUT" ]; then
       # --link-dest 指向**异地**上一份快照（rsync 在远端解释这个路径），
-      # 未变文件在远端也是硬链接 → 每份都是完整镜像，但几乎不额外占空间
-      OFF_PREV="$($OFF_SSH "$OFF_TARGET" "ls -1dt '$OFF_REMOTE_UP'/*/ 2>/dev/null | head -1")"
+      # 未变文件在远端也是硬链接 → 每份都是完整镜像，但几乎不额外占空间。
+      # 同样按名字排（远端的快照目录也被 rsync 盖了源目录 mtime，见 list_snapshots_desc 的说明）
+      OFF_PREV="$($OFF_SSH "$OFF_TARGET" "ls -1d '$OFF_REMOTE_UP'/*/ 2>/dev/null | LC_ALL=C sort -r | head -1")"
       OFF_LINK=""
       [ -n "$OFF_PREV" ] && OFF_LINK="--link-dest=$OFF_PREV"
       if rsync -a --delete -e "$OFF_SSH" $OFF_LINK "$UP_OUT/" "$OFF_TARGET:$OFF_REMOTE_UP/$TS/" >>"$LOGFILE" 2>&1; then
@@ -173,14 +188,14 @@ else
       fi
     fi
 
-    # 异地保留策略（比本地少留几份）
+    # 异地保留策略（比本地少留几份）；同样按名字排，不用 mtime（见 list_snapshots_desc）
     $OFF_SSH "$OFF_TARGET" "
-      ls -1dt '$OFF_REMOTE_DB'/product_db.db.bak.* 2>/dev/null | tail -n +$((OFFSITE_KEEP+1)) | xargs -r rm -f
-      ls -1dt '$OFF_REMOTE_UP'/*/ 2>/dev/null | tail -n +$((OFFSITE_KEEP+1)) | xargs -r rm -rf
+      ls -1d '$OFF_REMOTE_DB'/product_db.db.bak.* 2>/dev/null | LC_ALL=C sort -r | tail -n +$((OFFSITE_KEEP+1)) | xargs -r rm -f
+      ls -1d '$OFF_REMOTE_UP'/*/ 2>/dev/null | LC_ALL=C sort -r | tail -n +$((OFFSITE_KEEP+1)) | xargs -r rm -rf
     " >/dev/null 2>&1 || log "  （异地清理未执行成功）"
 
     $OFF_SSH "$OFF_TARGET" "
-      echo \"异地现有 → db \$(ls -1 '$OFF_REMOTE_DB' 2>/dev/null | wc -l) 份、uploads \$(ls -1d '$OFF_REMOTE_UP'/*/ 2>/dev/null | wc -l) 份（上限 $OFFSITE_KEEP）\"
+      echo \"异地现有 → db \$(ls -1 '$OFF_REMOTE_DB' 2>/dev/null | wc -l) 份、uploads \$(ls -1d '$OFF_REMOTE_UP'/*/ 2>/dev/null | wc -l) 份（上限 ${OFFSITE_KEEP}）\"
     " 2>/dev/null | while read -r line; do log "  $line"; done
   fi
 fi
