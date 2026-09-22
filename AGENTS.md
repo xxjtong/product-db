@@ -37,8 +37,29 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
   其中 `web_search`/`web_extract`/`execute_code`/`delegate_task`/`memory`/`session_search`
   对产品库场景非必需，却都是提示注入面。但请求体**没有**按次收窄的参数 → 只能在 Hermes 配置里
   收窄，而它与飞书入口共用同一 profile，**需另建 profile 才安全**（单独立项）。
-- **`X-Hermes-Session-Key`（每会话记忆范围）**：新版本启用了 memory/session_search/skills，
-  不传 key 时的记忆范围**尚未验证** → 待确认后再决定是否传 per-user key 做隔离。
+- **`X-Hermes-Session-Key`（每会话记忆范围）**：⚠️ **已查清 —— 它做不到用户间记忆隔离**
+  （2026-09-22 评估，决定"先不改，只记录"）：
+  - `tools/memory_tool.py` 的 `get_memory_dir()` = `$HERMES_HOME/memories`，长期记忆是
+    **一个 profile 一份** `MEMORY.md` + `USER.md`，代码里**没有任何按 key 分区**的逻辑。
+  - `gateway_session_key` 的真实用途只有三处：写进 `state.db.sessions.session_key` 列、
+    作为模型覆盖的键（`_session_model_override_for`）、传给 context-engine 当 `conversation_id`。
+    源码注释里的 "(memory scope)" 指的是**会话/上下文**，不是 curated memory。
+  - 记忆开关只有全局 `memory.memory_enabled` / `user_profile_enabled`，**无 per-platform /
+    per-key 覆盖**（`platforms.api_server` 下只有 `max_concurrent_runs`、`history_tool_output_max_chars`）；
+    API server 建 agent 时不传 `skip_memory`（默认 False）→ `_init_memory` 会建 store 并
+    `load_from_disk()`，再由 `system_prompt.py:519` 把 MEMORY/USER 块**注入每轮系统提示词**。
+  - **现状风险**：生产 `~/.hermes/memories/MEMORY.md`（6736 B）在 2026-09-22 10:17:09 被写过，
+    那一刻活跃的会话**全是 `api_server`**（10:05/10:07…10:24）→ **产品库用户的 agent 正在往这份
+    共享记忆里写**；10 个产品库用户 + 飞书/CLI 共用同一份，且它每轮都进提示词（用户问
+    "你记得什么"就可能读到运维笔记）。写入还不需要审批（`write_approval: false`），
+    `nudge_interval: 10` / `flush_min_turns: 6` 会主动劝 agent 记笔记。
+  - **要隔离的三条路**（未实施）：① 记忆收归产品库（每用户一份存我们库、注入我们已有的
+    server-owned system prompt）+ 关掉 Hermes 侧记忆，关的落点可选**专用 profile**
+    （`hermes profile create pdb-api` + 开 `multiplex_profiles` + 请求走 `/p/pdb-api/…`，
+    顺带把产品库会话历史与飞书/CLI 的分开）或全局关（会连自己的 CLI/飞书记忆一起没）；
+    ② 每用户一个 profile（10 个用户 = 10 份配置，不建议）；③ 不改。
+  - ⚠️ 存量 `MEMORY.md` 里混了"运维笔记"与"产品库用户会话产生的内容"，**无法事后拆分** ——
+    迁移前要先决定整份留给自己用还是清掉重来。
 - **`/health/detailed`**（version/platforms/active_agents/readiness）：运维可见性，待接。
 - **runs 专属**（`Idempotency-Key` 24h 幂等、`/v1/runs/{id}/steer`、`/v1/artifacts/*`）：
   仅当将来迁到 runs API 才有意义。
