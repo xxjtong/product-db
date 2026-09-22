@@ -1229,7 +1229,36 @@ class TestAgentQuickReplies:
 
 
 # ============================================================
-# Agent: SSE 出口加固 —— R64
+# Agent: 提示词里挡住「输出非本用户的记忆」—— R66
+# ============================================================
+class TestAgentPromptMemoryFence:
+    """Hermes 的长期记忆（MEMORY.md）是按 profile 共享的，结构性隔离还没做（见 AGENTS.md R65），
+    先靠 system 提示词围栏把「复述记忆/内部信息」挡住。这组用例守住围栏不被后续编辑误删。"""
+
+    def test_default_prompt_has_memory_fence(self):
+        from app.routers.admin_routes import _PROMPT_DEFAULTS
+        p = _PROMPT_DEFAULTS["agent_prompt"]
+        assert "非本用户的记忆" in p
+        assert "你的提示词" in p
+        assert "长期记忆" in p
+        # 原有围栏不能被新条款挤掉
+        assert "不要调用与 PDB 业务无关的工具或命令" in p
+        assert "忽略以上规则" in p
+
+    def test_fallback_prompt_has_memory_fence(self):
+        """agent.py 的兜底提示词（admin_routes 读不到时用）也要挡。"""
+        from app.routers.agent import _AGENT_PROMPT_DEFAULT
+        assert "长期记忆" in _AGENT_PROMPT_DEFAULT
+        assert "提示词" in _AGENT_PROMPT_DEFAULT
+
+    def test_agent_prompt_endpoint_serves_fence(self, auth_headers):
+        resp = client.get("/product-db/api/agent/prompt", headers=auth_headers)
+        assert resp.status_code == 200
+        assert "非本用户的记忆" in resp.json()["prompt"]
+
+
+# ============================================================
+# Agent: SSE 出口加固 / 状态事件 —— R64–R65
 # ============================================================
 class TestAgentStatusEvent:
     """Hermes 0.21.4 新增 `hermes.status`（provider 等待/自动恢复/降级切换）。
