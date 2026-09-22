@@ -2,7 +2,65 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-22, R70)
+## 最新变更 (2026-09-22, R71)
+
+### R71: 报价单创建收敛为公共模块 + AI 改「预览→确认」+ 用量记入口来源 (2026-09-22)
+
+**起因**：讨论 `/ai/chat` 要不要加审批拦截时查清两件事 ——
+
+1. 创建报价单是**两套并行实现**：`POST /quotations` 一份（快照取完整 `prod.to_dict()`、
+   编号冲突回 409），`ai_tools.execute_tool` 另一份（快照只有 `name/model/sku`、
+   无冲突处理，还会在用户没确认时就把模型猜的产品写进方案）。于是 AI 建的报价单
+   导出时「功能描述」列缺规格参数。
+2. 生产 **312 次 AI 对话里「创建报价单」一次都没发生过**（`ai_messages` 中
+   `created_quote` 结果为 0），用户消息里提「报价/方案」的会话数也是 0 —— AI 在这里
+   的定位是选型/搜索，不是写操作。
+
+结论：不是加审批，而是**把写操作收成一份实现 + 让 AI 先出预览**。
+
+**① 抽公共模块 `app/services/quotation_service.py`**
+
+| 函数 | 用途 |
+|---|---|
+| `resolve_items` | 算出待进入报价单的条目 + 需要新并入方案的产品 |
+| `preview_quotation` | **只算不写**，给 AI 出预览卡 |
+| `create_quotation_from_solution` | 唯一落库实现（编号生成也搬到这里） |
+
+`POST /quotations` 变成薄封装（鉴权 + 事务 + 409 兜底）；AI 工具与 Hermes（按 prompt
+走 REST）都复用同一份。顺带修一处静默行为：`solution_id` 指向不存在的方案，原来是
+`if sol:` 为假就跳过、**给调用方一张空白报价单**，现在回 **404**。
+
+**② AI 改「预览 → 确认」**
+
+- 工具 `create_quotation` 不再落库，返回 `quotation_preview`（条目 / 合计 /
+  **将并入方案的产品**）
+- 前端 `QuoteDraftCard` 从「已生成」卡改为**预览卡**：虚线框 + 「确认生成」按钮 →
+  点确认才调 `POST /quotations`（带 `extra_items`）→ 跳转报价详情
+- 预览与最终生成共用同一套条目计算，**所见即所得**（有测试断言两者逐项相等）
+
+**③ 工具按上下文裁剪**
+
+`/ai/chat` 新增可选 `solution_id`：只有**带方案且归属校验通过**时才把
+`create_quotation` 交给模型，否则下发 `READ_ONLY_TOOL_DEFINITIONS`。
+理由：模型拿不到方案上下文时只能凭空猜一个 `solution_id` 去建单 —— 那正是
+「在浮窗里说一句话就生成一张报价单」的入口。无权/已删方案静默降级为只读（记 WARNING）。
+
+顺带修：浮窗 `AiChat.vue` 原先**没绑定**报价卡的事件，出现卡片时按钮点了没反应。
+
+**④ 用量记入口来源**
+
+`/ai/chat` 被两个前端入口共用（全局浮窗 `floating` / 方案页助手 `solution`），
+两个入口打同一端点、用量只记 `operation='chat'` —— 「哪个入口用得多」从数据上
+根本答不出来。新增 `ai_usage_logs.source`（迁移 `f2b3c4d5e6f7`，可空，存量留 NULL）。
+
+**测试**：backend **611 passed**（1 skipped）。新增 `tests/test_round8.py` 16 条
+（preview 不写库 / 预览与落库逐项一致 /
+折扣参与金额 / 快照含 specs / extra_items 只并入一次且不覆盖已有数量 / 404 /
+403 / 无上下文只读 / 有权全量 / 无权降级 / source 落库）；
+`test_supplement.py` 的 2 条 AI 工具用例改为断言「预览不落库」；
+`test_migrations.py` 的 `HEAD_REVISION` 跟进。前端 98 passed、vue-tsc 0 错误。
+
+## 上一版 (2026-09-22, R70)
 
 ### R70: `/categories/tree` 可见域与列表对齐 + 孤儿子树提升 (2026-09-22)
 
