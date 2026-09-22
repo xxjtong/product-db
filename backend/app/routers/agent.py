@@ -698,7 +698,9 @@ async def agent_chat(
                     "content": "[系统提示] 用户已批准该操作，请继续完成。",
                 })
             else:
-                yield f"data: {json.dumps({'error': '操作被用户拒绝'})}\n\n"
+                # 与其他 yield 一致带 ensure_ascii=False：否则中文被转义成 \uXXXX，
+                # 排障时 grep 中文和看日志都费劲（前端解码后显示不受影响）
+                yield f"data: {json.dumps({'error': '操作被用户拒绝'}, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"
                 return
             # Continue to Hermes
