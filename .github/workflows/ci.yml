@@ -42,3 +42,48 @@ jobs:
         run: npx vitest run
       - name: Build
         run: npm run build
+
+  # 端到端：真起后端（自带临时库 + seed_e2e.py 的确定性种子）+ vite dev server，跑 Playwright。
+  # 与上面两个 job 是**独立**的：E2E 需要「库里有数据」，单元测试不需要。
+  e2e:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: sqlite:////tmp/e2e.db
+      DEV_MODE: "true"
+      SECRET_KEY: ci-e2e-secret-key-at-least-32-characters
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend deps
+        working-directory: backend
+        run: pip install -r requirements.txt
+      - name: Prepare database (migrate + seed)
+        working-directory: backend
+        run: |
+          alembic upgrade head
+          python seed_e2e.py
+      - name: Start backend
+        working-directory: backend
+        run: |
+          nohup uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/uvicorn.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/product-db/api/health > /dev/null; then break; fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8000/product-db/api/health
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+        working-directory: frontend
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run E2E
+        working-directory: frontend
+        run: npx playwright test
+      - name: Backend log on failure
+        if: failure()
+        run: tail -50 /tmp/uvicorn.log

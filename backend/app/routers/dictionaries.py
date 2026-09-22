@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.utils.helpers import get_or_404, apply_partial_update
+from app.utils.helpers import get_or_404, apply_partial_update, clamp_page
 from app.models.dictionary import (Manufacturer, DictCommMethod, DictCommProtocol,
                                    DictPowerSupply, DictSensorMetric)
 from app.auth import get_current_user, filter_by_ownership, check_ownership, require_admin
@@ -18,6 +18,7 @@ router = APIRouter()
 
 @router.get("/dicts/manufacturers")
 def list_manufacturers(page: int = 1, per_page: int = 20, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    page, per_page = clamp_page(page, per_page)
     q = filter_by_ownership(db.query(Manufacturer), Manufacturer, user)
     total = q.count()
     items = q.order_by(Manufacturer.sort_order, Manufacturer.name).offset((page-1)*per_page).limit(per_page).all()
@@ -68,6 +69,7 @@ def _dict_list_filtered(model, db: Session, user, order_by=None, page: int = 1, 
     total = q.count()
     if order_by is not None:
         q = q.order_by(order_by)
+    page, per_page = clamp_page(page, per_page)
     items = q.offset((page - 1) * per_page).limit(per_page).all()
     return items, total
 

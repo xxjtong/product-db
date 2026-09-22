@@ -36,7 +36,7 @@
       <tfoot>
         <tr>
           <td colspan="7" style="text-align:right;font-weight:600">合计（含税）</td>
-          <td class="font-mono" style="font-weight:700">¥{{ quotation.items.reduce((s: number, i: any) => s + (i.amount || 0), 0).toLocaleString(undefined, {minimumFractionDigits:2}) }}</td>
+          <td class="font-mono" style="font-weight:700">¥{{ quotation.items.reduce((s: number, i: QuotationItem) => s + (i.amount || 0), 0).toLocaleString(undefined, {minimumFractionDigits:2}) }}</td>
           <td></td>
           <td v-if="canViewCost"></td>
         </tr>
@@ -60,7 +60,7 @@ import PageHeader from '../components/PageHeader.vue'
 import BOMSpreadsheet from '../components/BOMSpreadsheet.vue'
 import { fetchQuotation, quotationExportUrl } from '../api'
 import { formatDescriptionWithSpecs } from '../utils/markdown'
-import type { Quotation } from '../types'
+import type { Quotation, QuotationItem } from '../types'
 
 const route = useRoute()
 const quotation = ref<Quotation | null>(null)
@@ -69,7 +69,7 @@ const loadError = ref('')
 const showBom = ref(false)
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 // 成本列只在有权限时渲染（后端同样会裁掉值）
-const canViewCost = inject<any>('canViewCost', ref(false))
+const canViewCost = inject('canViewCost', ref(false))
 
 function getDesc(item: { product_snapshot?: { description?: string; specs?: Record<string, unknown> } }): string {
   const snap = item.product_snapshot || {}
@@ -91,8 +91,8 @@ async function load() {
   try {
     const res = await fetchQuotation(Number(route.params.id))
     quotation.value = res.quotation
-  } catch (e: any) {
-    loadError.value = e.message || '加载失败'
+  } catch (e: unknown) {
+    loadError.value = (e instanceof Error ? e.message : String(e)) || '加载失败'
   }
   loading.value = false
 }

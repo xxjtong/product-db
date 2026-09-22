@@ -34,12 +34,20 @@ import { createQuotation } from '../../api'
 
 // 这是**预览**卡，不是"已生成"卡：后端只算不写（R71），用户在卡上点确认才落库。
 // 以前后端直接建单、这里只展示结果，用户还没表态方案就先被改了。
+interface QuotePreviewItem {
+  name?: string
+  model?: string
+  quantity?: number
+  amount?: number
+  product_id?: number
+}
+
 const props = defineProps<{
   solution_id?: number
   title?: string
   client_name?: string
-  items?: any[]
-  new_items?: any[]
+  items?: QuotePreviewItem[]
+  new_items?: QuotePreviewItem[]
   total?: number
   count?: number
 }>()
@@ -51,7 +59,7 @@ const error = ref('')
 const doneId = ref<number | null>(null)
 const newItems = computed(() => props.new_items || [])
 
-function money(v: any): string {
+function money(v: unknown): string {
   return Math.round(Number(v) || 0).toLocaleString()
 }
 
@@ -68,11 +76,11 @@ async function onConfirm() {
       solution_id: props.solution_id,
       // 预览里展示过、尚未进方案的产品，确认时一并并入（后端会跳过方案里已有的）
       extra_items: newItems.value.map(n => ({ product_id: n.product_id, quantity: n.quantity })),
-    }) as any
+    })
     doneId.value = res?.quotation?.id ?? null
     emit('created', doneId.value)
-  } catch (e: any) {
-    error.value = e?.detail || e?.message || '生成失败'
+  } catch (e: unknown) {
+    error.value = (e instanceof Error ? e.message : String(e)) || '生成失败'
   } finally {
     busy.value = false
   }

@@ -32,26 +32,26 @@ test.describe('Auth Errors', () => {
   test('unauthenticated user redirected to /login when accessing /products', async ({ page }) => {
     // Don't inject any token — clean page
     await page.goto(`${BASE}/products`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     expect(page.url()).toContain('/login')
   })
 
   test('unauthenticated user redirected to /login when accessing /solutions', async ({ page }) => {
     await page.goto(`${BASE}/solutions`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     expect(page.url()).toContain('/login')
   })
 
   test('unauthenticated user redirected to /login when accessing /admin', async ({ page }) => {
     await page.goto(`${BASE}/admin`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     expect(page.url()).toContain('/login')
   })
 
   test('invalid token redirects to /login', async ({ page }) => {
     await setupBadToken(page)
     await page.goto(`${BASE}/products`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle')
     // SPA may still show products briefly if guard is API-based; check final state
     // The router guard or a 401 from API should eventually send user to login
     expect(page.url()).toContain('/login')
@@ -60,7 +60,7 @@ test.describe('Auth Errors', () => {
   test('expired token redirects to /login', async ({ page }) => {
     await setupExpiredToken(page)
     await page.goto(`${BASE}/products`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle')
     expect(page.url()).toContain('/login')
   })
 })
@@ -72,7 +72,7 @@ test.describe('404 Handling', () => {
   test('navigate to /nonexistent shows NotFoundView', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/nonexistent-page`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     // Expect a "not found" or "404" message
     const bodyText = await page.locator('body').textContent()
     const has404 =
@@ -87,7 +87,7 @@ test.describe('404 Handling', () => {
   test('404 page has a link back to home or products', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/nonexistent-page`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     // Look for a home/back link
     const homeLink = page.locator('a[href*="/products"], a[href*="/"], button:has-text("首页"), button:has-text("返回"), a:has-text("返回"), a:has-text("首页")')
     const count = await homeLink.count()
@@ -105,7 +105,7 @@ test.describe('Form Validation', () => {
     // Leave username empty, fill password
     await page.fill('input[type="password"]', 'somepass')
     await page.locator('button:has-text("登录")').click()
-    await page.waitForTimeout(1500)
+    await page.waitForLoadState('networkidle')
     // Should show an error message (toast, inline, or alert)
     const errorIndicators = page.locator(
       '.error, .toast, .alert, .message, [class*="error"], [class*="toast"], [class*="warn"]'
@@ -121,7 +121,7 @@ test.describe('Form Validation', () => {
     await page.fill('input[placeholder="用户名"]', 'admin')
     await page.fill('input[type="password"]', 'wrongpassword123')
     await page.locator('button:has-text("登录")').click()
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     // Should stay on login page (not redirect)
     expect(page.url()).toContain('/login')
     // Should show some error feedback
@@ -140,12 +140,12 @@ test.describe('Form Validation', () => {
   test('create product with missing required name → shows validation error', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/products/new`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     // Try to save without filling the product name
     const saveBtn = page.locator('button:has-text("保存")').first()
     if (await saveBtn.isVisible().catch(() => false)) {
       await saveBtn.click()
-      await page.waitForTimeout(1500)
+      await page.waitForLoadState('networkidle')
       // Should either show a validation message or stay on the same page (not redirect to list)
       const url = page.url()
       const stayedOnForm = url.includes('/products/new') || url.includes('/products')
@@ -173,7 +173,7 @@ test.describe('API Error Recovery', () => {
     // Block the API endpoint to simulate network failure
     await page.route('**/api/products**', (route) => route.abort('connectionrefused'))
     await page.goto(`${BASE}/products`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle')
     // Should show some error indication (error message, empty state, retry button)
     const errorIndicators = page.locator(
       '.error, .error-state, .toast, .alert, button:has-text("重试"), button:has-text("retry"), [class*="error"]'
@@ -187,7 +187,7 @@ test.describe('API Error Recovery', () => {
   test('500 error during save shows error toast', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/products/new`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     // Fill required fields
     const nameInput = page.locator('input').first()
     if (await nameInput.isVisible().catch(() => false)) {
@@ -203,7 +203,7 @@ test.describe('API Error Recovery', () => {
     const saveBtn = page.locator('button:has-text("保存")').first()
     if (await saveBtn.isVisible().catch(() => false)) {
       await saveBtn.click()
-      await page.waitForTimeout(3000)
+      await page.waitForLoadState('networkidle')
       // Should show error toast or message
       const bodyText = await page.locator('body').textContent() || ''
       const hasErrorFeedback =
@@ -243,7 +243,7 @@ test.describe('Edge Cases', () => {
     await setupPage(page)
     await page.goto(`${BASE}/products`, { waitUntil: 'domcontentloaded' })
     await page.waitForSelector('.sidebar-nav', { timeout: 10000 })
-    await page.waitForTimeout(1000)
+    await page.waitForLoadState('networkidle')
 
     const links = [
       '.sidebar-link:has-text("方案")',
@@ -263,7 +263,7 @@ test.describe('Edge Cases', () => {
     }
 
     // Wait for everything to settle
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle')
     // App should still be functional
     await expect(page.locator('body')).toBeVisible()
     // No JS error overlay
@@ -275,7 +275,7 @@ test.describe('Edge Cases', () => {
   test('long text in product name renders without breaking layout', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/products/new`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
 
     const nameInput = page.locator('input').first()
     if (await nameInput.isVisible().catch(() => false)) {

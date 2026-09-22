@@ -14,6 +14,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { fetchSolution, fetchDependencies, fetchCategories, fetchProduct } from '../api'
+import type { ProductDependency } from '../types'
 
 const props = defineProps<{ solutionId: number }>()
 
@@ -21,14 +22,14 @@ const container = ref<HTMLElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
 const canvasW = ref(800)
 const canvasH = ref(400)
-const hovered = ref<any>(null)
+const hovered = ref<GraphNode | null>(null)
 const tipX = ref(0)
 const tipY = ref(0)
 
 interface GraphNode {
   id: number; name: string; category: string; x: number; y: number; angle: number; isRoot?: boolean
 }
-interface GraphEdge { from: number; to: number; type: string; label: string }
+interface GraphEdge { from: number; to: number | null; type: string; label: string }
 
 let resizeObserver: ResizeObserver | null = null
 let nodes: GraphNode[] = []
@@ -40,8 +41,8 @@ async function loadGraph() {
   const solution = res.solution
 
   // Fetch dependencies for each product in the solution
-  const productIds = (solution.items || []).map((i: any) => i.product_id)
-  const allDeps: any[] = []
+  const productIds = (solution.items || []).map(i => i.product_id)
+  const allDeps: ProductDependency[] = []
 
   for (const pid of productIds) {
     try {
@@ -84,7 +85,7 @@ async function loadGraph() {
   const depNodes: GraphNode[] = []
 
   for (const pid of productIds) {
-    const isInSolution = (solution.items || []).some((i: any) => i.product_id === pid)
+    const isInSolution = (solution.items || []).some(i => i.product_id === pid)
     const node: GraphNode = {
       id: pid,
       name: prodMap[pid] || `#${pid}`,
@@ -146,7 +147,7 @@ function draw() {
   // Draw edges
   for (const e of edges) {
     const from = nodeMap[e.from]
-    const to = nodeMap[e.to]
+    const to = e.to === null ? undefined : nodeMap[e.to]
     if (!from && e.from) continue
     if (!from || !to) continue
 

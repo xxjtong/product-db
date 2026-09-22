@@ -157,7 +157,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, inject, computed } from 'vue'
+import { ref, onMounted, inject, computed, type Ref } from 'vue'
 import { PencilIcon, Trash2Icon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import Modal from '../components/Modal.vue'
@@ -165,7 +165,7 @@ import CategoriesView from './CategoriesView.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Pagination from '../components/Pagination.vue'
 import { fetchCommMethods, fetchCommProtocols, fetchPowerSupplies, fetchSensorMetrics, fetchManufacturers, createManufacturer, updateManufacturer, deleteManufacturer, fetchSuppliers, fetchSuppliersPaginated, createSupplier, updateSupplier, deleteSupplier, createCommMethod, updateCommMethod, deleteCommMethod, createCommProtocol, updateCommProtocol, deleteCommProtocol, createPowerSupply, updatePowerSupply, deletePowerSupply, createSensorMetric, updateSensorMetric, deleteSensorMetric } from '../api'
-import type { Manufacturer, Supplier } from '../types'
+import type { Manufacturer, Supplier, CurrentUser } from '../types'
 
 const activeTab = ref('categories')
 const tabs = [
@@ -181,12 +181,13 @@ const showToast = inject<(msg: string, type?: string) => void>('toast', () => {}
 
 // 主数据（厂商/供应商/通讯方式/协议/供电/传感器指标/品类）仅管理员可写，
 // 与后端 require_admin 门禁保持一致，普通用户隐藏编辑入口
-const currentUser = inject<any>('currentUser', ref(null))
+const currentUser = inject<Ref<CurrentUser | null>>('currentUser', ref<CurrentUser | null>(null))
 const isAdmin = computed(() => currentUser?.value?.role === 'admin')
 const confirmState = ref({ visible: false, action: () => {} })
 function showConfirm(action: () => void) { confirmState.value = { visible: true, action } }
 
 interface DictItem { id: number; name: string; method_type?: string; supply_category?: string; unit?: string; accuracy?: string; resolution?: string; description?: string }
+type DictForm = { id?: number; name: string; method_type?: string; supply_category?: string; unit?: string; accuracy?: string; resolution?: string; description?: string }
 
 const commMethods = ref<DictItem[]>([])
 const commProtocols = ref<DictItem[]>([])
@@ -200,8 +201,8 @@ const psPage = ref(1); const psTotal = ref(0)
 const smPage = ref(1); const smTotal = ref(0)
 
 const mfgModalVisible = ref(false)
-const editingMfg = ref<any>(null)
-const mfgForm = ref<any>({ name: '', website: '' })
+const editingMfg = ref<Manufacturer | null>(null)
+const mfgForm = ref<{ name: string; website: string; sort_order?: number }>({ name: '', website: '' })
 
 function openAddMfg() {
   editingMfg.value = null
@@ -209,7 +210,7 @@ function openAddMfg() {
   mfgModalVisible.value = true
 }
 
-function openEditMfg(m: any) {
+function openEditMfg(m: Manufacturer) {
   editingMfg.value = m
   mfgForm.value = { name: m.name, website: m.website || '', sort_order: m.sort_order ?? 100 }
   mfgModalVisible.value = true
@@ -226,16 +227,16 @@ async function saveMfg() {
     }
     mfgModalVisible.value = false
     await loadManufacturers()
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
-async function doDeleteMfg(m: any) {
+async function doDeleteMfg(m: Manufacturer) {
   showConfirm(async () => {
     try {
       await deleteManufacturer(m.id)
       showToast('已删除', 'success')
       await loadManufacturers()
-    } catch (e: any) { showToast(e.detail || e.message, 'error') }
+    } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
   })
 }
 
@@ -249,8 +250,8 @@ async function loadManufacturers() {
     const res = await fetchManufacturers(mfgPage.value, perPage.value)
     manufacturers.value = res.manufacturers
     mfgTotal.value = res.total || 0
-  } catch (e: any) {
-    loadError.value = e.message || '加载失败'
+  } catch (e: unknown) {
+    loadError.value = e instanceof Error ? (e.message || '加载失败') : '加载失败'
   }
   loading.value = false
 }
@@ -277,9 +278,9 @@ async function loadAll() {
     powerSupplies.value = ps.power_supplies; psTotal.value = ps.total
     sensorMetrics.value = sm.sensor_metrics; smTotal.value = sm.total
     manufacturers.value = mfg.manufacturers; mfgTotal.value = mfg.total || 0
-    suppliers.value = (sup as any).suppliers; supTotal.value = (sup as any).total || 0
-  } catch (e: any) {
-    loadError.value = e.message || '加载失败'
+    suppliers.value = sup.suppliers; supTotal.value = sup.total || 0
+  } catch (e: unknown) {
+    loadError.value = e instanceof Error ? (e.message || '加载失败') : '加载失败'
   }
   loading.value = false
 }
@@ -293,24 +294,24 @@ const editingSup = ref<Supplier | null>(null)
 const supForm = ref({ name: '', contact_person: '', phone: '', email: '', notes: '' })
 
 async function loadSuppliers() {
-  const res = await fetchSuppliersPaginated(`page=${supPage.value}&per_page=${perPage.value}`) as any
+  const res = await fetchSuppliersPaginated(`page=${supPage.value}&per_page=${perPage.value}`)
   suppliers.value = res.suppliers; supTotal.value = res.total
 }
 function openAddSup() { editingSup.value = null; supForm.value = { name: '', contact_person: '', phone: '', email: '', notes: '' }; supModalVisible.value = true }
 function openEditSup(s: Supplier) { editingSup.value = s; supForm.value = { name: s.name, contact_person: s.contact_person || '', phone: s.phone || '', email: s.email || '', notes: s.notes || '' }; supModalVisible.value = true }
 async function saveSup() {
   try { editingSup.value ? await updateSupplier(editingSup.value.id, supForm.value) : await createSupplier(supForm.value); supModalVisible.value = false; await loadSuppliers(); showToast('已保存', 'success') }
-  catch (e: any) { showToast(e.detail || e.message, 'error') }
+  catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
-async function deleteSup(id: number) { try { await deleteSupplier(id); showToast('已删除', 'success'); await loadSuppliers() } catch (e: any) { showToast(e.detail || e.message || '删除失败', 'error') } }
+async function deleteSup(id: number) { try { await deleteSupplier(id); showToast('已删除', 'success'); await loadSuppliers() } catch (e: unknown) { showToast(e instanceof Error ? (e.message || '删除失败') : '删除失败', 'error') } }
 
 // Dict CRUD (shared for comm/protocol/power/metric)
 const dictModalVisible = ref(false)
-const dictEditing = ref<any>(null)
-const dictForm = ref<Record<string,any>>({ name: '', method_type: 'wired', supply_category: '', unit: '' })
+const dictEditing = ref<DictItem | null>(null)
+const dictForm = ref<DictForm>({ name: '', method_type: 'wired', supply_category: '', unit: '' })
 
 function openDictAdd() { dictEditing.value = null; dictForm.value = { name: '', method_type: 'wired', supply_category: '', unit: '' }; dictModalVisible.value = true }
-function openDictEdit(item: any) { dictEditing.value = item; dictForm.value = { ...item }; dictModalVisible.value = true }
+function openDictEdit(item: DictItem) { dictEditing.value = item; dictForm.value = { ...item }; dictModalVisible.value = true }
 
 async function saveDict() {
   try {
@@ -323,7 +324,7 @@ async function saveDict() {
     const loaders: Record<string, Function> = { comm_methods: loadCommMethods, comm_protocols: loadCommProtocols, power_supplies: loadPowerSupplies, sensor_metrics: loadSensorMetrics }
     await loaders[tab]()
     showToast('已保存', 'success')
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
 async function doDictDelete(id: number) {
@@ -332,18 +333,22 @@ async function doDictDelete(id: number) {
   const deleters: Record<string, Function> = { comm_methods: deleteCommMethod, comm_protocols: deleteCommProtocol, power_supplies: deletePowerSupply, sensor_metrics: deleteSensorMetric }
   const loaders: Record<string, Function> = { comm_methods: loadCommMethods, comm_protocols: loadCommProtocols, power_supplies: loadPowerSupplies, sensor_metrics: loadSensorMetrics }
   try { await deleters[tab](id); await loaders[tab](); showToast('已删除', 'success') }
-  catch (e: any) { showToast(e.detail || e.message, 'error') }
+  catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
 onMounted(loadAll)
 </script>
 
 <style scoped>
-.dict-tabs { display: flex; gap: 4px; }
+/* 7 个页签在窄屏被 flex 压缩，中文逐字竖排成「通/讯/方/式」（实测每个 45×77）。
+   改为整条横向滚动 + 页签自身不收缩、不断行 */
+.dict-tabs { display: flex; gap: 4px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.dict-tabs::-webkit-scrollbar { display: none; }
 .dict-tab {
   padding: 6px 16px; border: none; background: transparent;
   font-size: 13px; cursor: pointer; border-radius: 6px;
   color: var(--color-text-secondary); transition: all .15s;
+  white-space: nowrap; flex-shrink: 0;
 }
 .dict-tab:hover { background: var(--color-hover); color: var(--color-text); }
 .dict-tab.active { background: var(--color-accent); color: #fff; }

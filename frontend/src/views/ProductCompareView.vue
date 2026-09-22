@@ -35,7 +35,10 @@
     <div style="margin-bottom:12px;color:var(--color-text-secondary);font-size:12px">
       共 {{ specKeys.length }} 项差异参数（仅显示值不同的参数）
     </div>
-    <table class="data-table" style="min-width:600px">
+    <!-- 不要再给这张表加 min-width:600px：对比表通常只有「参数 + 2~4 个产品」几列，
+         内容本来放得下；硬撑到 600px 会把第 2 个产品列推到 375px 屏外（实机走查 I3）。
+         外层 .card 已 overflow-x:auto，列多时照样横滑（列宽由下面 th 的 min-width 决定） -->
+    <table class="data-table">
       <thead>
         <tr>
           <th style="width:150px;min-width:100px">参数</th>
@@ -78,12 +81,12 @@ const products = ref<Record<number, Product>>({})
 const displayNames = ref<Record<string, string>>({})
 const searchText = ref('')
 const searchResults = ref<Product[]>([])
-let searchTimer: any = null
+let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const productList = computed(() => Object.values(products.value))
 const specKeys = computed(() => matrix.value ? Object.keys(matrix.value) : [])
 
-function formatVal(val: any): string {
+function formatVal(val: unknown): string {
   if (val === null || val === undefined) return '—'
   if (typeof val === 'boolean') return val ? '✓' : '—'
   if (typeof val === 'number') {
@@ -110,17 +113,17 @@ function isHighlight(key: string, _productId: number): boolean {
 async function onSearch() {
   const q = searchText.value.trim()
   if (!q) { searchResults.value = []; return }
-  clearTimeout(searchTimer)
+  if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(async () => {
     try {
       const res = await fetchProducts(`search=${encodeURIComponent(q)}&per_page=10`)
       const existing = new Set(Object.keys(products.value).map(Number))
-      searchResults.value = (res.products || []).filter((p: any) => !existing.has(p.id))
+      searchResults.value = (res.products || []).filter(p => !existing.has(p.id))
     } catch { searchResults.value = [] }
   }, 300)
 }
 
-function addProduct(p: any) {
+function addProduct(p: Product) {
   products.value = { ...products.value, [p.id]: p }
   searchResults.value = []
   searchText.value = ''
@@ -164,8 +167,8 @@ async function loadCompare(ids: number[]) {
     matrix.value = res.matrix
     products.value = { ...products.value, ...res.products }
     displayNames.value = res.display_names || {}
-  } catch (e: any) {
-    loadError.value = e.message || '加载对比数据失败'
+  } catch (e: unknown) {
+    loadError.value = (e instanceof Error ? e.message : String(e)) || '加载对比数据失败'
   }
   loaded.value = true
 }

@@ -63,7 +63,7 @@ test.describe('Products List', () => {
       const count = await pageBtns.count()
       if (count > 1) {
         await pageBtns.nth(1).click()
-        await page.waitForTimeout(1000)
+        await page.waitForLoadState('networkidle')
         await expect(page.locator('table tbody tr').first()).toBeVisible()
       }
     }
@@ -72,14 +72,14 @@ test.describe('Products List', () => {
   test('product compare page loads', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/products/compare`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(1000)
+    await page.waitForLoadState('networkidle')
     await expect(page.locator('body')).toBeVisible()
   })
 
   test('product import page loads', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/products/import`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(1000)
+    await page.waitForLoadState('networkidle')
     await expect(page.locator('body')).toBeVisible()
   })
 })
@@ -94,7 +94,9 @@ test.describe('Product Detail', () => {
     await page.waitForSelector('table tbody tr', { timeout: 15000 })
     const detailLink = page.locator('table tbody tr a, table tbody tr button').first()
     await detailLink.click()
-    await page.waitForTimeout(2000)
+    // 点击后的跳转要等 URL 条件：networkidle 在页面已空闲时会**立即返回**，
+    // 会落在 vue-router 真正 push 之前（实测断言到旧 URL）→ 见下方同类点
+    await page.waitForURL((u) => /\/products\/\d+/.test(u.pathname), { timeout: 10000 })
     expect(page.url()).toMatch(/\/products\/\d+/)
   })
 
@@ -106,14 +108,14 @@ test.describe('Product Detail', () => {
     const href = await firstRow.locator('a').first().getAttribute('href')
     const productId = href?.match(/\/(\d+)/)?.[1] || '1'
     await page.goto(`${BASE}/products/${productId}/edit`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     await expect(page.locator('input, textarea, select').first()).toBeVisible({ timeout: 5000 })
   })
 
   test('new product page loads form', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/products/new`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     await expect(page.locator('input, textarea, select').first()).toBeVisible({ timeout: 5000 })
   })
 })
@@ -125,18 +127,18 @@ test.describe('Solutions', () => {
   test('solutions list page loads', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/solutions`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     await expect(page.locator('table, .empty-state').first()).toBeVisible({ timeout: 10000 })
   })
 
   test('solution detail page loads', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/solutions`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     const viewBtn = page.locator('button:has-text("查看")').first()
     if (await viewBtn.isVisible().catch(() => false)) {
       await viewBtn.click()
-      await page.waitForTimeout(2000)
+      await page.waitForURL((u) => /\/solutions\/\d+/.test(u.pathname), { timeout: 10000 })
       expect(page.url()).toMatch(/\/solutions\/\d+/)
     }
   })
@@ -149,18 +151,18 @@ test.describe('Quotations', () => {
   test('quotations list page loads', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/quotations`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     await expect(page.locator('table, .empty-state').first()).toBeVisible({ timeout: 10000 })
   })
 
   test('quotation detail shows export and BOM buttons', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/quotations`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     const viewBtn = page.locator('button:has-text("查看")').first()
     if (await viewBtn.isVisible().catch(() => false)) {
       await viewBtn.click()
-      await page.waitForTimeout(2000)
+      await page.waitForURL((u) => /\/quotations\/\d+/.test(u.pathname), { timeout: 10000 })
       expect(page.url()).toMatch(/\/quotations\/\d+/)
       await expect(page.locator('button:has-text("导出")').first()).toBeVisible({ timeout: 5000 })
       await expect(page.locator('button:has-text("BOM")').first()).toBeVisible({ timeout: 5000 })
@@ -170,15 +172,15 @@ test.describe('Quotations', () => {
   test('quotation detail — toggle BOM editor', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/quotations`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     const viewBtn = page.locator('button:has-text("查看")').first()
     if (await viewBtn.isVisible().catch(() => false)) {
       await viewBtn.click()
-      await page.waitForTimeout(2000)
+      await page.waitForLoadState('networkidle')
       const bomBtn = page.locator('button:has-text("BOM")').first()
       if (await bomBtn.isVisible().catch(() => false)) {
         await bomBtn.click()
-        await page.waitForTimeout(1000)
+        await page.waitForLoadState('networkidle')
         const bomTable = page.locator('.bom-table, table').last()
         await expect(bomTable).toBeVisible({ timeout: 5000 })
       }
@@ -188,11 +190,11 @@ test.describe('Quotations', () => {
   test('quotation detail — 功能描述 column has specs | separator, no URLs', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/quotations`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     const viewBtn = page.locator('button:has-text("查看")').first()
     if (await viewBtn.isVisible().catch(() => false)) {
       await viewBtn.click()
-      await page.waitForTimeout(2000)
+      await page.waitForLoadState('networkidle')
       const descHeader = page.locator('th:has-text("功能描述")')
       if (await descHeader.isVisible().catch(() => false)) {
         const descCells = page.locator('table tbody tr td:nth-child(5), table tbody tr td:nth-child(4)')
@@ -219,7 +221,7 @@ test.describe('Dictionaries', () => {
   test('dictionaries page loads with tabs', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/dictionaries`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     await expect(page.locator('button, .tab, [role="tab"]').first()).toBeVisible({ timeout: 10000 })
   })
 })
@@ -231,7 +233,7 @@ test.describe('Agent Page', () => {
   test('agent page loads with input area', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/agent`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle')
     await expect(page.locator('textarea, input[type="text"], .sidebar-link, button').first()).toBeVisible({ timeout: 10000 })
   })
 })
@@ -243,7 +245,7 @@ test.describe('Admin Page', () => {
   test('admin page loads for admin user', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/admin`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle')
     await expect(page.locator('body')).toBeVisible()
     expect(page.url()).toContain('/admin')
   })
@@ -308,7 +310,7 @@ test.describe('Sidebar Navigation', () => {
     await setupPage(page)
     await page.goto(`${BASE}/products`, { waitUntil: 'domcontentloaded' })
     await page.waitForSelector('.sidebar-nav', { timeout: 10000 })
-    await page.waitForTimeout(1000)
+    await page.waitForLoadState('networkidle')
     const navLinks = [
       { text: '方案', path: '/solutions' },
       { text: '报价单', path: '/quotations' },
@@ -318,7 +320,7 @@ test.describe('Sidebar Navigation', () => {
       const link = page.locator(`.sidebar-link:has-text("${text}")`)
       if (await link.isVisible().catch(() => false)) {
         await link.click()
-        await page.waitForTimeout(1500)
+        await page.waitForURL((u) => u.pathname.includes(path), { timeout: 10000 })
         expect(page.url()).toContain(path)
       }
     }
@@ -328,7 +330,7 @@ test.describe('Sidebar Navigation', () => {
     await setupPage(page)
     await page.goto(`${BASE}/products`, { waitUntil: 'domcontentloaded' })
     await page.waitForSelector('.sidebar-logo', { timeout: 10000 })
-    await page.waitForTimeout(1000)
+    await page.waitForLoadState('networkidle')
     const logo = page.locator('.sidebar-logo')
     await logo.click()
     await page.waitForTimeout(500)
@@ -339,12 +341,14 @@ test.describe('Sidebar Navigation', () => {
     await setupPage(page)
     await page.goto(`${BASE}/solutions`, { waitUntil: 'domcontentloaded' })
     await page.waitForSelector('.sidebar-nav', { timeout: 10000 })
-    await page.waitForTimeout(1000)
+    await page.waitForLoadState('networkidle')
     const searchInput = page.locator('.sidebar-search input')
     if (await searchInput.isVisible().catch(() => false)) {
       await searchInput.fill('test')
       await searchInput.press('Enter')
-      await page.waitForTimeout(1500)
+      // 侧栏搜索有 500ms 防抖：networkidle 会在防抖静默期就满足，要等 URL 真的带上查询
+      await page.waitForURL((u) => u.pathname.includes('/products') && u.search.includes('search=test'),
+        { timeout: 10000 })
       expect(page.url()).toContain('/products')
       expect(page.url()).toContain('search=test')
     }
@@ -354,11 +358,11 @@ test.describe('Sidebar Navigation', () => {
     await setupPage(page)
     await page.goto(`${BASE}/products`, { waitUntil: 'domcontentloaded' })
     await page.waitForSelector('.sidebar-nav', { timeout: 10000 })
-    await page.waitForTimeout(1000)
+    await page.waitForLoadState('networkidle')
     const userBtn = page.locator('.sidebar-user-btn')
     if (await userBtn.isVisible().catch(() => false)) {
       await userBtn.click()
-      await page.waitForTimeout(500)
+      await page.waitForLoadState('networkidle')
       await expect(page.locator('.user-dropdown')).toBeVisible()
       await expect(page.locator('button:has-text("退出")')).toBeVisible()
     }
@@ -372,27 +376,27 @@ test.describe('Routing', () => {
   test('root redirects to /products', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     expect(page.url()).toContain('/products')
   })
 
   test('unauthenticated user redirected to login', async ({ page }) => {
     await page.goto(`${BASE}/products`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     expect(page.url()).toContain('/login')
   })
 
   test('/categories redirects to /dictionaries', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/categories`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(1000)
+    await page.waitForLoadState('networkidle')
     expect(page.url()).toContain('/dictionaries')
   })
 
   test('AI chat hidden on /agent page', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/agent`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle')
     // AiChat should not be rendered on agent page (App.vue condition)
     const chatFab = page.locator('.ai-chat-fab, [class*="chat-fab"]')
     await expect(chatFab).not.toBeVisible({ timeout: 3000 }).catch(() => {
@@ -408,13 +412,13 @@ test.describe('Dictionaries — Tab Switching', () => {
  test('switch to each dict tab', async ({ page }) => {
    await setupPage(page)
    await page.goto(`${BASE}/dictionaries`, { waitUntil: 'domcontentloaded' })
-   await page.waitForTimeout(2000)
+   await page.waitForLoadState('networkidle')
    const tabNames = ['通讯方式', '通讯协议', '供电方式', '传感器指标', '厂商', '供应商']
    for (const tab of tabNames) {
      const tabBtn = page.locator(`.dict-tab:has-text("${tab}")`)
      if (await tabBtn.isVisible().catch(() => false)) {
        await tabBtn.click()
-       await page.waitForTimeout(800)
+       await page.waitForLoadState('networkidle')
         // After switching, page should not crash — v-show hides other tables
         await expect(page.locator('body')).toBeVisible()
         // The active tab button should have 'active' class
@@ -426,7 +430,7 @@ test.describe('Dictionaries — Tab Switching', () => {
   test('通讯方式 tab — table renders, edit modal opens', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/dictionaries`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     // Click 通讯方式 tab
     await page.locator('.dict-tab:has-text("通讯方式")').click()
     await page.waitForTimeout(1000)
@@ -449,9 +453,9 @@ test.describe('Dictionaries — Tab Switching', () => {
  test('厂商 tab — sort_order editable', async ({ page }) => {
    await setupPage(page)
    await page.goto(`${BASE}/dictionaries`, { waitUntil: 'domcontentloaded' })
-   await page.waitForTimeout(2000)
+   await page.waitForLoadState('networkidle')
    await page.locator('.dict-tab:has-text("厂商")').click()
-   await page.waitForTimeout(1000)
+   await page.waitForLoadState('networkidle')
     // Manufacturer section header should be visible
     await expect(page.locator('h3:has-text("厂商")').first()).toBeVisible({ timeout: 5000 })
     // The tab button should be active
@@ -466,7 +470,7 @@ test.describe('Admin — LLM Config', () => {
   test('LLM config card has base URL fields and test buttons', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/admin`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle')
     // Should see LLM config section
     await expect(page.locator('h3:has-text("LLM")').first()).toBeVisible({ timeout: 5000 })
     // API keys come from .env only — base URL fields are the editable inputs
@@ -478,7 +482,7 @@ test.describe('Admin — LLM Config', () => {
   test('AI settings section has prompt textareas', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/admin`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle')
     // AI 设置 section
     await expect(page.locator('h3:has-text("AI 设置")').first()).toBeVisible({ timeout: 5000 })
     // Prompt textareas should exist
@@ -488,7 +492,7 @@ test.describe('Admin — LLM Config', () => {
   test('field visibility toggles exist', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/admin`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle')
     await expect(page.locator('h3:has-text("字段可见性")').first()).toBeVisible({ timeout: 5000 })
     const checkboxes = page.locator('input[type="checkbox"]')
     const count = await checkboxes.count()
@@ -503,7 +507,7 @@ test.describe('Product Create', () => {
   test('fill new product form fields', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/products/new`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle')
     // Name input should be visible
     const nameInput = page.locator('input').first()
     await expect(nameInput).toBeVisible({ timeout: 5000 })
@@ -527,11 +531,11 @@ test.describe('Solution Detail — Interactions', () => {
     await setupPage(page)
     // Navigate to a solution with items
     await page.goto(`${BASE}/solutions`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     const viewBtn = page.locator('button:has-text("查看")').first()
     if (await viewBtn.isVisible().catch(() => false)) {
       await viewBtn.click()
-      await page.waitForTimeout(2000)
+      await page.waitForLoadState('networkidle')
       // Client name input
       await expect(page.locator('input').first()).toBeVisible({ timeout: 5000 })
       // Check/Dependency buttons
@@ -548,13 +552,13 @@ test.describe('AI Chat FAB', () => {
     await setupPage(page)
     await page.goto(`${BASE}/products`, { waitUntil: 'domcontentloaded' })
     await page.waitForSelector('table', { timeout: 15000 })
-    await page.waitForTimeout(1000)
+    await page.waitForLoadState('networkidle')
 
     // Look for the AI chat floating button
     const fab = page.locator('.ai-chat-fab, [class*="chat-fab"], [class*="ai-chat"] button, button:has(.lucide-message-circle)').first()
     if (await fab.isVisible().catch(() => false)) {
       await fab.click()
-      await page.waitForTimeout(1000)
+      await page.waitForLoadState('networkidle')
       // Chat panel should open — check for input textarea
       const chatInput = page.locator('textarea').first()
       // May or may not be visible depending on implementation
@@ -566,7 +570,7 @@ test.describe('AI Chat FAB', () => {
   test('AI chat not shown on agent page', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/agent`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle')
     // AiChat should NOT be rendered on /agent (App.vue condition)
     const fab = page.locator('.ai-chat-fab, [class*="chat-fab"]')
     await expect(fab).toHaveCount(0).catch(async () => {
@@ -583,7 +587,7 @@ test.describe('Agent Conversation', () => {
   test('agent page has input textarea', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/agent`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle')
     // Should have a text input or textarea for chat
     await expect(page.locator('textarea, input[type="text"]').first()).toBeVisible({ timeout: 10000 })
   })
@@ -591,7 +595,7 @@ test.describe('Agent Conversation', () => {
   test('agent page — type message and send', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/agent`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle')
 
     const inputBox = page.locator('textarea').first()
     if (await inputBox.isVisible().catch(() => false)) {
@@ -639,7 +643,7 @@ test.describe('Product Compare', () => {
       const compareBtn = page.locator('button:has-text("对比")').first()
       if (await compareBtn.isVisible().catch(() => false)) {
         await compareBtn.click()
-        await page.waitForTimeout(2000)
+        await page.waitForURL((u) => u.pathname.includes('/compare'), { timeout: 10000 })
         expect(page.url()).toContain('/compare')
       }
     }
@@ -654,19 +658,19 @@ test.describe('BOM Editor — Edit & Save', () => {
     await setupPage(page)
     // Find a quotation first
     await page.goto(`${BASE}/quotations`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
 
     const viewBtn = page.locator('button:has-text("查看")').first()
     if (!(await viewBtn.isVisible().catch(() => false))) return
 
     await viewBtn.click()
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
 
     // Open BOM editor
     const bomBtn = page.locator('button:has-text("BOM")').first()
     if (!(await bomBtn.isVisible().catch(() => false))) return
     await bomBtn.click()
-    await page.waitForTimeout(1000)
+    await page.waitForLoadState('networkidle')
 
     // BOM table should be visible
     const bomTable = page.locator('.bom-table')
@@ -689,7 +693,7 @@ test.describe('BOM Editor — Edit & Save', () => {
       const saveBtn = page.locator('.bom-spreadsheet button:has-text("保存")')
       if (await saveBtn.isVisible().catch(() => false)) {
         await saveBtn.click()
-        await page.waitForTimeout(2000)
+        await page.waitForLoadState('networkidle')
         // After save, page should still be functional
         await expect(page.locator('body')).toBeVisible()
       }
@@ -699,17 +703,17 @@ test.describe('BOM Editor — Edit & Save', () => {
   test('BOM add row creates new editable row', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/quotations`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
 
     const viewBtn = page.locator('button:has-text("查看")').first()
     if (!(await viewBtn.isVisible().catch(() => false))) return
     await viewBtn.click()
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
 
     const bomBtn = page.locator('button:has-text("BOM")').first()
     if (!(await bomBtn.isVisible().catch(() => false))) return
     await bomBtn.click()
-    await page.waitForTimeout(1000)
+    await page.waitForLoadState('networkidle')
 
     // Count existing rows
     const bomTable = page.locator('.bom-table')
@@ -737,7 +741,7 @@ test.describe('Dictionaries — Add & Delete Flow', () => {
   test('open add modal, fill form, cancel without saving', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/dictionaries`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
 
     // Switch to 通讯方式 tab
     await page.locator('.dict-tab:has-text("通讯方式")').click()
@@ -762,7 +766,7 @@ test.describe('Dictionaries — Add & Delete Flow', () => {
       const cancelBtn = modal.locator('button:has-text("取消")').first()
       if (await cancelBtn.isVisible().catch(() => false)) {
         await cancelBtn.click()
-        await page.waitForTimeout(500)
+        await page.waitForLoadState('networkidle')
         // Modal should be gone
         await expect(modal).not.toBeVisible({ timeout: 3000 })
       }
@@ -772,7 +776,7 @@ test.describe('Dictionaries — Add & Delete Flow', () => {
   test('delete button shows confirm dialog', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/dictionaries`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
 
     await page.locator('.dict-tab:has-text("通讯方式")').click()
     await page.waitForTimeout(1000)
@@ -781,7 +785,7 @@ test.describe('Dictionaries — Add & Delete Flow', () => {
     const trashBtn = page.locator('table tbody tr button').last()
     if (await trashBtn.isVisible().catch(() => false)) {
       await trashBtn.click()
-      await page.waitForTimeout(800)
+      await page.waitForLoadState('networkidle')
       // Should show confirm dialog or at least not crash
       await expect(page.locator('body')).toBeVisible()
     }
@@ -795,7 +799,7 @@ test.describe('Admin — LLM Test', () => {
   test('click LLM test button shows result message', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/admin`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle')
 
     // Click first test button
     const testBtn = page.locator('button:has-text("测试")').first()
@@ -836,7 +840,7 @@ test.describe('Product Compare — Real IDs', () => {
       const id2 = href2?.match(/\/(\d+)/)?.[1]
       if (id1 && id2) {
         await page.goto(`${BASE}/products/compare?ids=${id1},${id2}`, { waitUntil: 'domcontentloaded' })
-        await page.waitForTimeout(2000)
+        await page.waitForLoadState('networkidle')
         // Should show comparison matrix or at minimum not crash
         await expect(page.locator('body')).toBeVisible()
       }
@@ -851,12 +855,12 @@ test.describe('Solution Detail — AI Assistant', () => {
   test('AI chat section renders in solution detail', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/solutions`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
 
     const viewBtn = page.locator('button:has-text("查看")').first()
     if (!(await viewBtn.isVisible().catch(() => false))) return
     await viewBtn.click()
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
 
     // Should see "生成报价单" button
     await expect(page.locator('button:has-text("生成报价单")').first()).toBeVisible({ timeout: 5000 })
@@ -880,7 +884,7 @@ test.describe('Agent — Suggestions', () => {
   test('suggestion questions are clickable', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/agent`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(3000)
+    await page.waitForLoadState('networkidle')
 
     // Look for suggestion/question buttons in sidebar
     const suggestionBtns = page.locator('button:has-text("查询"), button:has-text("创建"), button:has-text("帮助")')
@@ -910,7 +914,7 @@ test.describe('Product Detail — Spec Sheet', () => {
     const firstLink = page.locator('table tbody tr a[href*="/products/"]').first()
     if (await firstLink.isVisible().catch(() => false)) {
       await firstLink.click()
-      await page.waitForTimeout(2000)
+      await page.waitForLoadState('networkidle')
 
       // Look for spec sheet or export/download buttons
       const specBtn = page.locator('button:has-text("规格书"), button:has-text("PDF"), button:has-text("导出")').first()
@@ -939,7 +943,7 @@ test.describe('Product List — Batch Operations', () => {
       const batchDelBtn = page.locator('button:has-text("批量删除"), button:has-text("删除")').first()
       if (await batchDelBtn.isVisible().catch(() => false)) {
         await batchDelBtn.click()
-        await page.waitForTimeout(500)
+        await page.waitForLoadState('networkidle')
         // Should show confirm or error
         await expect(page.locator('body')).toBeVisible()
       }

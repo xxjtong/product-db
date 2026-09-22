@@ -121,7 +121,7 @@ import Pagination from '../components/Pagination.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import AsyncContainer from '../components/AsyncContainer.vue'
 import { fetchProducts, deleteProduct, fetchCommMethods, fetchCommProtocols, fetchPowerSupplies, fetchManufacturers, fetchCategoryTree } from '../api'
-import type { Product, Manufacturer } from '../types'
+import type { Product, Manufacturer, Category } from '../types'
 
 const route = useRoute()
 const router = useRouter()
@@ -155,7 +155,7 @@ function toggleSelect(id: number) {
 
 function toggleAll(e: Event) {
   const checked = (e.target as HTMLInputElement).checked
-  selectedIds.value = checked ? products.value.map((p: any) => p.id).slice(0, 6) : []
+  selectedIds.value = checked ? products.value.map(p => p.id).slice(0, 6) : []
 }
 
 interface DictItem { id: number; name: string }
@@ -164,13 +164,22 @@ const commMethods = ref<DictItem[]>([])
 const commProtocols = ref<DictItem[]>([])
 const powerSupplies = ref<DictItem[]>([])
 const manufacturers = ref<Manufacturer[]>([])
-const categoryTree = ref<any[]>([])
-const flatCategories = ref<any[]>([])
+const categoryTree = ref<Category[]>([])
+const flatCategories = ref<Category[]>([])
 
 
 
 
-const filters = reactive<Record<string, any>>({
+interface ProductFilters {
+  category_id: number | null
+  sub_category_id: number | null
+  comm_method: number | null
+  comm_protocol: number | null
+  power_supply: number | null
+  manufacturer_id: number | null
+}
+
+const filters = reactive<ProductFilters>({
   category_id: null,
   sub_category_id: null,
   comm_method: null,
@@ -186,7 +195,7 @@ function toggleCategory(id: number) {
   filters.sub_category_id = null
   // Auto-expand filter if parent has children (to show sub-categories)
   if (filters.category_id) {
-    const parent = categoryTree.value.find((c: any) => c.id === id)
+    const parent = categoryTree.value.find(c => c.id === id)
     if (parent?.children?.length) filterOpen.category = true
   }
   page.value = 1
@@ -199,7 +208,7 @@ function toggleSubCategory(id: number) {
   loadProducts()
 }
 
-function toggleFilter(key: string, value: any) {
+function toggleFilter(key: keyof ProductFilters, value: number) {
   filters[key] = filters[key] === value ? null : value
   page.value = 1
   loadProducts()
@@ -239,15 +248,15 @@ async function loadProducts() {
     const res = await fetchProducts(buildParams())
     products.value = res.products
     total.value = res.total
-  } catch (e: any) {
-    loadError.value = e.message || '加载失败'
+  } catch (e: unknown) {
+    loadError.value = (e instanceof Error ? e.message : String(e)) || '加载失败'
     products.value = []
     total.value = 0
   }
   loading.value = false
 }
 
-function confirmDelete(p: any) { deleteTarget.value = p }
+function confirmDelete(p: Product) { deleteTarget.value = p }
 
 async function doDelete() {
   if (!deleteTarget.value) return
@@ -255,8 +264,8 @@ async function doDelete() {
     await deleteProduct(deleteTarget.value.id)
     deleteTarget.value = null
     await loadProducts()
-  } catch (e: any) {
-    showToast('操作失败: ' + (e.detail || e.message || '未知错误'), 'error')
+  } catch (e: unknown) {
+    showToast('操作失败: ' + ((e instanceof Error ? e.message : String(e)) || '未知错误'), 'error')
   }
 }
 
@@ -270,8 +279,8 @@ async function doBatchDelete() {
     }
     selectedIds.value = []
     await loadProducts()
-  } catch (e: any) {
-    showToast('操作失败: ' + (e.detail || e.message || '未知错误'), 'error')
+  } catch (e: unknown) {
+    showToast('操作失败: ' + ((e instanceof Error ? e.message : String(e)) || '未知错误'), 'error')
   }
 }
 

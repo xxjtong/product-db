@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 from app.database import get_db
-from app.utils.helpers import get_or_404, apply_partial_update, discount_percent
+from app.utils.helpers import get_or_404, apply_partial_update, discount_percent, clamp_page
 from app.models.solution import Solution, SolutionItem
 from app.models.product import Product
 from app.models.category import Category
@@ -60,6 +60,7 @@ def list_solutions(
             | Solution.project_name.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE)
         )
     from app.utils.helpers import paginate
+    page, per_page = clamp_page(page, per_page)
     solutions, total = paginate(q.order_by(Solution.updated_at.desc()), page, per_page)
     return {
         "solutions": [hide_cost_in(s.to_dict(), user, db) for s in solutions],
@@ -298,14 +299,23 @@ def suggest_solution(solution_id: int, db: Session = Depends(get_db), user=Depen
     solution_products = db.query(Product).filter(Product.id.in_(solution_product_ids)).all()
     solution_category_ids = {p.category_id for p in solution_products}
 
+    # 一次取回这批产品全部「必需依赖」，再按 product_id 分组 —— 原先是 `for item in items`
+    # 里逐条查依赖，条目越多查询越多（N+1）。返回顺序按条目分组，与改前一致（R76）
+    deps_by_product: dict = {}
+    if solution_product_ids:
+        for dep in db.query(ProductDependency).filter(
+            ProductDependency.product_id.in_(solution_product_ids),
+            ProductDependency.dependency_type == "required",
+        ).all():
+            deps_by_product.setdefault(dep.product_id, []).append(dep)
+
     # Preload categories for name lookup
     cat_map = {c.id: c for c in db.query(Category).all()}
 
     suggestions = []
     seen = set()
     for item in items:
-        deps = db.query(ProductDependency).filter_by(product_id=item.product_id, dependency_type="required").all()
-        for dep in deps:
+        for dep in deps_by_product.get(item.product_id, []):
             if dep.depends_on_category_id and dep.depends_on_category_id not in solution_category_ids:
                 if dep.depends_on_category_id in seen:
                     continue

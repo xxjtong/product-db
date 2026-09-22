@@ -15,7 +15,7 @@ from sqlalchemy import select, case, table, column
 from sqlalchemy import func, or_, update
 from sqlalchemy.exc import IntegrityError
 from app.database import get_db
-from app.utils.helpers import get_or_404, apply_partial_update, format_description_with_specs
+from app.utils.helpers import get_or_404, apply_partial_update, format_description_with_specs, clamp_page
 from app.models.product import Product
 from app.models.category import Category, CategorySpecDefinition
 from app.models.dependency import ProductDependency
@@ -67,6 +67,7 @@ def list_products(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+    page, per_page = clamp_page(page, per_page)
     q = db.query(Product).options(*product_eager_loads())
     q = filter_by_ownership(q, Product, user)
 

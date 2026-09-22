@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.utils.helpers import get_or_404
+from app.utils.helpers import get_or_404, clamp_page
 from app.models.category import Category, CategorySpecDefinition
 from app.auth import get_current_user, filter_by_ownership, check_ownership, require_admin
 from app.services.product_category_helper import delete_category_cascade, would_create_category_cycle
@@ -18,6 +18,7 @@ def list_categories(
     page: int = 1,
     per_page: int = 50,
 ):
+    page, per_page = clamp_page(page, per_page)
     all_cats = filter_by_ownership(db.query(Category), Category, user).order_by(Category.sort_order, Category.id).all()
     cat_dicts = [c.to_dict() for c in all_cats]
 

@@ -185,11 +185,12 @@ async function uploadFile(file: File) {
       headers: { 'Authorization': `Bearer ${token}` },
       body: fd,
     })
+    if (handleUnauthorized(res)) throw new Error('登录已过期，请重新登录')
     if (!res.ok) throw new Error((await res.json()).detail || 'Upload failed')
     fileLabel.value = ''
     await loadFiles()
     showToast('文件已上传', 'success')
-  } catch (e: any) { showToast(e.message || '上传失败', 'error') }
+  } catch (e: unknown) { showToast((e instanceof Error ? e.message : String(e)) || '上传失败', 'error') }
   uploading.value = false
 }
 
@@ -232,6 +233,7 @@ async function saveLink() {
         headers: authHeaders(),
         body: JSON.stringify({ label: linkForm.label.trim(), link_url: url }),
       })
+      if (handleUnauthorized(res)) throw new Error('登录已过期，请重新登录')
       if (!res.ok) throw new Error((await res.json()).detail || '更新失败')
       showToast('链接已更新', 'success')
     } else {
@@ -240,12 +242,13 @@ async function saveLink() {
         headers: authHeaders(),
         body: JSON.stringify({ label: linkForm.label.trim(), link_url: url }),
       })
+      if (handleUnauthorized(res)) throw new Error('登录已过期，请重新登录')
       if (!res.ok) throw new Error((await res.json()).detail || '添加失败')
       showToast('链接已添加', 'success')
     }
     cancelLinkDialog()
     await loadFiles()
-  } catch (e: any) { showToast(e.message || '操作失败', 'error') }
+  } catch (e: unknown) { showToast((e instanceof Error ? e.message : String(e)) || '操作失败', 'error') }
   savingLink.value = false
 }
 

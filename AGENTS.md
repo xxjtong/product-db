@@ -2,7 +2,180 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-22, R75)
+## 最新变更 (2026-09-22, R78)
+
+### R78: 三档问题批量清理（401 统一处理 / 健康详情 / E2E 进 CI / 异地备份 / 移动端走查）(2026-09-22)
+
+按「用户可见缺陷与安全 → 可观测性与防线 → 工程质量」的顺序清三档遗留清单。
+
+**① 401 统一处理补齐 —— 实际 16 处，不是清单里的 13 处**（P1）
+
+`handleUnauthorized` 原本只接在 `api()` 与 4 个调用点上。逐个核对全仓 **27 处原生 `fetch`** 后，
+补上 16 处漏接：AgentView 6 / ProductFiles 3 / App.vue 2 / AiExtractCard 2 / ImportView 2 / AiChat 1
+（LoginView 的 2 处是登录/注册本身，无 token，不适用；App.vue 的 `loadSession` 早已手写处理）。
+
+排查中另修掉一类**隐患**：有多处 `loading/importing/fetching` 标记是靠函数末尾复位、而不是
+`finally` —— 若在 try 里早退（比如 401 直接 return）会把标记永久卡在 true、按钮再也点不动。
+这些点改为抛错走原有 catch 路径（自动复位），`AiExtractCard.doFileExtract` 补 `finally`。
+
+**② `/api/health/detailed` 接入**（P2，`main.py` + `agent.get_hermes_health`）
+
+聚合两侧状态：本应用（`SELECT 1` 验 DB 连通）+ Hermes 的 `/health/detailed`
+（版本号 / 平台 / 活跃 agent 数 / readiness，需 gateway API key，超时 5s）。
+**仅 admin**（Hermes 侧是内部拓扑，不能像 `/api/health` 那样公开）；
+**上游故障也返回 200**，只在 `hermes.status` 里体现 `unreachable` / `error` ——
+否则「Hermes 挂了」和「整个服务挂了」长得一样，这个端点就失去了诊断价值。
+
+**③ E2E 进 CI**（P2）
+
+原先 E2E 只能对着「从生产同步下来的库」跑，CI 里没有那个库 → 一直进不了 CI。
+新增 `backend/seed_e2e.py`：幂等造最小确定性数据集（admin、3 品类、1 厂商、1 供应商、
+2 产品、1 方案、1 报价单）。`ci.yml` 增加独立的 `e2e` job：迁移 + 种子 + 起后端 + Playwright。
+
+- `playwright.config.ts` 在 `CI` 下 `testIgnore` 掉 `agent-isolation.spec.ts`：它需要**真实 Hermes
+  往返 + 开放自助注册**，CI 两样都没有，必然失败。其余 **100 条**都能跑。
+- 实测（本地按 CI 方式 `CI=1 npx playwright test`）：**99 passed / 1 skipped / 0 failed**。
+
+**④ 备份异地副本**（P2，`deploy/backup-db.sh`）
+
+本地与 /opt 同机，机器/磁盘挂了就都没了。新增第三段：把 db 快照与 uploads 快照
+`rsync` 推到 `bwh.ddns.mobi`（`OFFSITE_*` 环境变量可覆盖，`OFFSITE_ENABLED=0` 可关），
+异地上传快照同样用 `--link-dest` 硬链接、保留 7 份（比本地少）。
+**异地失败只记 ERROR 并以非 0 退出，绝不因此删本地快照** —— 本地才是主副本。
+已在生产机沙箱试跑验证：本地 OK / 异地 FAIL / 退出码 1，行为符合设计。
+
+> ⚠️ **异地机还没装 rsync**（Debian 12，`sudo` 需密码，我无法代装）：
+> 在 `bwh.ddns.mobi` 上执行一次 `sudo apt-get install -y rsync` 后异地那段才会成功。
+
+**⑤ P1-b Hermes 记忆隔离：本轮决定不做**（用户选择）
+
+R65 已查明：长期记忆是**一个 profile 一份**、10 个产品库用户与飞书/CLI 共用，且每轮注入
+系统提示词。要真隔离需「新 profile（`/p/pdb-api/v1/...`，API server 原生支持该前缀）
++ 关该 profile 的记忆 + 记忆收归产品库」，属于跨系统改造且与飞书/CLI 共用同一套部署，
+本轮**维持 R66 的提示词软护栏**，单独排期。
+
+**⑥ E2E 硬等改条件等待**（P3）
+
+114 处 `waitForTimeout` → **93 处**改成条件等待（多数是 `goto(...domcontentloaded)` 之后的
+`waitForLoadState('networkidle')`），**21 处保留**并逐条说明理由（防抖、CSS transition、
+纯前端态后跟非自动等待的 `isVisible()`、以及 agent 流式回答 / LLM 测试这类「本就时长不确定、
+用 networkidle 会挂到超时」的场景）。
+
+> ⚠️ **踩到的坑**：`networkidle` 在**页面已空闲时会立即返回**。所以「点击 → 断言 URL 变了」
+> 这类用法会落在 vue-router 真正 push 之前，实测断言到旧 URL（引入 3 个稳定失败 + 2 个 flaky）。
+> 这类点必须等 URL 条件：已改成 `page.waitForURL((u) => ...)`（6 处）。
+> 改完连跑两遍：**99 passed / 0 flaky**，总耗时 **2.6m → 1.6m**。
+
+**⑦ 前端 `any` 收类型**（P3）
+
+**225 → 22 处**。`types.ts` 新增/细化了 `CurrentUser`、`CommMethod/Protocol`、`PowerSupply`、
+`SensorMetric`、`ProductForm*` 系列、`AiFillPayload` 等；`Product.specs` 收成 `Record<string, unknown>`。
+规则是**只动类型位置、不改运行时逻辑**，禁止 `as any` / `@ts-ignore` 掩盖。
+保留的 22 处都是真正的动态数据（`custom_fields`、`product_snapshot`、AI 流式返回的异构数组、
+markdown 工具），逐条记了原因。
+
+**⑧ 移动端响应式走查（375×812 实机取证）**（P3）
+
+> 「响应式仅 8 处 `@media`」这个口径**有误导**：外壳层 768/480 两档断点早就有了
+> （侧栏折叠成图标条 → 底部 Tab 栏、表单单列、表格横滚、弹窗 95% 宽），
+> 8 处里还包含 2 处 `@media (hover:hover)`。所以本轮不按数量堆断点，而是**真在 375px 下走查**。
+
+走查发现 12 项实证缺陷，已全部修复并复验：
+
+| 项 | 问题 | 修法 |
+|---|---|---|
+| I5 | **（阻断）** 报价单 BOM 10 列表被压进 354px → 表头竖排、单元格 input 只剩 16px | `.bom-table` 加 `min-width:720px` + `th/td` nowrap，让已有 `overflow:auto` 的包裹层真正横滑 |
+| I6 | **（阻断）** 浮动 AI 按钮 `z-index:2000` 高于弹窗的 1000 → 盖住弹窗表单、点那块反而开 AI 面板 | `.ai-chat` 降到 900 |
+| I4 | 批量选品弹窗里 checkbox 占 92px、产品名列被挤成 31px 竖排 | `input:not([type=checkbox]):not([type=radio])` 才 `width:100%` |
+| I3 | 对比页只 3 列也被强撑到 600px，第 2 个产品列跑到屏幕外 | `ProductCompareView` 的内联 `min-width:600px` 删掉；main.css 里那条全局 `.data-table{min-width:600px}` 改回 `100%`（宽表靠 nowrap 自然撑开） |
+| I1/I2 | 全局页头中文按钮被逐字断行成竖排（「规格书」53×53、「删除选中 (1)」53×77），搜索框可输入区只剩 2px | 移动端 `button{white-space:nowrap}` + `PageHeader` 内层 flex 行在 ≤480 换行（原规则只作用在 `.page-header` 自身，管不到内层行） |
+| I7 | 字典 7 个页签被压成 45×77 竖排 | `.dict-tabs` 横向滚动 + `.dict-tab` nowrap/不收缩 |
+| I8 | AI 用量 5 项被压到最窄 28px（标签折成「4成/功」） | `.stat` 样式原在 AdminView 的 **scoped** 里、对不上子组件元素而失效 → 挪进 `AiUsageStats.vue` |
+| I9 | LLM 配置的内联 `grid-template-columns` 压过 768 断点，移动端仍两列 | 删掉内联那一项 |
+| I10 | 分页「每页」折成两行 | `.pagination > * { white-space: nowrap }` |
+| I11 | `/agent` placeholder 过长被裁 | 缩短为「输入消息…（Enter 发送）」，完整说明移到 `title` |
+| I12 | 浮动 AI 面板 `max-width:90vw` 反而生效（337.5 < 359），左右不对称 | ≤480 内补 `max-width:none` |
+
+顺带清掉一处**既存 CSS 语法残渣**：`main.css` 的 `.filter-tag-inline.active` 规则后有一段
+游离的 `color:#fff; }`（浏览器容错跳过，一直没人发现）。
+
+**回归确认**：375px 下 14 个路由整页无横向滚动；宽表（产品/方案/报价单/字典/管理/BOM）
+横滑能力未受影响（逐页实测 `scrollWidth > clientWidth`）；底部 Tab 栏未遮挡任何输入区。
+
+**测试**：backend **664 passed**（1 skipped，+8：`tests/test_round15.py` 覆盖 health/detailed 的
+admin 限制、上游 401/不可达/non-JSON 均返回 200、探活超时对齐）；
+frontend vitest **101 passed**（+3：401 统一处理的 App 层与导入页）；E2E **100 条进 CI**。
+
+## 上一版 (2026-09-22, R77)
+
+### R77: 列表接口 page / per_page 收口（`MAX_PER_PAGE = 1000`）(2026-09-22)
+
+遗留清单三档里唯一带资源风险的一项：**12 个列表端点全都没有分页上限**。
+
+**实际危害比「一次多取几行」严重**：`per_page=-1` 传到 SQLite 就是 `LIMIT -1`，语义是
+**不限量** —— 整表读进内存。品类接口还因为是在 Python 里切片，`per_page=-1` 会算成
+`flat[0:-1]`，返回「全部减一条」这种怪结果，而 `total` 仍是全量。
+另外 `suppliers` 的 `all=true` 走 `q.all()`，是**完全绕过分页**的另一条不限量入口（全仓无人调用）。
+
+**修法**：`utils/helpers.py` 新增 `MAX_PER_PAGE = 1000` 与 `clamp_page(page, per_page)`，
+`paginate()` 内部也调用它兜底；12 个端点各加一行收口，响应的 `page` / `per_page` 回的是**生效值**。
+
+| 端点 | 默认 | 收口位置 |
+|---|---|---|
+| `/products` | 20 | `products.py` |
+| `/suppliers`（含 `all=true`） | 25 | `suppliers.py`，`all=true` 折成 `page=1, per_page=MAX_PER_PAGE` 走同一条分页路径 |
+| `/categories` | 50 | `categories.py` |
+| `/dicts/manufacturers` | 20 | `dictionaries.py` |
+| `/dicts/{comm-methods,comm-protocols,power-supplies,sensor-metrics}` | 20 | `dictionaries.py` 的 `_dict_list_filtered`（一处覆盖 4 个） |
+| `/solutions`、`/quotations` | 20 | 各自 + `paginate()` |
+| `/admin/{login-logs,download-logs}` | 20 | `admin_routes.py` |
+
+**为什么是收口而不是回 422**：前端最大会发 `per_page=1000`（品类全量下拉）、`500`（字典/产品），
+产品列表的「全部」选项更是直接发 `per_page=<total>`。上限设成 1000 与之等值；
+若越界就拒绝，等产品数长到 1000 以上时「全部」会直接报错 —— 那才是功能回退。
+收口只是分页到上限，且响应里回生效值，调用方看得见。
+
+**测试**：backend **656 passed**（1 skipped）。新增 `tests/test_round14.py` 11 条：
+`clamp_page` 三个边界（0/负数抬到 1、超大压到上限、正常值不动）、`/products?per_page=100000`
+回生效值、`per_page=-1` **只回 1 条**（改前是不限量）、`page=0` 回 1、字典/品类负数各自收口、
+`all=true` 带上 `page` 且受限、**`per_page=1000` 必须原样放行**（守住前端上限不被压）。
+已反向验证：回退 7 个路由文件的调用点，7 条用例失败（`assert 100000 == 1000`、`assert -1 == 1`、
+`all=true` 无 `page` 键）。
+
+## 上一版 (2026-09-22, R76)
+
+### R76: `suggest_solution` 的 N+1 收敛 (2026-09-22)
+
+遗留清单里二档的最后一项。
+
+**问题**：`GET /solutions/{id}/suggest` 在 `for item in items` 里逐条
+`db.query(ProductDependency).filter_by(product_id=item.product_id, ...)` ——
+方案有几个条目就多几次依赖查询。实测（`before_cursor_execute` 数 SELECT）：
+1 / 6 / 12 / 30 个条目 → **7 / 12 / 18 / 36 条 SQL**，即 `6 + 条目数`。
+
+**修法**：一次 `IN` 取回这批产品的全部必需依赖，按 `product_id` 分组后复用同一个循环体。
+
+```python
+deps_by_product = {}
+for dep in db.query(ProductDependency).filter(
+        ProductDependency.product_id.in_(solution_product_ids),
+        ProductDependency.dependency_type == "required").all():
+    deps_by_product.setdefault(dep.product_id, []).append(dep)
+```
+
+保留「外层按条目、内层按依赖」的遍历顺序，`seen` 去重与结果排序与改前完全一致
+（不是换成按依赖表顺序遍历 —— 那会让多条目方案的 `suggestions` 顺序变掉）。
+实测改后 1 / 6 / 12 / 30 个条目一律 **7 条 SQL**。
+
+> 未一并动的地方：`cat_map` 仍是 `db.query(Category).all()`（50 行量级，收益不足）；
+> 每个缺失品类各一次候选产品查询（`seen` 已按品类去重，条数=缺失品类数，不是 N+1）。
+
+**测试**：backend **645 passed**（1 skipped）。新增 `tests/test_round13.py` 4 条：
+条目数 1→6 与 1→12 的 SELECT 条数**完全相等**、建议行为不变（仍带出「缺网关」类且含候选产品）、
+无依赖时返回空。已反向验证：把该文件 stash 回旧实现，两条计数用例会失败
+（`1 个条目 7 条 SELECT，6 个条目 12 条`）。
+
+## 上一版 (2026-09-22, R75)
 
 ### R75: 一档小项收尾（导入价格语义 + 价格区间参数纠偏）(2026-09-22)
 

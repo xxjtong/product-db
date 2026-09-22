@@ -111,19 +111,19 @@
 
 <script setup lang="ts">
 defineProps<{ embedded?: boolean }>()
-import { ref, reactive, onMounted, inject, computed } from 'vue'
+import { ref, reactive, onMounted, inject, computed, type Ref } from 'vue'
 import { PlusIcon, PencilIcon, Trash2Icon, SettingsIcon, InboxIcon } from 'lucide-vue-next'
 import PageHeader from '../components/PageHeader.vue'
 import Pagination from '../components/Pagination.vue'
 import Modal from '../components/Modal.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { fetchCategories, createCategory, updateCategory, deleteCategory, fetchSpecDefinitions, createSpecDefinition, updateSpecDefinition, deleteSpecDefinition } from '../api'
-import type { Category, SpecDefinition } from '../types'
+import type { Category, SpecDefinition, CurrentUser } from '../types'
 
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
 // 品类与规格定义属主数据，仅管理员可写（后端 require_admin 门禁），非管理员隐藏入口
-const currentUser = inject<any>('currentUser', ref(null))
+const currentUser = inject<Ref<CurrentUser | null>>('currentUser', ref<CurrentUser | null>(null))
 const isAdmin = computed(() => currentUser?.value?.role === 'admin')
 
 const categories = ref<Category[]>([])
@@ -157,7 +157,7 @@ async function loadCategories() {
     const res = await fetchCategories(`page=${page.value}&per_page=${perPage.value}`)
     categories.value = res.categories
     total.value = res.total || 0
-  } catch (e: any) { showToast(e.message || '加载失败', 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? (e.message || '加载失败') : '加载失败', 'error') }
 }
 
 async function loadAllCats() {
@@ -173,7 +173,7 @@ function openAddCategory() {
   catModalVisible.value = true
 }
 
-function openEditCategory(c: any) {
+function openEditCategory(c: Category) {
   editingCat.value = c
   Object.assign(catForm, { name: c.name, slug: c.slug || '', parent_id: c.parent_id, level: c.level || 1, sort_order: c.sort_order || 0, is_active: c.is_active })
   catModalVisible.value = true
@@ -191,10 +191,10 @@ async function saveCategory() {
     catModalVisible.value = false
     loadCategories()
     loadAllCats()
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
-function confirmDelete(c: any) { deleteTarget.value = c }
+function confirmDelete(c: Category) { deleteTarget.value = c }
 
 async function doDelete() {
   if (!deleteTarget.value) return
@@ -204,11 +204,11 @@ async function doDelete() {
     deleteTarget.value = null
     loadCategories()
     loadAllCats()
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
 // Spec definitions
-async function openSpecDefs(c: any) {
+async function openSpecDefs(c: Category) {
   specDefCat.value = c
   specDefFormVisible.value = false
   try {
@@ -223,7 +223,7 @@ function openAddSpecDef() {
   specDefFormVisible.value = true
 }
 
-function openEditSpecDef(sd: any) {
+function openEditSpecDef(sd: SpecDefinition) {
   editingSpecDef.value = sd
   Object.assign(specDefForm, { spec_key: sd.spec_key, display_name: sd.display_name, spec_type: sd.spec_type, unit: sd.unit || '', display_group: sd.display_group || '', sort_order: sd.sort_order || 0, is_filterable: sd.is_filterable })
   specDefFormVisible.value = true
@@ -242,7 +242,7 @@ async function saveSpecDef() {
     specDefFormVisible.value = false
     const res = await fetchSpecDefinitions(specDefCat.value.id)
     specDefs.value = res.spec_definitions
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
 async function deleteSpecDef(id: number) {
@@ -250,8 +250,8 @@ async function deleteSpecDef(id: number) {
   try {
     await deleteSpecDefinition(specDefCat.value.id, id)
     showToast('已删除', 'success')
-    specDefs.value = specDefs.value.filter((s: any) => s.id !== id)
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+    specDefs.value = specDefs.value.filter((s) => s.id !== id)
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
 onMounted(() => {

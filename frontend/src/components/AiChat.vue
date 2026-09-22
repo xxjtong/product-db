@@ -94,11 +94,12 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount, inject } from 'vue'
+import type { Component } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessageCircleIcon, Minimize2Icon } from 'lucide-vue-next'
 import SolutionProductCard from './GenUI/SolutionProductCard.vue'
 import QuoteDraftCard from './GenUI/QuoteDraftCard.vue'
-import { fetchConversations, fetchConversation, deleteConversation, createSolution, addSolutionItem, ApiError, readErrorDetail } from '../api'
+import { fetchConversations, fetchConversation, deleteConversation, createSolution, addSolutionItem, ApiError, readErrorDetail, handleUnauthorized } from '../api'
 import DOMPurify from 'dompurify'
 import { formatAiContent, escapeHtml, extractProducts } from '../utils/markdown'
 import { formatTime } from '../utils/time'
@@ -106,7 +107,29 @@ import { formatTime } from '../utils/time'
 function sanitize(html: string): string { return DOMPurify.sanitize(html) as string }
 function stripCalls(text: string): string { return text.replace(/调用.*?\.\.\./g, '').replace(/<｜｜DSML｜｜tool_calls>[\s\S]*?<\/｜｜DSML｜｜tool_calls>/g, '').trim() }
 
-const genuiRegistry: Record<string, any> = { SolutionProductCard, QuoteDraftCard }
+// 浮窗对话里的产品卡（后端 products 事件）。分组形态（带 solution_name）会在同一数组里
+// 塞入 _solution / _products，故这些字段可选。
+interface ChatProduct {
+  id?: number
+  name?: string
+  model?: string
+  price?: number
+  _solution?: { name: string; desc: string }
+  _products?: ChatProduct[]
+}
+/** GenUI 组件事件：component 是注册名，props 原样 v-bind 到组件上 */
+interface ChatComponent { component: string; props: Record<string, unknown> }
+interface ChatMessage {
+  role: string
+  content: string
+  products?: ChatProduct[]
+  tools?: string[]
+  components?: ChatComponent[]
+  quickReplies?: string[]
+}
+interface ConversationMeta { id: number; title: string; updated_at: string }
+
+const genuiRegistry: Record<string, Component> = { SolutionProductCard, QuoteDraftCard }
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
 const router = useRouter()
@@ -205,9 +228,9 @@ onBeforeUnmount(() => {
 const expanded = ref(false)
 const input = ref('')
 const loading = ref(false)
-const messages = ref<any[]>([])
+const messages = ref<ChatMessage[]>([])
 const convId = ref<number | null>(null)
-const convs = ref<any[]>([])
+const convs = ref<ConversationMeta[]>([])
 const msgContainer = ref<HTMLElement | null>(null)
 const sampleQuestions = [
   '找支持LoRaWAN的温湿度传感器',
@@ -289,7 +312,7 @@ async function loadConv(id: number) {
     const res = await fetchConversation(id)
     convId.value = id
     const msgs = res.conversation?.messages || []
-    messages.value = msgs.map((m: any) => ({
+    messages.value = msgs.map(m => ({
       role: m.role,
       content: formatContent(m.content, m.role),
       products: extractProducts(m.content, m.role),
@@ -313,8 +336,8 @@ async function onAddToBom(items: { id: number; qty: number }[]) {
       await addSolutionItem(sol.solution.id, { product_id: item.id, quantity: item.qty || 1 })
     }
     router.push(`/solutions/${sol.solution.id}`)
-  } catch (e: any) {
-    showToast('加入方案失败: ' + (e.detail || e.message || '请重试'), 'error')
+  } catch (e: unknown) {
+    showToast('加入方案失败: ' + ((e instanceof Error ? e.message : String(e)) || '请重试'), 'error')
     router.push('/solutions')
   }
 }
@@ -327,7 +350,7 @@ function formatContent(text: string, role: string): string {
 }
 
 
-function parseToolProducts(resultStr: string): any[] {
+function parseToolProducts(resultStr: string): ChatProduct[] {
   try {
     const d = JSON.parse(resultStr)
     return d.products || []
@@ -356,6 +379,7 @@ async function send(question?: string) {
     })
     // Non-SSE error response (e.g. 422) has no `data:` lines — fail loudly
     // instead of ending the stream silently with no reply.
+    if (handleUnauthorized(res)) throw new ApiError(401, '登录已过期，请重新登录')
     if (!res.ok) throw new ApiError(res.status, await readErrorDetail(res))
     const reader = res.body!.getReader()
 
@@ -363,8 +387,8 @@ async function send(question?: string) {
     let buffer = ''
     let currentText = ''
     let currentTools: string[] = []
-    let currentProducts: any[] = []
-    let currentComponents: any[] = []
+    let currentProducts: ChatProduct[] = []
+    let currentComponents: ChatComponent[] = []
     let currentQuickReplies: string[] = []
     let lastToolResult = ''
 
@@ -427,8 +451,8 @@ async function send(question?: string) {
         } catch { /* skip malformed SSE line */ }
       }
     }
-  } catch (e: any) {
-    messages.value.push({ role: 'assistant', content: `请求失败: ${escapeHtml(e.message || '请重试')}` })
+  } catch (e: unknown) {
+    messages.value.push({ role: 'assistant', content: `请求失败: ${escapeHtml((e instanceof Error ? e.message : String(e)) || '请重试')}` })
   }
   loading.value = false
   scrollDown()
@@ -443,9 +467,9 @@ function scrollDown() {
   })
 }
 
-function quickReply(reply: string, msg: any) {
-  if (reply === '对比产品' && msg.products?.length >= 2) {
-    const ids = msg.products.map((p: any) => p.id).join(',')
+function quickReply(reply: string, msg: ChatMessage) {
+  if (reply === '对比产品' && msg.products && msg.products.length >= 2) {
+    const ids = msg.products.map(p => p.id).join(',')
     // 参数名必须是 ids：ProductCompareView 只读 route.query.ids
     // （后端 API 的 product_ids 是另一回事，别混用）
     router.push(`/products/compare?ids=${ids}`)
@@ -461,7 +485,9 @@ function quickReply(reply: string, msg: any) {
 </script>
 
 <style scoped>
-.ai-chat { position: fixed; bottom: 60px; right: 20px; z-index: 2000; }
+/* z-index 必须**低于**弹窗（.modal-overlay 是 1000）：原先 2000 会让浮动按钮画在弹窗之上，
+   压住弹窗里的表单控件，点那块区域反而打开 AI 面板（375px 实机走查，方案选品/字典弹窗都中招） */
+.ai-chat { position: fixed; bottom: 60px; right: 20px; z-index: 900; }
 .ai-fab {
   width: 48px; height: 48px; border-radius: 50%;
   background: var(--color-accent); color: #fff;
@@ -554,6 +580,9 @@ code { background: var(--color-hover); padding: 1px 4px; border-radius: 3px; fon
     height: calc(100vh - 120px);
     max-height: calc(100vh - 120px);
     min-width: unset;
+    /* 基础规则的 max-width:90vw 会反过来生效（90vw=337.5 < 100vw-16=359），
+       面板于是右对齐、左侧多留 29.5px。这里要显式放开 */
+    max-width: none;
     right: 8px;
     bottom: 68px;
   }

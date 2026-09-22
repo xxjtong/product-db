@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.utils.helpers import get_or_404
+from app.utils.helpers import get_or_404, clamp_page, MAX_PER_PAGE
 from app.models.supplier import Supplier
 from app.auth import get_current_user, filter_by_ownership, check_ownership, require_admin
 from app.services.product_helpers import assert_dict_not_referenced
@@ -21,14 +21,16 @@ def list_suppliers(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+    page, per_page = clamp_page(page, per_page)
     q = filter_by_ownership(db.query(Supplier), Supplier, user)
     if search:
         q = q.filter(Supplier.name.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE))
     q = q.order_by(Supplier.name)
     total = q.count()
     if all:
-        suppliers = q.all()
-        return {"suppliers": [s.to_dict() for s in suppliers], "total": total}
+        # `all=true` 原先走 `q.all()`，**完全绕过 per_page** —— 比 `per_page=-1` 更直接的
+        # 不限量入口。改为取上限值走同一条分页路径，调用方无需改（R76）
+        page, per_page = 1, MAX_PER_PAGE
     suppliers = q.offset((page - 1) * per_page).limit(per_page).all()
     return {"suppliers": [s.to_dict() for s in suppliers], "total": total, "page": page, "per_page": per_page}
 

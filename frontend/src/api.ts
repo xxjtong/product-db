@@ -123,7 +123,7 @@ export const deleteSpecDefinition = (catId: number, specId: number) =>
 export const fetchProducts = (params: string = '') =>
   api<{ products: Product[]; total: number; page: number; per_page: number }>(`/products${params ? '?' + params : ''}`)
 export const fetchProduct = (id: number) => api<{ product: Product }>(`/products/${id}`)
-export const createProduct = (data: Record<string, unknown>) => api('/products', { method: 'POST', body: JSON.stringify(data) })
+export const createProduct = (data: Record<string, unknown>) => api<{ product: { id: number } }>('/products', { method: 'POST', body: JSON.stringify(data) })
 export const updateProduct = (id: number, data: Record<string, unknown>) => api(`/products/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteProduct = (id: number) => api(`/products/${id}`, { method: 'DELETE' })
 export const compareProducts = (ids: string) =>
@@ -201,7 +201,7 @@ export const bomExportUrl = (solId: number) => {
 export const fetchQuotations = (params: string = '') =>
   api<{ quotations: Quotation[]; total: number; page: number; per_page: number }>(`/quotations${params ? '?' + params : ''}`)
 export const fetchQuotation = (id: number) => api<{ quotation: Quotation }>(`/quotations/${id}`)
-export const createQuotation = (data: Record<string, unknown>) => api('/quotations', { method: 'POST', body: JSON.stringify(data) })
+export const createQuotation = (data: Record<string, unknown>) => api<{ quotation: { id: number } }>('/quotations', { method: 'POST', body: JSON.stringify(data) })
 export const updateQuotation = (id: number, data: Record<string, unknown>) => api(`/quotations/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteQuotation = (id: number) => api(`/quotations/${id}`, { method: 'DELETE' })
 export const batchDeleteQuotations = (ids: number[]) => api('/quotations/batch-delete', { method: 'POST', body: JSON.stringify({ ids }) })

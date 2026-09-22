@@ -197,7 +197,7 @@ import type { Product, SpecDefinition } from '../types'
 const route = useRoute()
 const product = ref<Product | null>(null)
 // 成本只在有权限时渲染（后端同样会把值裁成 null）
-const canViewCost = inject<any>('canViewCost', ref(false))
+const canViewCost = inject('canViewCost', ref(false))
 const categoryNames = ref<Record<number, string>>({})
 const specDefs = ref<SpecDefinition[]>([])
 const lightboxIdx = ref<number | null>(null)
@@ -206,7 +206,7 @@ const allImages = computed(() => {
   const imgs: string[] = []
   if (product.value) {
     if (product.value.images?.length) {
-      imgs.push(...product.value.images.map((i: any) => i.url))
+      imgs.push(...product.value.images.map(i => i.url))
     } else if (product.value.image_url) {
       imgs.push(product.value.image_url)
     }
@@ -215,7 +215,7 @@ const allImages = computed(() => {
 })
 
 const specGroups = computed(() => {
-  const groups: Record<string, any[]> = {}
+  const groups: Record<string, SpecDefinition[]> = {}
   for (const sd of specDefs.value) {
     const g = sd.display_group || ''
     if (!groups[g]) groups[g] = []
@@ -241,7 +241,7 @@ function catColor(name: string): string {
   return `hsl(${h}, 55%, 45%)`
 }
 
-function formatSpec(val: any, sd: any): string {
+function formatSpec(val: unknown, sd: SpecDefinition): string {
   if (val === null || val === undefined) return '—'
   if (sd.spec_type === 'boolean') return val ? '✓' : '—'
   return String(val)
@@ -263,8 +263,8 @@ async function load() {
     const res = await fetchProduct(Number(route.params.id))
     product.value = res.product
     specDefs.value = res.product.spec_definitions || []
-  } catch (e: any) {
-    loadError.value = e.message || '加载失败'
+  } catch (e: unknown) {
+    loadError.value = (e instanceof Error ? e.message : String(e)) || '加载失败'
   }
 }
 

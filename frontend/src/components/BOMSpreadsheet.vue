@@ -63,11 +63,16 @@ import { fetchBomSnapshot, saveBomSnapshot, bomExportUrl, fetchQuotationBom, sav
 
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 // 无成本权限时不渲染成本列，也不在保存时上报成本（后端还会以服务端值兜底，防读写两侧丢数据）
-const canViewCost = inject<any>('canViewCost', ref(false))
+const canViewCost = inject('canViewCost', ref(false))
 
 const props = defineProps<{ solutionId?: number; quotationId?: number }>()
 
 interface BomRow { name: string; sku: string; model: string; qty: number; price: number; discount: number; description: string; remark: string; cost: number }
+// 报价单 BOM 接口返回的行：字段可能缺失，数值字段交给 numberOr 兜底
+interface BomApiRow {
+  name?: string; sku?: string; model?: string; description?: string; remark?: string
+  qty?: unknown; price?: unknown; discount?: unknown; cost?: unknown
+}
 const rows = ref<BomRow[]>([])
 const loading = ref(true)
 const dirty = ref(false)
@@ -106,7 +111,7 @@ async function loadSnapshot() {
   try {
     if (props.quotationId) {
       const res = await fetchQuotationBom(props.quotationId)
-      rows.value = (res.rows || []).map((r: any) => ({
+      rows.value = (res.rows || []).map((r: BomApiRow) => ({
         name: r.name || '', sku: r.sku || '', model: r.model || '',
         qty: numberOr(r.qty, 1), price: numberOr(r.price, 0),
         discount: discountPct(r.discount),
@@ -118,7 +123,7 @@ async function loadSnapshot() {
       const cells = res.bom_snapshot?.snapshot?.cells || {}
       const rowMap: Record<number, BomRow> = {}
       for (const [ref, cell] of Object.entries(cells)) {
-        const c = cell as any
+        const c = cell as { v?: unknown }
         const m = ref.match(/^([A-Z])(\d+)$/)
         if (!m) continue
         const col = m[1]
@@ -140,8 +145,8 @@ async function loadSnapshot() {
       rows.value = Object.keys(rowMap).sort((a,b) => Number(a)-Number(b)).map(k => rowMap[Number(k)])
     }
     dirty.value = false
-  } catch (e: any) {
-    showToast('BOM 加载失败: ' + (e.detail || e.message || '未知错误'), 'error')
+  } catch (e: unknown) {
+    showToast('BOM 加载失败: ' + ((e instanceof Error ? e.message : String(e)) || '未知错误'), 'error')
   }
   loading.value = false
 }
@@ -157,7 +162,7 @@ async function save() {
       }))
       await saveQuotationBom(props.quotationId, { rows: data })
     } else if (props.solutionId) {
-      const cells: Record<string, any> = {}
+      const cells: Record<string, { v: number | string }> = {}
       rows.value.forEach((r, i) => {
         const row = i + 1
         cells[`A${row}`] = { v: i + 1 }
@@ -175,8 +180,8 @@ async function save() {
     }
     dirty.value = false
     showToast('BOM 已保存', 'success')
-  } catch (e: any) {
-    showToast('保存失败: ' + (e.detail || e.message), 'error')
+  } catch (e: unknown) {
+    showToast('保存失败: ' + (e instanceof Error ? e.message : String(e)), 'error')
   }
 }
 
@@ -199,7 +204,15 @@ onBeforeUnmount(() => { window.removeEventListener('beforeunload', _beforeUnload
   max-height: 500px; overflow: auto; border: 1px solid var(--color-border);
   border-radius: 6px;
 }
-.bom-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.bom-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  /* 10 列挤进 375px 会把表头压成逐字竖排、单元格里的 input 只剩 16px 宽 —— 编辑功能实际不可用。
+     给一个下限让外层 .bom-table-wrap 真正横向滚动（它本来就有 overflow:auto） */
+  min-width: 720px;
+}
+.bom-table th, .bom-table td { white-space: nowrap; }
 .bom-table th { background: var(--color-hover); padding: 6px 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; position: sticky; top: 0; z-index: 1; }
 .bom-table td { padding: 4px 6px; border-top: 1px solid var(--color-border); }
 .bom-table input { border: 1px solid transparent; padding: 4px 6px; border-radius: 4px; font-size: 13px; background: transparent; }

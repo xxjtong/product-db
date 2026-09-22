@@ -95,18 +95,18 @@ const total = ref(0)
 const page = ref(1)
 const perPage = ref(20)
 const modalVisible = ref(false)
-const editing = ref<any>(null)
-const form = ref<any>({ name: '', client_name: '', project_name: '', notes: '' })
+const editing = ref<Solution | null>(null)
+const form = ref<{ name: string; client_name: string; project_name: string; notes: string }>({ name: '', client_name: '', project_name: '', notes: '' })
 const nameManual = ref(false) // true when user has edited name manually
-const deleteTarget = ref<any>(null)
+const deleteTarget = ref<Solution | null>(null)
 const selectedIds = ref<Set<number>>(new Set())
 const showBatchConfirm = ref(false)
-let searchTimer: any = null
+let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const allSelected = computed(() => solutions.value.length > 0 && solutions.value.every(s => selectedIds.value.has(s.id)))
 
 function onSearch() {
-  clearTimeout(searchTimer)
+  if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => { page.value = 1; load() }, 300)
 }
 
@@ -129,8 +129,8 @@ async function load() {
     const res = await fetchSolutions(params)
     solutions.value = res.solutions
     total.value = res.total
-  } catch (e: any) {
-    loadError.value = e.message || '加载失败'
+  } catch (e: unknown) {
+    loadError.value = e instanceof Error ? (e.message || '加载失败') : '加载失败'
   }
   loading.value = false
 }
@@ -161,7 +161,7 @@ async function doBatchDelete() {
     selectedIds.value = new Set()
     showBatchConfirm.value = false
     await load()
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
 function openAdd() {
@@ -171,7 +171,7 @@ function openAdd() {
   modalVisible.value = true
 }
 
-function openEdit(s: any) {
+function openEdit(s: Solution) {
   editing.value = s
   form.value = { name: s.name, client_name: s.client_name, project_name: s.project_name, notes: s.notes }
   nameManual.value = true // editing existing solution, treat name as manual
@@ -198,7 +198,7 @@ async function save() {
       await updateSolution(editing.value.id, form.value)
       showToast('已更新', 'success')
     } else {
-      const res = await createSolution(form.value) as any
+      const res = await createSolution(form.value)
       showToast('已创建', 'success')
       modalVisible.value = false
       router.push(`/solutions/${res.solution.id}`)
@@ -206,18 +206,18 @@ async function save() {
     }
     modalVisible.value = false
     await load()
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
-async function changeStatus(s: any, status: string) {
+async function changeStatus(s: Solution, status: string) {
   try {
     await updateSolution(s.id, { status })
     s.status = status
     showToast('状态已更新', 'success')
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
-function confirmDelete(s: any) { deleteTarget.value = s }
+function confirmDelete(s: Solution) { deleteTarget.value = s }
 
 async function doDelete() {
   if (!deleteTarget.value) return
@@ -226,7 +226,7 @@ async function doDelete() {
     showToast('已删除', 'success')
     deleteTarget.value = null
     await load()
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
 onMounted(() => {

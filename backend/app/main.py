@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -6,8 +6,10 @@ from fastapi import HTTPException
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from app.database import Base
-from app.auth import client_ip
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+from app.database import Base, get_db
+from app.auth import client_ip, require_admin
 from app.models import *  # noqa: ensure all models registered
 from app.routers import products, product_import, categories, suppliers, solutions, quotations, bom_templates, ai, dictionaries, auth_routes, admin_routes, system_settings, product_files, agent
 from app.config import settings
@@ -225,6 +227,27 @@ def health():
     # 名字匹配，而 SPA catch-all 把 handler 名字遮蔽了（R35 实测：连打 65 次仍 429）。
     # 历史代价：探针每 2 分钟 2 个请求会在 3.3 小时内打满 200/天配额，此后全天 429。
     return {"status": "ok"}
+
+
+@app.get("/product-db/api/health/detailed")
+async def health_detailed(user=Depends(require_admin), db: Session = Depends(get_db)):
+    """运维可见性：本应用与 Hermes 两侧的就绪情况（**仅 admin**）。
+
+    Hermes 侧会带出版本号、启用的平台、活跃 agent 数与 readiness —— 属内部拓扑，
+    不能像 `/api/health` 那样公开。它需要 gateway API key，由 `agent.get_hermes_health`
+    负责（无 key 时 Hermes 回 401）。
+
+    两侧都返回 200：这个端点的用途是判断**哪一侧坏了**，任一侧故障都体现在 `status`
+    字段里；把上游故障翻成 5xx 会让「Hermes 挂了」和「整个服务挂了」长得一样（R78）。
+    """
+    app_state = {"status": "ok", "db": "ok"}
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception as e:
+        app_state["status"] = "degraded"
+        app_state["db"] = f"error: {e.__class__.__name__}"
+
+    return {"app": app_state, "hermes": await agent.get_hermes_health()}
 
 
 # --- SPA frontend serving ---

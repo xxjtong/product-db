@@ -21,7 +21,9 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
 
-const props = defineProps<{ products: any[] }>()
+interface CardProduct { id: number; name: string; model?: string; price?: number }
+
+const props = defineProps<{ products: CardProduct[] }>()
 defineEmits(['addToBom', 'compare'])
 
 const checked = ref<number[]>([])
@@ -33,13 +35,13 @@ for (const p of props.products) {
   if (!(p.id in qtys)) qtys[p.id] = 1
 }
 
-function toggle(p: any) {
+function toggle(p: CardProduct) {
   const idx = checked.value.indexOf(p.id)
   if (idx >= 0) checked.value.splice(idx, 1)
   else checked.value.push(p.id)
 }
 
-function isChecked(p: any) {
+function isChecked(p: CardProduct) {
   return checked.value.includes(p.id)
 }
 </script>

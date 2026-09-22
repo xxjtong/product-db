@@ -99,9 +99,28 @@ def get_or_404(db: Session, model, obj_id: int, detail: str = "Not found"):
 
 def paginate(query, page: int = 1, per_page: int = 20):
     """Return (items, total, page, per_page) from a SQLAlchemy query."""
+    page, per_page = clamp_page(page, per_page)
     total = query.count()
     items = query.offset((page - 1) * per_page).limit(per_page).all()
     return items, total
+
+
+# 列表接口的单页上限（R76）。前端最大会请求 per_page=1000（品类/字典全量下拉），
+# 产品列表的「全部」选项更是直接发 per_page=<total>，所以取等值上限、留足余量。
+# 不设上限的隐患：`per_page=-1` 到 SQLite 就是 `LIMIT -1` ＝ **不限量**，整表灌进内存。
+MAX_PER_PAGE = 1000
+
+
+def clamp_page(page: int, per_page: int):
+    """把 page / per_page 收进合法区间，返回 (page, per_page)。
+
+    选择**收口**而不是回 422：`per_page` 越界时拒绝会让前端「全部」选项（发 total）
+    在产品数增长到上限以上时直接报错，属功能回退；收口只是分页到上限，响应里回的
+    也是生效值，调用方看得见（R76）。
+    """
+    page = max(1, int(page or 1))
+    per_page = min(max(1, int(per_page or 1)), MAX_PER_PAGE)
+    return page, per_page
 
 
 def format_description_with_specs(description: str = "", specs: Optional[dict] = None) -> str:

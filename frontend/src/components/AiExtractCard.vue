@@ -53,13 +53,15 @@
 <script setup lang="ts">
 import { ref, computed, nextTick } from 'vue'
 import { useFileDrop } from '../composables/useFileDrop'
+import { handleUnauthorized } from '../api'
+import type { AiFillPayload } from '../types'
 
-const emit = defineEmits<{ fill: [data: Record<string, any>] }>()
+const emit = defineEmits<{ fill: [data: AiFillPayload] }>()
 
 const textInput = ref('')
 const fetching = ref(false)
-const preview = ref<any>(null)
-const editFields = ref<Record<string, any>>({})
+const preview = ref<Record<string, unknown> | null>(null)
+const editFields = ref<Record<string, unknown>>({})
 const { attachedFiles, dragOver, onFileSelect, onDrop, onPaste, clearFiles } = useFileDrop(doFileExtract)
 const previewRef = ref<HTMLElement | null>(null)
 
@@ -69,12 +71,19 @@ function scrollToPreview() {
 
 const displayFields = computed(() => [...Object.keys(editFields.value)])
 
-function isComplexVal(v: any) { return v !== null && typeof v === 'object' }
-function isSimpleList(v: any) { return Array.isArray(v) && v.length > 0 && typeof v[0] === 'object' }
-function fmtSpecs(v: any) { if (!v || typeof v !== 'object') return String(v); return Object.entries(v).map(([k,val]) => k + ': ' + (val ?? '')).join('\n') }
-function fmtListDetail(v: any): string {
+// 提取结果里「列表型」字段（通讯方式/硬件接口/传感能力等）的单条结构
+interface ExtractListItem {
+  name?: string; metric_name?: string; interface_name?: string
+  details?: string; voltage_range?: string; measure_range?: string
+  accuracy?: string; direction?: string; quantity?: number; description?: string
+}
+
+function isComplexVal(v: unknown) { return v !== null && typeof v === 'object' }
+function isSimpleList(v: unknown) { return Array.isArray(v) && v.length > 0 && typeof v[0] === 'object' }
+function fmtSpecs(v: unknown) { if (!v || typeof v !== 'object') return String(v); return Object.entries(v).map(([k,val]) => k + ': ' + (val ?? '')).join('\n') }
+function fmtListDetail(v: unknown): string {
   if (!Array.isArray(v)) return String(v)
-  return v.map((x: any) => {
+  return v.map((x: ExtractListItem) => {
     const name = x.name || x.metric_name || x.interface_name || ''
     const parts = [name]
     if (x.details) parts.push(x.details)
@@ -108,19 +117,20 @@ async function doFileExtract(file: File) {
     const res = await fetch('/product-db/api/products/ai-fetch-file', {
       method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: fd,
     })
+    if (handleUnauthorized(res)) throw new Error('登录已过期，请重新登录')
     if (!res.ok) throw new Error((await res.json()).detail || 'Extraction failed')
     const data = await res.json()
     let raw = JSON.parse(JSON.stringify(data.fetched))
     if (raw.specs && typeof raw.specs === 'object') {
       const keyMap: Record<string,string> = { ip_rating:'防护等级', dimensions_mm:'尺寸', dimensions:'尺寸', weight_g:'重量', weight:'重量', operating_temp:'工作温度', operating_temperature:'工作温度', working_temperature:'工作温度', installation:'安装方式', color:'颜色', material:'材质', battery_life:'电池续航', power_supply:'供电方式', protocol:'通讯协议', communication:'通讯方式' }
-      const translated: Record<string,any> = {}
+      const translated: Record<string, unknown> = {}
       for (const [k, v] of Object.entries(raw.specs)) { translated[keyMap[k] || k] = v }
       raw.specs = translated
     }
     editFields.value = raw
     preview.value = data.fetched; scrollToPreview()
-  } catch (err: any) {
-    alert(err.message || '提取失败')
+  } catch (err: unknown) {
+    alert((err instanceof Error ? err.message : String(err)) || '提取失败')
   }
   fetching.value = false
 }
@@ -140,13 +150,14 @@ async function onFetch() {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify(isUrl ? { url: input } : { text: input }),
     })
+    if (handleUnauthorized(resp)) throw new Error('登录已过期，请重新登录')
     const data = await resp.json()
     if (!resp.ok) throw new Error(data.detail || 'AI提取失败')
     if (!data.fetched || typeof data.fetched !== 'object') throw new Error('提取结果为空')
     preview.value = data.fetched; scrollToPreview()
     editFields.value = JSON.parse(JSON.stringify(data.fetched))
-  } catch (err: any) {
-    alert(err.message || 'AI提取失败')
+  } catch (err: unknown) {
+    alert((err instanceof Error ? err.message : String(err)) || 'AI提取失败')
   } finally {
     fetching.value = false
   }
@@ -159,7 +170,7 @@ function onFill() {
   // Parse specs from text format if needed
   try {
     if (raw.specs && typeof raw.specs === 'string') {
-      const parsed: Record<string,any> = {}
+      const parsed: Record<string, unknown> = {}
       for (const line of raw.specs.split('\n')) {
         const idx = line.indexOf(':')
         if (idx > 0) parsed[line.substring(0, idx).trim()] = line.substring(idx + 1).trim()

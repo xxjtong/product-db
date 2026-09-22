@@ -73,14 +73,15 @@
 import { ref, onMounted, computed, inject } from 'vue'
 import { Trash2Icon } from 'lucide-vue-next'
 import { fetchCategories, fetchProducts, fetchDependencies, createDependency, updateDependency, deleteDependency } from '../api'
+import type { Category, Product, ProductDependency } from '../types'
 
 const props = defineProps<{ productId: number }>()
 const emit = defineEmits<{ change: [] }>()
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
-const deps = ref<any[]>([])
-const categories = ref<any[]>([])
-const products = ref<any[]>([])
+const deps = ref<ProductDependency[]>([])
+const categories = ref<Category[]>([])
+const products = ref<Product[]>([])
 const showAdd = ref(false)
 const depTargetType = ref<'category' | 'product'>('category')
 
@@ -97,10 +98,10 @@ const newDep = ref<{
 })
 
 function getCategoryName(id: number): string {
-  return categories.value.find((c: any) => c.id === id)?.name || ''
+  return categories.value.find(c => c.id === id)?.name || ''
 }
 function getProductName(id: number): string {
-  const p = products.value.find((p: any) => p.id === id)
+  const p = products.value.find(p => p.id === id)
   return p ? `${p.name} (${p.model || ''})` : ''
 }
 
@@ -129,7 +130,7 @@ async function loadOptions() {
 
 async function addDep() {
   if (!props.productId) { showToast('请先保存产品', 'error'); return }
-  const data: any = {
+  const data: { dependency_type: string; description: string; depends_on_category_id?: number | null; depends_on_product_id?: number | null } = {
     dependency_type: newDep.value.dependency_type,
     description: newDep.value.description,
   }
@@ -145,19 +146,19 @@ async function addDep() {
     resetNewDep()
     await loadDeps()
     emit('change')
-  } catch (e: any) {
+  } catch {
     showToast('添加失败', 'error')
   }
 }
 
-async function updateDep(d: any) {
+async function updateDep(d: ProductDependency) {
   try {
     await updateDependency(props.productId, d.id, {
       dependency_type: d.dependency_type,
       description: d.description,
     })
     emit('change')
-  } catch (e: any) {
+  } catch {
     showToast('更新失败', 'error')
   }
 }
@@ -168,7 +169,7 @@ async function deleteDep(depId: number) {
     showToast('已删除', 'success')
     await loadDeps()
     emit('change')
-  } catch (e: any) {
+  } catch {
     showToast('删除失败', 'error')
   }
 }

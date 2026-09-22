@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, func, update
 from app.database import get_db
 from app.utils.helpers import (get_or_404, apply_partial_update, format_description_with_specs,
-                               discount_percent, number_or)
+                               discount_percent, number_or, clamp_page)
 from app.models.quotation import Quotation, QuotationItem
 from app.models.product import Product
 from app.models.solution import Solution
@@ -93,6 +93,7 @@ def list_quotations(
             | Quotation.client_name.ilike(f"%{escape_like(search)}%", escape=LIKE_ESCAPE)
         )
     from app.utils.helpers import paginate
+    page, per_page = clamp_page(page, per_page)
     quotations, total = paginate(q.order_by(Quotation.updated_at.desc()), page, per_page)
     quotation_list = [qt.to_dict() for qt in quotations]
     for qt_dict in quotation_list:

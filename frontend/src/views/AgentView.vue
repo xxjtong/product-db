@@ -46,7 +46,7 @@
           <div class="agent-msg-body">
             <div v-if="m.role === 'user'" class="agent-msg-text user-text">
               <template v-if="Array.isArray(m.content)">
-                <div v-for="(part, pi) in (m.content as any[])" :key="pi">
+                <div v-for="(part, pi) in m.content" :key="pi">
                   <span v-if="part.type === 'text'">{{ part.text }}</span>
                   <img v-else-if="part.type === 'image_url'" :src="part.image_url?.url" class="agent-msg-img" @click="previewImage = part.image_url?.url" />
                 </div>
@@ -130,7 +130,8 @@
         <textarea
           ref="inputEl"
           v-model="input"
-          placeholder="输入消息... (Enter 发送，Shift+Enter 换行)，支持粘贴/拖拽/上传文件及图片"
+          placeholder="输入消息…（Enter 发送）"
+          title="Enter 发送，Shift+Enter 换行；支持粘贴、拖拽、上传文件及图片"
           @keydown.enter.exact.prevent="send()"
           :disabled="streaming"
           rows="1"
@@ -171,6 +172,7 @@ import { BotIcon, PlusIcon, HistoryIcon } from 'lucide-vue-next'
 import DOMPurify from 'dompurify'
 import { formatTime } from '../utils/time'
 import { handleUnauthorized } from '../api'
+import type { CurrentUser } from '../types'
 
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
@@ -180,9 +182,12 @@ interface ToolStep {
   label: string
 }
 
+/** 多模态消息的一段（文本或图片） */
+type MessagePart = { type: string; text?: string; image_url?: { url: string } }
+
 interface Message {
   role: 'user' | 'assistant' | 'system'
-  content: string | { type: string; text?: string; image_url?: { url: string } }[]
+  content: string | MessagePart[]
   tokens?: string
   fileUrls?: { name: string; url: string }[]
   steps?: ToolStep[]   // 本轮 agent 执行过的工具（R63：来自 hermes.tool.progress）
@@ -198,8 +203,14 @@ interface ChatMeta {
   updatedAt: number
 }
 
+/** Hermes 收尾帧附带的 extra 信息（R64：partial/completed 用于判断回答是否完整） */
+interface FinishExtras {
+  partial?: boolean
+  completed?: boolean
+}
+
 // ── User (injected from App.vue) ────────────────────────
-const currentUser = inject<any>('currentUser', ref(null))
+const currentUser = inject('currentUser', ref<CurrentUser | null>(null))
 
 function storagePrefix() {
   return 'agent_' + (currentUser.value?.id || 'anon') + '_'
@@ -239,7 +250,7 @@ const uploadDir = ref('')   // loaded from /api/agent/config
 
 const { attachedFiles, dragOver, onFileSelect, onDrop, onPaste, removeFile, clearFiles } = useFileDrop()
 
-const previewImage = ref('')  // full-size image preview modal
+const previewImage = ref<string | undefined>('')  // full-size image preview modal
 
 const chats = ref<ChatMeta[]>([])
 const activeChatId = ref<string | null>(null)
@@ -276,7 +287,7 @@ async function fetchQuickReplies() {
       }),
       signal: quickCtrl.signal,
     })
-    if (!res.ok) return
+    if (handleUnauthorized(res) || !res.ok) return
     const data = await res.json()
     if (seq !== quickSeq) return   // 期间又发了新消息或切了会话 → 丢弃
     quickReplies.value = Array.isArray(data.suggestions) ? data.suggestions.slice(0, 3) : []
@@ -493,6 +504,8 @@ async function send(question?: string) {
           const upData = await upRes.json()
           fileUrls.push({ name: f.name, url: upData.url })
         } else {
+          // 401 要清凭据并跳登录；其余状态码仍是「这个文件没传上」
+          handleUnauthorized(upRes)
           fileUrls.push({ name: f.name, url: '' })
         }
       } catch { fileUrls.push({ name: f.name, url: '' }) }
@@ -509,7 +522,7 @@ async function send(question?: string) {
   }
 
   const userText = q + fileNote
-  let userContent: string | any[] = userText
+  let userContent: string | MessagePart[] = userText
   if (files.length) {
     userContent = [{ type: 'text', text: userText }]
     for (const f of files) {
@@ -524,7 +537,7 @@ async function send(question?: string) {
   scrollDown()
 
   // 只发正常对话轮次：system（含占位符替换）与 model 都由服务端决定
-  const apiMessages: { role: string; content: string | any[] }[] =
+  const apiMessages: { role: string; content: Message['content'] }[] =
     messages.value.map(m => ({ role: m.role, content: m.content }))
 
   streamText.value = ''
@@ -537,7 +550,7 @@ async function send(question?: string) {
   let tokenUsage = { prompt: 0, completion: 0, total: 0 }
   let finishReason = ''
   let streamError = ''
-  let finishExtras: any = null
+  let finishExtras: FinishExtras | null = null
 
   try {
     const token = localStorage.getItem('token')
@@ -557,6 +570,7 @@ async function send(question?: string) {
     })
 
     if (!resp.ok) {
+      if (handleUnauthorized(resp)) throw new Error('登录已过期，请重新登录')
       const err = await resp.text()
       throw new Error(`${resp.status}: ${err}`)
     }
@@ -638,7 +652,7 @@ async function send(question?: string) {
           if (chunk.error) {
             streamError = typeof chunk.error === 'string'
               ? chunk.error
-              : String((chunk.error as any)?.message || chunk.error)
+              : String(chunk.error?.message || chunk.error)
           } else if (chunk.hermes?.error) {
             streamError = String(chunk.hermes.error)
           }
@@ -651,8 +665,9 @@ async function send(question?: string) {
         } catch { /* skip malformed SSE */ }
       }
     }
-  } catch (e: any) {
-    if (e.name === 'AbortError') {
+  } catch (e: unknown) {
+    const err = e as { name?: string; message?: string }
+    if (err.name === 'AbortError') {
       // 有内容就保留并标注；一个字都没来也要给个交代 —— 否则气泡直接消失，
       // 用户不知道是停了还是坏了（0 内容的空回复曾在 R58 排查过一轮）
       messages.value.push({
@@ -663,7 +678,7 @@ async function send(question?: string) {
     } else {
       messages.value.push({
         role: 'assistant',
-        content: `**请求失败**: ${e.message || '请检查 Hermes 服务是否运行'}`,
+        content: `**请求失败**: ${err.message || '请检查 Hermes 服务是否运行'}`,
       })
     }
     // 连接已断，还挂着的审批卡再点也送不出去 → 置灰（R64）
@@ -705,7 +720,7 @@ async function stopStreaming() {
   if (sid) {
     try {
       const token = localStorage.getItem('token')
-      await fetch('/product-db/api/agent/stop', {
+      const stopRes = await fetch('/product-db/api/agent/stop', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -713,6 +728,7 @@ async function stopStreaming() {
         },
         body: JSON.stringify({ stream_id: sid }),
       })
+      handleUnauthorized(stopRes)
     } catch { /* 通知不出去也必须能停 */ }
   }
   abortCtrl?.abort()
@@ -736,7 +752,7 @@ function markPendingApprovalsStale() {
  * 把收尾帧的 finish_reason / error / hermes extras 翻成一句给用户看的话。
  * 以前这些字段全被忽略：被截断或被上游掐断的回答会当成正常回答展示（R64）。
  */
-function buildFinishWarning(finishReason: string, error: string, extras: any): string {
+function buildFinishWarning(finishReason: string, error: string, extras: FinishExtras | null): string {
   const detail = error ? `：${String(error).slice(0, 200)}` : ''
   if (finishReason === 'length') {
     return `回答被截断（超出单次输出上限）${detail}，可以让它接着往下说`
@@ -787,6 +803,7 @@ onMounted(async () => {
     const res = await fetch('/product-db/api/agent/config', {
       headers: { 'Authorization': `Bearer ${token}` }
     })
+    if (handleUnauthorized(res)) return
     if (res.ok) {
       const data = await res.json()
       if (data.upload_dir) uploadDir.value = data.upload_dir

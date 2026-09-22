@@ -98,7 +98,8 @@ import { ref, provide, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { PackageIcon, BookIcon, ClipboardListIcon, FileTextIcon, ShieldIcon, UserIcon, UserCircleIcon, LogOutIcon, BotIcon } from 'lucide-vue-next'
 import AiChat from './components/AiChat.vue'
-import { logout as apiLogout, clearAuthStorage, setUnauthorizedHandler } from './api'
+import { logout as apiLogout, clearAuthStorage, setUnauthorizedHandler, handleUnauthorized } from './api'
+import type { CurrentUser } from './types'
 
 const router = useRouter()
 const route = useRoute()
@@ -147,7 +148,7 @@ function showToast(message: string, type = 'info') {
 provide('toast', showToast)
 
 // Load session data on mount
-const currentUser = ref<any>(null)
+const currentUser = ref<CurrentUser | null>(null)
 // 生效后的成本可见性（admin / 按用户覆盖 / 全局开关三者合一），由后端 /auth/session 给出。
 // 默认 false：加载完成前不渲染任何成本，避免一闪而过的敏感值。
 const canViewCost = ref(false)
@@ -168,6 +169,7 @@ async function loadAiStats() {
     const token = localStorage.getItem('token')
     if (!token) return
     const res = await fetch('/product-db/api/ai/stats', { headers: { 'Authorization': `Bearer ${token}` } })
+    if (handleUnauthorized(res)) return
     if (res.ok) {
       const data = await res.json()
       aiStats.value = data
@@ -221,7 +223,7 @@ async function saveProfile() {
   }
   try {
     const token = localStorage.getItem('token')
-    const body: any = {}
+    const body: { email?: string; password?: string; current_password?: string } = {}
     if (profileEmail.value !== (currentUser.value?.email || '')) {
       body.email = profileEmail.value
     }
@@ -235,7 +237,11 @@ async function saveProfile() {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify(body),
     })
-    if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '保存失败') }
+    if (!res.ok) {
+      // 弹窗挂在 App 层，跳登录后 App 不卸载 —— 不关掉的话会盖在登录页上
+      if (handleUnauthorized(res)) { showProfile.value = false; return }
+      const d = await res.json(); throw new Error(d.detail || '保存失败')
+    }
     const data = await res.json()
     if (body.password) {
       // 后端改密后该用户所有已签发 token 立即失效，手上这个也已被作废 → 直接回登录页
@@ -250,7 +256,7 @@ async function saveProfile() {
     currentUser.value = data.user
     showToast('已保存', 'success')
     showProfile.value = false
-  } catch (e: any) { profileError.value = e.message }
+  } catch (e: unknown) { profileError.value = e instanceof Error ? e.message : String(e) }
 }
 
 onMounted(() => { loadSession(); loadAiStats() })

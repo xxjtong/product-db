@@ -15,7 +15,7 @@ test.describe('Agent History Isolation', () => {
     await page.waitForURL('**/products', { timeout: 10000 })
 
     await page.goto(`${BASE}/agent`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(1000)
+    await page.waitForLoadState('networkidle')
 
     const keys: string[] = await page.evaluate(() => {
       const ks: string[] = []
@@ -48,7 +48,7 @@ test.describe('Agent History Isolation', () => {
     await pageA.waitForURL('**/products', { timeout: 10000 })
 
     await pageA.goto(`${BASE}/agent`, { waitUntil: 'domcontentloaded' })
-    await pageA.waitForTimeout(1000)
+    await pageA.waitForLoadState('networkidle')
 
     // Inject a fake chat for user A
     await pageA.evaluate((uid: number) => {
@@ -76,7 +76,7 @@ test.describe('Agent History Isolation', () => {
     await pageB.waitForURL('**/products', { timeout: 10000 })
 
     await pageB.goto(`${BASE}/agent`, { waitUntil: 'domcontentloaded' })
-    await pageB.waitForTimeout(1000)
+    await pageB.waitForLoadState('networkidle')
 
     // User B must NOT see user A's agent chats
     const seesAdminChat = await pageB.evaluate((uid: number) => localStorage.getItem(`agent_${uid}_chats`) !== null, CRED.id)

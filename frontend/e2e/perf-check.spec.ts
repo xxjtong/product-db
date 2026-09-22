@@ -31,7 +31,7 @@ test.describe('Performance', () => {
   test('SPA navigation between pages is fast', async ({ page }) => {
     await setupPage(page)
     await page.goto(`${BASE}/solutions`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(1000)
+    await page.waitForLoadState('networkidle')
 
     const start = Date.now()
     await page.click('.sidebar-link:has-text("产品")')
@@ -50,7 +50,7 @@ test.describe('Accessibility', () => {
     const pages = ['/products', '/solutions', '/quotations', '/dictionaries']
     for (const path of pages) {
       await page.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded' })
-      await page.waitForTimeout(1000)
+      await page.waitForLoadState('networkidle')
 
       // Check for accessible page structure
       const hasMain = await page.locator('main, [role="main"]').count()

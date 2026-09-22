@@ -136,7 +136,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, inject, computed, nextTick, watch } from 'vue'
+import { ref, onMounted, inject, computed, nextTick, watch, type Ref, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Trash2Icon, PlusIcon, InboxIcon } from 'lucide-vue-next'
 import { formatTime } from '../utils/time'
@@ -146,36 +146,40 @@ import Modal from '../components/Modal.vue'
 import SolutionProductCard from '../components/GenUI/SolutionProductCard.vue'
 import QuoteDraftCard from '../components/GenUI/QuoteDraftCard.vue'
 import { fetchSolution, fetchProducts, addSolutionItem, updateSolutionItem, deleteSolutionItem, reorderSolutionItems, createQuotation, updateSolution, streamAiChat, fetchConversations, fetchConversation } from '../api'
-import type { Solution, Product } from '../types'
+import type { Solution, SolutionItem, Product } from '../types'
 import DOMPurify from 'dompurify'
 import { escapeHtml, extractProducts, formatAiContent, stripToolCalls } from '../utils/markdown'
 
 function sanitize(html: string): string { return DOMPurify.sanitize(html) as string }
 
-const componentRegistry: Record<string, any> = { SolutionProductCard, QuoteDraftCard }
+const componentRegistry: Record<string, Component> = { SolutionProductCard, QuoteDraftCard }
 
 const route = useRoute()
 const router = useRouter()
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 // 成本列只在有权限时渲染；后端也会把值裁掉，这里是 UI 层的双保险
-const canViewCost = inject<any>('canViewCost', ref(false))
+const canViewCost = inject<Ref<boolean>>('canViewCost', ref(false))
 
 const solution = ref<Solution | null>(null)
 const allProducts = ref<Product[]>([])
 
 // AI chat
+// products 里的元素是 AI 流式返回的任意 JSON（既有产品对象，也有 {_solution,_products} 分组），
+// 形状动态且异构，无法给出稳定结构，故保留为 any[]
+interface ChatComponent { component: string; props: Record<string, unknown> }
+interface Conversation { id: number; title?: string; updated_at: string }
 interface ChatMessage {
   role: 'user' | 'assistant' | 'tool' | 'warning'
   content: string
   products: any[]
-  components: any[]
+  components: ChatComponent[]
 }
 const chatInput = ref('')
 const chatMessages = ref<ChatMessage[]>([])
 const chatLoading = ref(false)
 const chatCid = ref<number | null>(null)
 const showConvs = ref(false)
-const convs = ref<any[]>([])
+const convs = ref<Conversation[]>([])
 const chatLog = ref<HTMLElement | null>(null)
 
 // Product picker
@@ -186,7 +190,7 @@ const pickerSelected = ref<number[]>([])
 const pickerFiltered = computed(() => {
   if (!pickerSearch.value) return allProducts.value.slice(0, 100)
   const s = pickerSearch.value.toLowerCase()
-  return allProducts.value.filter((p: any) =>
+  return allProducts.value.filter((p) =>
     p.name.toLowerCase().includes(s) ||
     p.model?.toLowerCase().includes(s) ||
     p.category_name?.toLowerCase().includes(s) ||
@@ -229,8 +233,8 @@ async function onDrop(idx: number) {
   items.splice(idx, 0, moved)
   dragIndex.value = null
   try {
-    await reorderSolutionItems(Number(route.params.id), items.map((i: any) => i.id))
-  } catch (e: any) { showToast(e.detail || e.message, 'error'); await load() }
+    await reorderSolutionItems(Number(route.params.id), items.map(i => i.id))
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error'); await load() }
 }
 
 async function load() {
@@ -239,8 +243,8 @@ async function load() {
   try {
     const solRes = await fetchSolution(Number(route.params.id))
     solution.value = solRes.solution
-  } catch (e: any) {
-    loadError.value = e.message || '加载失败'
+  } catch (e: unknown) {
+    loadError.value = e instanceof Error ? (e.message || '加载失败') : '加载失败'
   }
   loading.value = false
 }
@@ -262,7 +266,7 @@ async function saveInfo() {
       client_name: solution.value.client_name, project_name: solution.value.project_name,
       status: solution.value.status, notes: solution.value.notes,
     })
-  } catch (e: any) { showToast('保存失败: ' + (e.detail || e.message || '请重试'), 'error') }
+  } catch (e: unknown) { showToast('保存失败: ' + (e instanceof Error ? (e.message || '请重试') : '请重试'), 'error') }
 }
 
 // Batch add
@@ -307,7 +311,7 @@ function discountPct(v: unknown): number {
 }
 
 // Item CRUD
-async function updateItem(item: any) {
+async function updateItem(item: SolutionItem) {
   try {
     await updateSolutionItem(Number(route.params.id), item.id, {
       quantity: item.quantity, unit_price: item.unit_price,
@@ -316,27 +320,27 @@ async function updateItem(item: any) {
     // Update amount locally
     item.amount = (item.quantity || 0) * (item.unit_price || 0) * (discountPct(item.discount_rate) / 100)
     if (solution.value) {
-      solution.value.total_price = solution.value.items.reduce((s: number, i: any) => s + (i.amount || 0), 0)
+      solution.value.total_price = solution.value.items.reduce((s: number, i) => s + (i.amount || 0), 0)
     }
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
 async function removeItem(itemId: number) {
   try {
     await deleteSolutionItem(Number(route.params.id), itemId)
     if (solution.value) {
-      solution.value.items = solution.value.items.filter((i: any) => i.id !== itemId)
-      solution.value.total_price = solution.value.items.reduce((s: number, i: any) => s + (i.amount || 0), 0)
+      solution.value.items = solution.value.items.filter((i) => i.id !== itemId)
+      solution.value.total_price = solution.value.items.reduce((s: number, i) => s + (i.amount || 0), 0)
     }
     showToast('已移除', 'success')
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
 async function doCreateQuotation() {
   try {
-    const res = await createQuotation({ solution_id: Number(route.params.id) }) as any
+    const res = await createQuotation({ solution_id: Number(route.params.id) })
     showToast('报价单已生成', 'success'); router.push(`/quotations/${res.quotation.id}`)
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
 // AI Chat with GenUI component support
@@ -369,8 +373,8 @@ async function loadConv(id: number) {
       }
     }
     nextTick(scrollChat)
-  } catch (e: any) {
-    chatMessages.value.push({ role: 'assistant', content: `请求失败: ${escapeHtml(e.message || '请重试')}`, products: [], components: [] })
+  } catch (e: unknown) {
+    chatMessages.value.push({ role: 'assistant', content: `请求失败: ${escapeHtml(e instanceof Error ? (e.message || '请重试') : '请重试')}`, products: [], components: [] })
   }
 }
 function newChat() { chatCid.value = null; chatMessages.value = []; showConvs.value = false }
@@ -386,7 +390,7 @@ async function sendChat() {
 
   let curContent = ''
   let curProducts: any[] = []
-  let curComponents: any[] = []
+  let curComponents: ChatComponent[] = []
   let lastRender = 0
   const RENDER_INTERVAL = 50  // throttle reactive updates to every 50ms
   try {
@@ -455,8 +459,8 @@ async function sendChat() {
     } else if (curContent || curProducts.length || curComponents.length) {
       chatMessages.value.push({ role: 'assistant', content: finalContent || '查询完成', products: curProducts, components: curComponents })
     }
-  } catch (e: any) {
-    chatMessages.value.push({ role: 'assistant', content: `错误: ${escapeHtml(e.message)}`, products: [], components: [] })
+  } catch (e: unknown) {
+    chatMessages.value.push({ role: 'assistant', content: `错误: ${escapeHtml(e instanceof Error ? e.message : String(e))}`, products: [], components: [] })
   }
   chatLoading.value = false
   scrollChat()

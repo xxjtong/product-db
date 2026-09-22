@@ -58,7 +58,7 @@
         <button class="btn-icon btn-sm" style="position:absolute;top:1px;right:1px;background:var(--color-surface);padding:2px" @click="form.images.splice(idx, 1)"><XIcon style="width:10px;height:10px" /></button>
       </div>
       <!-- Live preview of typed URL -->
-      <div v-if="imagePreviewUrl && !form.images.some((i: any) => i.url === imagePreviewUrl)" style="position:relative;opacity:0.6">
+      <div v-if="imagePreviewUrl && !form.images.some((i) => i.url === imagePreviewUrl)" style="position:relative;opacity:0.6">
         <img :src="imagePreviewUrl" style="width:64px;height:64px;object-fit:cover;border-radius:4px;border:1px dashed var(--color-accent)" />
       </div>
     </div>
@@ -226,7 +226,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, inject, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, inject, watch, nextTick, type Ref } from 'vue'
 import ProductFiles from '../components/ProductFiles.vue'
 import DependencyEditor from '../components/DependencyEditor.vue'
 import AiExtractCard from '../components/AiExtractCard.vue'
@@ -237,12 +237,29 @@ import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { flattenTree } from '../utils/markdown'
 import { fetchCategories, fetchSuppliers, fetchProducts, fetchProduct, createProduct, updateProduct, uploadProductImage, downloadProductImage,
   fetchCommMethods, fetchCommProtocols, fetchPowerSupplies, fetchSensorMetrics, fetchManufacturers, fetchSpecDefinitions } from '../api'
+import type { Category, Supplier, Manufacturer, SpecDefinition, CommMethod, CommProtocol, PowerSupply, SensorMetric, CurrentUser, ProductForm } from '../types'
+
+// AI 智能录入返回的原始结构（外部模型输出，字段可能缺失）
+interface AiFillPayload {
+  name?: string
+  model?: string
+  description?: string
+  base_price?: number
+  category_slug?: string
+  manufacturer_name?: string
+  comm_methods?: { name?: string; details?: string }[]
+  comm_protocols?: { name?: string; direction?: string }[]
+  power_supplies?: { name?: string; voltage_range?: string; battery_life?: string }[]
+  hardware_interfaces?: { interface_name?: string; quantity?: number; description?: string }[]
+  sensor_capabilities?: { metric_name?: string; measure_range?: string; accuracy?: string; resolution?: string }[]
+  specs?: Record<string, unknown> | string
+}
 
 const route = useRoute()
 const router = useRouter()
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 // 无权限时不渲染成本价输入框：既看不到也不应改写（保存时该字段不会出现在请求体里）
-const canViewCost = inject<any>('canViewCost', ref(false))
+const canViewCost = inject<Ref<boolean>>('canViewCost', ref(false))
 
 const isEdit = computed(() => !!route.params.id)
 const loaded = ref(false)
@@ -260,24 +277,24 @@ onBeforeRouteLeave((_to, _from, next) => {
 // Track form changes
 
 
-const categories = ref<any[]>([])
-const flatCategories = ref<any[]>([])
-const suppliers = ref<any[]>([])
-const manufacturers = ref<any[]>([])
-const commMethods = ref<any[]>([])
-const commProtocols = ref<any[]>([])
-const powerSupplies = ref<any[]>([])
-const sensorMetrics = ref<any[]>([])
-function getMetricPlaceholder(metricId: any, field: string): string {
+const categories = ref<Category[]>([])
+const flatCategories = ref<Category[]>([])
+const suppliers = ref<Supplier[]>([])
+const manufacturers = ref<Manufacturer[]>([])
+const commMethods = ref<CommMethod[]>([])
+const commProtocols = ref<CommProtocol[]>([])
+const powerSupplies = ref<PowerSupply[]>([])
+const sensorMetrics = ref<SensorMetric[]>([])
+function getMetricPlaceholder(metricId: number | null, field: string): string {
   if (!metricId) return ''
-  const m = sensorMetrics.value.find((x: any) => x.id == metricId)
+  const m = sensorMetrics.value.find((x) => x.id == metricId)
   if (!m) return ''
   if (field === 'accuracy') return m.accuracy || ''
   if (field === 'resolution') return m.resolution || ''
   if (field === 'range') return m.measure_range || ''
   return ''
 }
-const specDefs = ref<any[]>([])
+const specDefs = ref<SpecDefinition[]>([])
 function addSpecRow() {
   const key = 'new_' + Date.now()
   form.value.specs[key] = ''
@@ -296,7 +313,7 @@ const imagePreviewUrl = computed(() => {
   return /^https?:\/\/.+\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(u) ? u : ''
 })
 
-function onAiFill(p: Record<string, any>) {
+function onAiFill(p: AiFillPayload) {
   try {
   if (!p || !Object.keys(p).length) return
 
@@ -308,7 +325,7 @@ function onAiFill(p: Record<string, any>) {
 
   // Category lookup by slug
   if (p.category_slug) {
-    const cat = flatCategories.value.find((c: any) => c.slug === p.category_slug)
+    const cat = flatCategories.value.find((c) => c.slug === p.category_slug)
     if (cat) {
       form.value.category_id = cat.id
       // 品类是多选（category_ids 才是真正提交的字段），只设 category_id 会让
@@ -320,48 +337,49 @@ function onAiFill(p: Record<string, any>) {
 
   // Manufacturer lookup by name
   if (p.manufacturer_name) {
-    const mfg = manufacturers.value.find((m: any) =>
-      m.name.toLowerCase() === p.manufacturer_name.toLowerCase() ||
-      m.name.toLowerCase().includes(p.manufacturer_name.toLowerCase())
+    const mfgName = p.manufacturer_name
+    const mfg = manufacturers.value.find((m) =>
+      m.name.toLowerCase() === mfgName.toLowerCase() ||
+      m.name.toLowerCase().includes(mfgName.toLowerCase())
     )
     if (mfg) form.value.manufacturer_id = mfg.id
   }
 
   // Comm methods lookup by name
   if (p.comm_methods?.length) {
-    form.value.comm_methods = p.comm_methods.map((cm: any) => {
-      const found = commMethods.value.find((m: any) => m.name.toLowerCase() === (cm.name || '').toLowerCase())
+    form.value.comm_methods = p.comm_methods.map((cm) => {
+      const found = commMethods.value.find((m) => m.name.toLowerCase() === (cm.name || '').toLowerCase())
       return { method_id: found?.id || null, details: cm.details || '' }
     })
   }
 
   // Comm protocols lookup by name
   if (p.comm_protocols?.length) {
-    form.value.comm_protocols = p.comm_protocols.map((cp: any) => {
-      const found = commProtocols.value.find((pr: any) => pr.name.toLowerCase() === (cp.name || '').toLowerCase())
+    form.value.comm_protocols = p.comm_protocols.map((cp) => {
+      const found = commProtocols.value.find((pr) => pr.name.toLowerCase() === (cp.name || '').toLowerCase())
       return { protocol_id: found?.id || null, direction: cp.direction || 'both' }
     })
   }
 
   // Power supplies lookup by name
   if (p.power_supplies?.length) {
-    form.value.power_supplies = p.power_supplies.map((ps: any) => {
-      const found = powerSupplies.value.find((pw: any) => pw.name.toLowerCase() === (ps.name || '').toLowerCase())
+    form.value.power_supplies = p.power_supplies.map((ps) => {
+      const found = powerSupplies.value.find((pw) => pw.name.toLowerCase() === (ps.name || '').toLowerCase())
       return { power_id: found?.id || null, voltage_range: ps.voltage_range || '', battery_life: ps.battery_life || '' }
     })
   }
 
   // Hardware interfaces
   if (p.hardware_interfaces?.length) {
-    form.value.hardware_interfaces = p.hardware_interfaces.map((hi: any) => ({
+    form.value.hardware_interfaces = p.hardware_interfaces.map((hi) => ({
       interface_name: hi.interface_name || '', quantity: hi.quantity || 1, description: hi.description || ''
     }))
   }
 
   // Sensor capabilities lookup by metric name
   if (p.sensor_capabilities?.length) {
-    form.value.sensor_capabilities = p.sensor_capabilities.map((sc: any) => {
-      const found = sensorMetrics.value.find((sm: any) => sm.name.toLowerCase() === (sc.metric_name || '').toLowerCase())
+    form.value.sensor_capabilities = p.sensor_capabilities.map((sc) => {
+      const found = sensorMetrics.value.find((sm) => sm.name.toLowerCase() === (sc.metric_name || '').toLowerCase())
       return { metric_id: found?.id || null, measure_range: sc.measure_range || '', accuracy: sc.accuracy || '', resolution: sc.resolution || '' }
     })
   }
@@ -371,7 +389,7 @@ function onAiFill(p: Record<string, any>) {
     if (typeof p.specs === 'object') {
       form.value.specs = { ...p.specs }
     } else if (typeof p.specs === 'string') {
-      const parsed: Record<string,any> = {}
+      const parsed: Record<string, unknown> = {}
       for (const line of p.specs.split('\n')) {
         const idx = line.indexOf(':')
         if (idx > 0) parsed[line.substring(0, idx).trim()] = line.substring(idx + 1).trim()
@@ -382,12 +400,12 @@ function onAiFill(p: Record<string, any>) {
 
   document.querySelector('.page-header')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   showToast('已填入表单，请检查修改后保存', 'success')
-  } catch (err: any) {
-    showToast(err.message || '填入表单失败', 'error')
+  } catch (err: unknown) {
+    showToast(err instanceof Error ? (err.message || '填入表单失败') : '填入表单失败', 'error')
   }
 }
 
-const form = ref<any>({
+const form = ref<ProductForm>({
   name: '', model: '', sku: '', category_id: null, category_ids: [] as number[], manufacturer_id: null, supplier_id: null,
   base_price: 0, cost_price: 0, description: '', status: 'active', parent_id: null,
   comm_methods: [], comm_protocols: [], power_supplies: [],
@@ -409,7 +427,7 @@ async function onFileSelect(e: Event) {
     if (res.url) {
       form.value.images.push({ url: res.url, is_primary: form.value.images.length === 0, sort_order: form.value.images.length })
     }
-  } catch (err: any) { showToast(err.message, 'error') }
+  } catch (err: unknown) { showToast(err instanceof Error ? err.message : String(err), 'error') }
   ;(e.target as HTMLInputElement).value = ''
 }
 
@@ -429,7 +447,7 @@ function onAddImageUrl() {
   const url = imageUrlInput.value.trim()
   if (!url || !isValidUrl(url)) return
   // Don't add duplicate
-  if (form.value.images.some((i: any) => i.url === url)) { showToast('URL已存在', 'error'); return }
+  if (form.value.images.some((i) => i.url === url)) { showToast('URL已存在', 'error'); return }
   form.value.images.push({ url, is_primary: form.value.images.length === 0, sort_order: form.value.images.length })
   imageUrlInput.value = ''
 }
@@ -444,7 +462,7 @@ async function onDownloadImage() {
       form.value.images.push({ url: res.url, is_primary: form.value.images.length === 0, sort_order: form.value.images.length })
       imageUrlInput.value = ''
     }
-  } catch (err: any) { showToast(err.detail || err.message, 'error') }
+  } catch (err: unknown) { showToast(err instanceof Error ? err.message : String(err), 'error') }
   imageDownloading.value = false
 }
 
@@ -464,7 +482,7 @@ async function onPasteImage(e: ClipboardEvent) {
           form.value.images.push({ url: res.url, is_primary: form.value.images.length === 0, sort_order: form.value.images.length })
           showToast('图片已粘贴', 'success')
         }
-      } catch (err: any) { showToast(err.detail || err.message, 'error') }
+      } catch (err: unknown) { showToast(err instanceof Error ? err.message : String(err), 'error') }
       break
     }
   }
@@ -507,21 +525,23 @@ async function save() {
   if (!form.value.category_id) { showToast('请选择品类', 'error'); return }
   if (!form.value.description?.trim()) { showToast('请填写功能描述', 'error'); return }
   // Clean empty mapping entries (no method/protocol/power/metric selected)
-  const cleanMappings = (list: any[], key: string) => list?.filter((m: any) => m && m[key])
+  function cleanMappings<T>(list: T[] | undefined, key: keyof T) {
+    return list?.filter(m => m && m[key])
+  }
   const cleaned = { ...form.value,
     comm_methods: cleanMappings(form.value.comm_methods, 'method_id'),
     comm_protocols: cleanMappings(form.value.comm_protocols, 'protocol_id'),
     power_supplies: cleanMappings(form.value.power_supplies, 'power_id'),
     sensor_capabilities: cleanMappings(form.value.sensor_capabilities, 'metric_id'),
-    hardware_interfaces: form.value.hardware_interfaces?.filter((m: any) => m?.interface_name),
+    hardware_interfaces: form.value.hardware_interfaces?.filter((m) => m?.interface_name),
   }
   try {
     const payload = cleaned
     // 无成本权限时不要把 cost_price 发出去：新建时表单默认值是 0，发出去会把
     // 成本写成 0（而不是「未填」）；编辑时后端也会跳过 null，这里一并省掉
-    if (!canViewCost.value) delete (payload as any).cost_price
+    if (!canViewCost.value) delete payload.cost_price
     // Set image_url from primary image in images array
-    const primaryImg = payload.images?.find((i: any) => i.is_primary)
+    const primaryImg = payload.images?.find((i) => i.is_primary)
     if (primaryImg?.url) payload.image_url = primaryImg.url
     // Store remark in custom_fields
     if (payload.remark) {
@@ -533,14 +553,14 @@ async function save() {
       dirty.value = false
       showToast('产品已更新', 'success')
     } else {
-      const res = await createProduct(payload) as any
+      const res = await createProduct(payload)
       const newId = res?.product?.id
       dirty.value = false
       showToast('产品已创建', 'success')
       router.push(`/products/${newId}/edit`)
     }
-  } catch (e: any) {
-    showToast(e.detail || e.message, 'error')
+  } catch (e: unknown) {
+    showToast(e instanceof Error ? e.message : String(e), 'error')
   }
 }
 
@@ -580,9 +600,9 @@ onMounted(async () => {
       }
       if (p.category_id) await onCategoryChange()
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     // 以前没有 catch：Promise.all 里任一请求失败都会跳过 loaded=true，页面永久「加载中」（R55）
-    showToast(e?.detail || e?.message || '加载失败，请刷新重试', 'error')
+    showToast(e instanceof Error ? (e.message || '加载失败，请刷新重试') : '加载失败，请刷新重试', 'error')
   } finally {
     loaded.value = true
   }

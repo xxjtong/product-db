@@ -519,8 +519,6 @@ button {
   color: #fff;
   border-color: var(--color-accent);
 }
-  color: #fff;
-}
 .filter-row {
   display: flex; flex-wrap: wrap; gap: 6px;
 }
@@ -717,7 +715,10 @@ button {
   }
   .data-table {
     font-size: 12px;
-    min-width: 600px; /* force table scroll */
+    /* 这里原来硬编码 min-width:600px「强制表格横滑」。问题是它对**所有** .data-table 生效：
+       对比页只有 3 列、内容本来放得下，被撑到 600px 后第二个产品列直接跑到屏幕外（375px 实机走查）。
+       改回 100%，宽表靠下面 th/td 的 nowrap 自然撑开、由 .card 横向滚动 —— 该横滑的照样横滑 */
+    min-width: 100%;
   }
   .data-table th,
   .data-table td {
@@ -729,6 +730,9 @@ button {
   button {
     font-size: 13px;
     padding: 6px 10px;
+    /* 中文按钮在 flex 行里会被压到 1~2 字宽、逐字断行成竖排（375px 实机走查：
+       「规格书」变 53×53 三行、「删除选中 (1)」变 53×77）。按钮文案一律不断行 */
+    white-space: nowrap;
   }
   .btn-sm { padding: 3px 8px; }
 
@@ -749,13 +753,16 @@ button {
   button.btn-sm, .btn-sm { padding: 3px 8px; }
 
   /* Form fields full width */
-  input, select, textarea {
+  /* 复选框/单选框排除在外：它们被一起设成 width:100% 后，在 flex 行里占掉近百 px，
+     把同行的名称列挤成 1~2 字宽（方案详情的「批量选品」弹窗实测 checkbox 92px、名称仅 31px） */
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea {
     width: 100%;
     font-size: 16px; /* prevent iOS zoom */
   }
 
   /* Pagination compact */
   .pagination { flex-wrap: wrap; gap: 4px; font-size: 12px; }
+  .pagination > * { white-space: nowrap; }   /* 「每页」被拆成两行 */
 
   /* Page header stack */
   .page-header {

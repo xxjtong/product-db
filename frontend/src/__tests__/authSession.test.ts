@@ -74,6 +74,80 @@ describe('退出登录', () => {
   })
 })
 
+describe('原生 fetch 通道的 401 也要跳登录（R78）', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    mocks.push.mockClear()
+  })
+
+  it('/ai/stats 返回 401 时清凭据并跳登录', async () => {
+    localStorage.setItem('token', 'expired-token')
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sessionOk())
+      .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({ detail: 'Not authenticated' }), text: async () => '' })
+    global.fetch = fetchMock as any
+
+    const wrapper = await mountApp()
+    await flushPromises()
+
+    expect(localStorage.getItem('token')).toBeNull()
+    expect(mocks.push).toHaveBeenCalledWith('/login')
+    wrapper.unmount()
+  })
+
+  it('保存资料返回 401 时清凭据、跳登录，并关掉资料弹窗', async () => {
+    localStorage.setItem('token', 'expired-token')
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sessionOk())
+      .mockResolvedValueOnce(statsOk())
+      .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({ detail: 'Not authenticated' }), text: async () => '' })
+    global.fetch = fetchMock as any
+
+    const wrapper = await mountApp()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.openProfile()
+    expect(vm.showProfile).toBe(true)
+    vm.profileEmail = 'new@example.com'
+    await vm.saveProfile()
+    await flushPromises()
+
+    expect(localStorage.getItem('token')).toBeNull()
+    expect(mocks.push).toHaveBeenCalledWith('/login')
+    // 弹窗挂在 App 层，跳登录后 App 不卸载 —— 不关掉会盖在登录页上
+    expect(vm.showProfile).toBe(false)
+    wrapper.unmount()
+  })
+})
+
+describe('导入页的 401（组件内原生 fetch，R78）', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('确认导入返回 401 时清凭据（而不是只弹「导入失败」）', async () => {
+    localStorage.setItem('token', 'expired-token')
+    const toast = vi.fn()
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false, status: 401, json: async () => ({ detail: 'Not authenticated' }), text: async () => '',
+    }) as any
+
+    const ImportView = (await import('../views/ImportView.vue')).default
+    const wrapper = shallowMount(ImportView, { global: { provide: { toast } } })
+    const vm = wrapper.vm as any
+    vm.mapping = { 0: 'name' }
+    vm.rows = [['示例产品']]
+
+    await vm.doImport()
+    await flushPromises()
+
+    expect(localStorage.getItem('token')).toBeNull()
+    expect(toast).toHaveBeenCalledWith('登录已过期，请重新登录', 'error')
+    wrapper.unmount()
+  })
+})
+
 describe('修改密码后的会话失效', () => {
   beforeEach(() => {
     localStorage.clear()

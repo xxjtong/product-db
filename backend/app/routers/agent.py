@@ -455,6 +455,33 @@ async def close_http_client() -> None:
     _http_client = None
 
 
+HERMES_HEALTH_TIMEOUT = httpx.Timeout(5.0, connect=2.0)
+
+
+async def get_hermes_health() -> dict:
+    """读 Hermes 的 `/health/detailed`（版本号 / 平台 / 活跃 agent 数 / readiness）。
+
+    这是给运维判断「哪一侧坏了」用的，所以**上游出错也要返回结果**（`status` 字段说明
+    原因），不能抛异常 —— 否则健康端点自己 500，两侧看起来就一样坏了（R78）。
+    `/health/detailed` 需要 gateway API key（无 key 时 Hermes 回 401 + `gateway_auth_failed`）。
+    """
+    url = f"{settings.HERMES_API_URL.rstrip('/')}/health/detailed"
+    try:
+        resp = await _get_http_client().get(url, headers=_build_auth_header(),
+                                            timeout=HERMES_HEALTH_TIMEOUT)
+    except (httpx.HTTPError, OSError) as e:
+        logger.warning("读取 Hermes /health/detailed 失败：%s", e)
+        return {"status": "unreachable", "error": e.__class__.__name__}
+
+    if resp.status_code != 200:
+        return {"status": "error", "http_status": resp.status_code}
+    try:
+        body = resp.json()
+    except ValueError:
+        return {"status": "error", "http_status": 200, "error": "non-JSON body"}
+    return body if isinstance(body, dict) else {"status": "error", "error": "unexpected body"}
+
+
 async def _call_hermes(model: str, messages: list, tools: list | None = None):
     """调 Hermes 并把它的 SSE 流按行吐回来。
 

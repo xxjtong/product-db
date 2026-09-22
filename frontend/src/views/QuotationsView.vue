@@ -80,12 +80,12 @@ const quotations = ref<Quotation[]>([])
 const total = ref(0)
 const page = ref(1)
 const perPage = ref(20)
-const deleteTarget = ref<any>(null)
+const deleteTarget = ref<Quotation | null>(null)
 const search = ref('')
 const statusFilter = ref('')
 const selectedIds = ref<Set<number>>(new Set())
 const showBatchConfirm = ref(false)
-let searchTimer: any = null
+let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const allSelected = computed(() => quotations.value.length > 0 && quotations.value.every(q => selectedIds.value.has(q.id)))
 
@@ -93,7 +93,7 @@ const loading = ref(false)
 const loadError = ref('')
 
 function onSearch() {
-  clearTimeout(searchTimer)
+  if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => { page.value = 1; load() }, 300)
 }
 
@@ -113,8 +113,8 @@ async function load() {
     const res = await fetchQuotations(params)
     quotations.value = res.quotations
     total.value = res.total
-  } catch (e: any) {
-    loadError.value = e.message || '加载失败'
+  } catch (e: unknown) {
+    loadError.value = (e instanceof Error ? e.message : String(e)) || '加载失败'
   }
   loading.value = false
 }
@@ -145,7 +145,7 @@ async function doBatchDelete() {
     selectedIds.value = new Set()
     showBatchConfirm.value = false
     await load()
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
 async function changeStatus(q: Quotation, status: string) {
@@ -153,10 +153,10 @@ async function changeStatus(q: Quotation, status: string) {
     await updateQuotation(q.id, { status })
     q.status = status
     showToast('状态已更新', 'success')
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
-function confirmDelete(q: any) { deleteTarget.value = q }
+function confirmDelete(q: Quotation) { deleteTarget.value = q }
 
 async function doDelete() {
   if (!deleteTarget.value) return
@@ -165,7 +165,7 @@ async function doDelete() {
     showToast('已删除', 'success')
     deleteTarget.value = null
     await load()
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
 onMounted(() => {

@@ -13,7 +13,7 @@ test('full E2E: product list → solution → quotation with 功能描述 specs 
   await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' })
   // Wait for SPA to bootstrap and render
   await page.waitForSelector('table', { timeout: 15000 })
-  await page.waitForTimeout(1000)
+  await page.waitForLoadState('networkidle')
 
   // 4. Product list - verify loaded
   await expect(page.locator('table tbody tr').first()).toBeVisible()
@@ -22,7 +22,7 @@ test('full E2E: product list → solution → quotation with 功能描述 specs 
 
   // 5. Navigate to solutions
   await page.click('a:has-text("方案")')
-  await page.waitForTimeout(2000)
+  await page.waitForLoadState('networkidle')
   await expect(page.locator('table')).toBeVisible({ timeout: 10000 })
 
   // 6. Open first solution
@@ -30,13 +30,13 @@ test('full E2E: product list → solution → quotation with 功能描述 specs 
   const viewCount = await viewBtns.count()
   if (viewCount > 0) {
     await viewBtns.first().click()
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
     await expect(page.locator('th:has-text("功能描述")')).toBeVisible({ timeout: 5000 })
   }
 
   // 7. Navigate to quotations
   await page.click('a:has-text("报价单")')
-  await page.waitForTimeout(2000)
+  await page.waitForLoadState('networkidle')
   await expect(page.locator('table')).toBeVisible({ timeout: 10000 })
 
   // 8. Open first quotation
@@ -44,7 +44,7 @@ test('full E2E: product list → solution → quotation with 功能描述 specs 
   const qtViewCount = await qtViewBtns.count()
   if (qtViewCount > 0) {
     await qtViewBtns.first().click()
-    await page.waitForTimeout(2000)
+    await page.waitForLoadState('networkidle')
 
     // 9. Verify 功能描述 column shows specs, no URLs
     await expect(page.locator('th:has-text("功能描述")')).toBeVisible({ timeout: 5000 })

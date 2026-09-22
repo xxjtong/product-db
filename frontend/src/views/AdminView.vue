@@ -19,7 +19,7 @@
           </button>
           <span v-if="llmResult[p.key]" :style="{fontSize:'12px',color:llmResult[p.key].startsWith('✓')?'var(--color-success)':'var(--color-danger)'}">{{ llmResult[p.key] }}</span>
         </div>
-        <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:8px">
+        <div class="form-grid" style="gap:8px">
           <div class="form-group"><label>Name</label><input v-model="p.data.name" style="font-size:12px" /></div>
           <div class="form-group"><label>Provider</label><input v-model="p.data.provider" style="font-size:12px" /></div>
           <div class="form-group"><label>Base URL</label><input v-model="p.data.base_url" style="font-size:12px;font-family:monospace" /></div>
@@ -194,6 +194,19 @@ const h = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${
 interface AdminUser { id: number; username: string; role: string; email: string; is_active: boolean; created_at: string; last_login: string; can_view_cost?: boolean | null; ai_count?: number; ai_tokens?: number }
 interface LogEntry { id: number; user_id: number | null; username?: string; ip_address: string; region: string; success: boolean; created_at: string }
 interface DownloadLog { id: number; user_id: number; username?: string; file_type: string; entity_id: number; ip_address: string; created_at: string }
+interface LlmConfig { name?: string; provider?: string; base_url?: string; model?: string }
+interface LlmProvider { key: string; label: string; data: LlmConfig }
+interface AiSettings {
+  prompt_defaults?: Record<string, string>
+  prompts?: Record<string, string>
+  model_defaults?: Record<string, string>
+  models?: Record<string, string>
+}
+interface AiUsage {
+  summary?: { total?: number; total_tokens_in?: number; total_tokens_out?: number; success?: number }
+  by_op?: { operation: string; count: number }[]
+  recent?: { id: number; user_id?: number; username?: string; operation: string; tokens_in?: number; tokens_out?: number; duration_ms?: number; success?: boolean; created_at: string }[]
+}
 
 const users = ref<AdminUser[]>([])
 const logs = ref<LogEntry[]>([])
@@ -229,9 +242,9 @@ const fieldList = ref([
 ])
 
 // LLM config
-const llmConfig = ref([
-  { key: 'primary', label: '主 LLM (对话/关键词/提取)', data: {} as any },
-  { key: 'vision', label: '视觉 LLM (OCR/图片)', data: {} as any },
+const llmConfig = ref<LlmProvider[]>([
+  { key: 'primary', label: '主 LLM (对话/关键词/提取)', data: {} },
+  { key: 'vision', label: '视觉 LLM (OCR/图片)', data: {} },
 ])
 const llmSaving = ref(false)
 const llmTesting = ref<Record<string,boolean>>({})
@@ -242,14 +255,14 @@ async function testLlm(key: string) {
   llmTesting.value[key] = true
   llmResult.value[key] = ''
   try {
-    const config: any = {}
+    const config: Record<string, unknown> = {}
     for (const p of llmConfig.value) config[p.key] = p.data
     const res = await adminApi('/product-db/api/admin/llm-config/test', { method: 'POST', body: JSON.stringify({ provider: key, config: config[key] }) })
     llmResult.value[key] = '✓ ' + (res.message || '连接成功')
     if (res.models?.length) { llmAvailableModels.value[key] = res.models }
     showToast(res.message || '测试通过', 'success')
-  } catch (e: any) {
-    llmResult.value[key] = '✗ ' + (e.message || '测试失败')
+  } catch (e: unknown) {
+    llmResult.value[key] = '✗ ' + (e instanceof Error ? (e.message || '测试失败') : '测试失败')
   }
   llmTesting.value[key] = false
 }
@@ -257,16 +270,16 @@ async function testLlm(key: string) {
 async function saveLlmConfig() {
   llmSaving.value = true
   try {
-    const config: any = {}
+    const config: Record<string, unknown> = {}
     for (const p of llmConfig.value) config[p.key] = p.data
     await adminApi('/product-db/api/admin/llm-config', { method: 'PUT', body: JSON.stringify({ config }) })
     showToast('LLM配置已保存', 'success')
-  } catch (e: any) { showToast(e.message, 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
   llmSaving.value = false
 }
 
 // AI settings
-const aiSettings = ref<any>(null)
+const aiSettings = ref<AiSettings | null>(null)
 const aiPrompts = ref<Record<string,string>>({})
 const aiModels = ref<Record<string,string>>({})
 const aiSaving = ref(false)
@@ -274,9 +287,9 @@ const promptLabels: Record<string,string> = { ai_system_prompt: '系统提示词
 const modelLabels: Record<string,string> = { ai_chat_model: 'AI 对话', ai_keyword_model: '关键词提取', ai_extract_model: '产品提取' }
 
 // AI usage
-const aiUsage = ref<any>(null)
+const aiUsage = ref<AiUsage | null>(null)
 
-async function adminApi(url: string, opts?: any) {
+async function adminApi(url: string, opts?: RequestInit) {
   const res = await fetch(url, { headers: h(), ...opts })
   if (!res.ok) {
     // 401（token 过期/被作废）也要走统一处理：这里用的是原生 fetch，
@@ -318,8 +331,8 @@ async function load() {
     llmAvailableModels.value = llmModelsRes.models || {}
     aiUsage.value = aRes
     regOpen.value = rRes.open || false
-  } catch (e: any) {
-    loadError.value = e.message || '加载失败'
+  } catch (e: unknown) {
+    loadError.value = e instanceof Error ? (e.message || '加载失败') : '加载失败'
   }
   loading.value = false
 }
@@ -332,7 +345,7 @@ async function toggleField(key: string) {
   try {
     await adminApi('/product-db/api/admin/fields', { method: 'PUT', body: JSON.stringify({ [key]: fv.visible }) })
     showToast(fv.visible ? `「${label}」已对普通用户可见` : `「${label}」已对普通用户隐藏`, 'success')
-  } catch (e: any) { fv.visible = !fv.visible; showToast(e.message || '保存失败', 'error') }
+  } catch (e: unknown) { fv.visible = !fv.visible; showToast(e instanceof Error ? (e.message || '保存失败') : '保存失败', 'error') }
 }
 
 // AI prompt
@@ -344,7 +357,7 @@ async function saveAiSettings() {
       body: JSON.stringify({ prompts: aiPrompts.value, models: aiModels.value }),
     })
     showToast('已保存', 'success')
-  } catch (e: any) { showToast(e.message || '保存失败', 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? (e.message || '保存失败') : '保存失败', 'error') }
   aiSaving.value = false
 }
 
@@ -354,12 +367,12 @@ async function toggleReg() {
   try {
     await adminApi('/product-db/api/settings/registration_open', { method: 'PUT', body: JSON.stringify({ value: regOpen.value ? 'true' : 'false' }) })
     showToast(regOpen.value ? '注册已开放' : '注册已关闭', 'success')
-  } catch (e: any) { regOpen.value = !regOpen.value; showToast(e.message || '保存失败', 'error') }
+  } catch (e: unknown) { regOpen.value = !regOpen.value; showToast(e instanceof Error ? (e.message || '保存失败') : '保存失败', 'error') }
 }
 
 // Users
 function openAdd() { editing.value = null; form.value = { username: '', password: '', role: 'user', email: '', is_active: true, cost_perm: '' }; modalVisible.value = true }
-function openEdit(u: any) {
+function openEdit(u: AdminUser) {
   editing.value = u
   form.value = {
     username: u.username, password: '', role: u.role, email: u.email || '', is_active: u.is_active,
@@ -384,10 +397,10 @@ async function saveUser() {
     await adminApi(url, { method: editing.value ? 'PUT' : 'POST', body: JSON.stringify(payload) })
     // 成功才关弹窗；失败时保留弹窗，管理员填的内容不会丢
     modalVisible.value = false; showToast('已保存', 'success'); load()
-  } catch (e: any) { showToast(e.message || '保存失败', 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? (e.message || '保存失败') : '保存失败', 'error') }
 }
 
-function resetPwd(u: any) { pwdTarget.value = u; newPwd.value = ''; pwdModalVisible.value = true }
+function resetPwd(u: AdminUser) { pwdTarget.value = u; newPwd.value = ''; pwdModalVisible.value = true }
 
 async function doResetPwd() {
   if (!newPwd.value || newPwd.value.length < 8) { showToast('密码至少8位', 'error'); return }
@@ -395,15 +408,15 @@ async function doResetPwd() {
   try {
     await adminApi(`/product-db/api/admin/users/${pwdTarget.value.id}/password`, { method: 'PUT', body: JSON.stringify({ password: newPwd.value }) })
     pwdModalVisible.value = false; showToast('密码已重置', 'success')
-  } catch (e: any) { showToast(e.message || '重置失败', 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? (e.message || '重置失败') : '重置失败', 'error') }
 }
 
-async function doDelete(u: any) {
+async function doDelete(u: AdminUser) {
   showConfirm('删除用户', `确定删除用户「${u.username}」？`, async () => {
     try {
       await adminApi(`/product-db/api/admin/users/${u.id}`, { method: 'DELETE' })
       showToast('已删除', 'success'); load()
-    } catch (e: any) { showToast(e.message || '删除失败', 'error') }
+    } catch (e: unknown) { showToast(e instanceof Error ? (e.message || '删除失败') : '删除失败', 'error') }
   })
 }
 
@@ -413,7 +426,7 @@ onMounted(load)
 <style scoped>
 .toggle-row { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
 .toggle-row input { margin: 0; }
-.stat { text-align: center; min-width: 80px; }
-.stat-num { display: block; font-size: 20px; font-weight: 700; }
-.stat-label { font-size: 11px; color: var(--color-text-secondary); }
+/* .stat / .stat-num / .stat-label 原来写在这里，但那三个元素属于子组件 AiUsageStats，
+   scoped 属性对不上 → min-width 从未生效，5 项统计被自由收缩到 28px（实测「4成/功」折行）。
+   已挪进 AiUsageStats.vue 自己的 scoped 样式 */
 </style>

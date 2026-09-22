@@ -1,7 +1,7 @@
 <template>
   <div class="card mb-16">
     <h3>AI 用量统计</h3>
-    <div class="flex gap-16 mb-8" v-if="usage">
+    <div class="flex gap-16 mb-8 stat-row" v-if="usage">
       <div class="stat"><span class="stat-num">{{ usage.summary?.total || 0 }}</span><span class="stat-label">总次数</span></div>
       <div class="stat"><span class="stat-num">{{ formatNum(usage.summary?.total_tokens_in || 0) }}</span><span class="stat-label">总输入Token</span></div>
       <div class="stat"><span class="stat-num">{{ formatNum(usage.summary?.total_tokens_out || 0) }}</span><span class="stat-label">总输出Token</span></div>
@@ -41,7 +41,17 @@
 
 <script setup lang="ts">
 import { formatTime } from '../utils/time'
-defineProps<{ usage: any }>()
+
+interface UsageSummary { total?: number; total_tokens_in?: number; total_tokens_out?: number; success?: number }
+interface UsageOp { operation: string; count: number }
+interface UsageRecord { id: number; user_id?: number; username?: string; operation: string; tokens_in?: number; tokens_out?: number; duration_ms?: number; success?: boolean; created_at: string }
+interface AiUsage {
+  summary?: UsageSummary
+  by_op?: UsageOp[]
+  recent?: UsageRecord[]
+}
+
+defineProps<{ usage: AiUsage | null }>()
 defineEmits(['refresh'])
 
 const opLabels: Record<string,string> = {
@@ -55,3 +65,17 @@ function formatNum(n: number): string {
   return String(n)
 }
 </script>
+
+<style scoped>
+/* 这几条原先写在 AdminView.vue 的 scoped 样式里，对不上子组件的 scoped 属性而失效。
+   放回元素所属组件才真正生效（375px 下 5 项统计曾被压到最窄 28px、标签折成「4成/功」） */
+.stat { text-align: center; min-width: 80px; }
+.stat-num { display: block; font-size: 20px; font-weight: 700; }
+.stat-label { font-size: 11px; color: var(--color-text-secondary); }
+
+@media (max-width: 480px) {
+  .stat-row { flex-wrap: wrap; gap: 8px 16px; }
+  .stat { min-width: 64px; }
+  .stat-num { font-size: 17px; }
+}
+</style>

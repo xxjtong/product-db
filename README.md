@@ -34,15 +34,20 @@ npx vite --host 0.0.0.0 --port 5173
 ## 测试
 
 ```bash
-# Backend（642 用例：641 passed + 1 skipped，数量随迭代变化）
+# Backend（665 用例：664 passed + 1 skipped，数量随迭代变化）
 cd backend && venv/bin/python -m pytest tests/ -v
 
 # Frontend
-cd frontend && npx vitest run                     # 98 组件测试
+cd frontend && npx vitest run                     # 101 组件测试
 cd frontend && npx vue-tsc --noEmit               # 类型检查
 
 # E2E (需要先启动前后端服务)
 cd frontend && npm run test:e2e                    # 7 个 spec 套件（见 e2e/）
+
+# E2E 用「确定性种子库」跑（CI 就是这条路径，本地同样可用）
+cd backend && venv/bin/alembic upgrade head && venv/bin/python seed_e2e.py \
+  && venv/bin/uvicorn app.main:app --port 8000 &   # DATABASE_URL/DEV_MODE/SECRET_KEY 见 ci.yml
+cd frontend && CI=1 npx playwright test            # 100 条（agent-isolation 需真实 Hermes，CI 下跳过）
 
 # E2E 对生产（只跑「零写入」的套件 —— 见下方说明）
 cd frontend && \
@@ -94,7 +99,7 @@ product-db/
 │   │   ├── routers/             # API 路由 (14 个模块：含 agent / product_import / product_files)
 │   │   ├── services/            # 业务逻辑
 │   │   └── schemas/             # Pydantic 请求/响应模型
-│   ├── tests/                   # pytest 测试，642 用例（641 passed + 1 skipped）
+│   ├── tests/                   # pytest 测试，665 用例（664 passed + 1 skipped）
 │   └── alembic/                 # 数据库迁移
 ├── frontend/
 │   ├── src/

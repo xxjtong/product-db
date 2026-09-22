@@ -55,7 +55,7 @@ async function submit() {
   loading.value = true; error.value = ''
   try {
     const endpoint = isRegister.value ? '/product-db/api/auth/register' : '/product-db/api/auth/login'
-    const body: any = { username: username.value, password: password.value }
+    const body: { username: string; password: string; email?: string } = { username: username.value, password: password.value }
     if (isRegister.value) body.email = email.value
     const res = await fetch(endpoint, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -66,7 +66,7 @@ async function submit() {
     localStorage.setItem('token', data.token)
     localStorage.setItem('user', JSON.stringify(data.user))
     router.push('/products')
-  } catch (e: any) { error.value = e.message }
+  } catch (e: unknown) { error.value = e instanceof Error ? e.message : String(e) }
   loading.value = false
 }
 </script>

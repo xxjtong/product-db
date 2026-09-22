@@ -54,13 +54,15 @@ import Pagination from '../components/Pagination.vue'
 import Modal from '../components/Modal.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { fetchSuppliersPaginated, createSupplier, updateSupplier, deleteSupplier } from '../api'
-import type { Supplier } from '../types'
+import type { Supplier, CurrentUser } from '../types'
 
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
 // 供应商属主数据，仅管理员可写（后端 require_admin 门禁），非管理员隐藏入口
-const currentUser = inject<any>('currentUser', ref(null))
+const currentUser = inject('currentUser', ref<CurrentUser | null>(null))
 const isAdmin = computed(() => currentUser?.value?.role === 'admin')
+
+type SupplierForm = { name: string; contact_person: string; phone: string; email: string; website: string; notes: string }
 
 const suppliers = ref<Supplier[]>([])
 const total = ref(0)
@@ -68,9 +70,9 @@ const page = ref(1)
 const perPage = ref(20)
 const search = ref('')
 const modalVisible = ref(false)
-const editing = ref<any>(null)
-const form = ref<any>({ name: '', contact_person: '', phone: '', email: '', website: '', notes: '' })
-const deleteTarget = ref<any>(null)
+const editing = ref<Supplier | null>(null)
+const form = ref<SupplierForm>({ name: '', contact_person: '', phone: '', email: '', website: '', notes: '' })
+const deleteTarget = ref<Supplier | null>(null)
 
 function buildQuery() {
   const parts: string[] = []
@@ -88,7 +90,7 @@ async function load() {
     const res = await fetchSuppliersPaginated(buildQuery())
     suppliers.value = res.suppliers
     total.value = res.total
-  } catch (e: any) { showToast(e.message || '加载失败', 'error') }
+  } catch (e: unknown) { showToast((e instanceof Error ? e.message : String(e)) || '加载失败', 'error') }
   loading.value = false
 }
 
@@ -98,7 +100,7 @@ function openAdd() {
   modalVisible.value = true
 }
 
-function openEdit(s: any) {
+function openEdit(s: Supplier) {
   editing.value = s
   form.value = { ...s }
   modalVisible.value = true
@@ -115,10 +117,10 @@ async function save() {
     }
     modalVisible.value = false
     await load()
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
-function confirmDelete(s: any) { deleteTarget.value = s }
+function confirmDelete(s: Supplier) { deleteTarget.value = s }
 
 async function doDelete() {
   if (!deleteTarget.value) return
@@ -127,7 +129,7 @@ async function doDelete() {
     showToast('已删除', 'success')
     deleteTarget.value = null
     await load()
-  } catch (e: any) { showToast(e.detail || e.message, 'error') }
+  } catch (e: unknown) { showToast(e instanceof Error ? e.message : String(e), 'error') }
 }
 
 watch(search, () => { page.value = 1; load() })

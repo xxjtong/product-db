@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.utils.helpers import get_or_404
+from app.utils.helpers import get_or_404, clamp_page
 from app.auth import hash_password, get_current_user
 from app.models.user import User
 from app.models.login_log import LoginLog
@@ -133,6 +133,7 @@ def _get_usernames(db: Session, user_ids: set) -> dict:
 def list_login_logs(user_id: int = None, page: int = 1, per_page: int = 20, db: Session = Depends(get_db), user=Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(403, "Admin only")
+    page, per_page = clamp_page(page, per_page)
     q = db.query(LoginLog).order_by(LoginLog.created_at.desc())
     if user_id:
         q = q.filter_by(user_id=user_id)
@@ -480,6 +481,7 @@ def get_download_logs(page: int = 1, per_page: int = 20, db: Session = Depends(g
     if user.role != "admin":
         raise HTTPException(403, "Admin only")
     from app.models.download_log import DownloadLog
+    page, per_page = clamp_page(page, per_page)
     q = db.query(DownloadLog).order_by(DownloadLog.created_at.desc())
     total = q.count()
     logs = q.offset((page-1)*per_page).limit(per_page).all()

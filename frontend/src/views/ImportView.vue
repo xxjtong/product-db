@@ -45,7 +45,7 @@
 <script setup lang="ts">
 import { ref, inject } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
-import { readErrorDetail } from '../api'
+import { readErrorDetail, handleUnauthorized } from '../api'
 
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
@@ -57,13 +57,15 @@ const fields = [
   { label: '产品URL', value: 'product_url' },
 ]
 
+interface ImportResult { imported?: number; skipped?: number }
+
 const headers = ref<string[]>([])
-const rows = ref<any[]>([])
-const previewRows = ref<any[]>([])
+const rows = ref<unknown[][]>([])
+const previewRows = ref<unknown[][]>([])
 const mapping = ref<Record<number, string>>({})
 const loading = ref(false)
 const importing = ref(false)
-const result = ref<any>(null)
+const result = ref<ImportResult | null>(null)
 
 async function onFileSelect(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
@@ -77,6 +79,7 @@ async function onFileSelect(e: Event) {
     const token = localStorage.getItem('token')
     if (token) authHeaders['Authorization'] = `Bearer ${token}`
     const res = await fetch('/product-db/api/products/import-preview', { method: 'POST', body: formData, headers: authHeaders })
+    if (handleUnauthorized(res)) throw new Error('登录已过期，请重新登录')
     if (!res.ok) throw new Error(await readErrorDetail(res))
     const data = await res.json()
     headers.value = data.headers ?? []
@@ -84,14 +87,14 @@ async function onFileSelect(e: Event) {
     previewRows.value = rows.value.slice(0, 10)
     mapping.value = {}
     autoMap()
-  } catch (e: any) {
+  } catch (e: unknown) {
     // 失败必须清空上一次的预览状态：否则旧的列映射表会留在页面上、「确认导入 N 条」
     // 仍可点，用户会误把上一个文件的数据再导一遍（浏览器走查发现的遗留问题）
     headers.value = []
     rows.value = []
     previewRows.value = []
     mapping.value = {}
-    showToast(e.message || '解析失败', 'error')
+    showToast((e instanceof Error ? e.message : String(e)) || '解析失败', 'error')
   }
   loading.value = false
 }
@@ -122,12 +125,13 @@ async function doImport() {
       method: 'POST', headers: h,
       body: JSON.stringify({ mapping: mapping.value, rows: rows.value }),
     })
+    if (handleUnauthorized(res)) throw new Error('登录已过期，请重新登录')
     if (!res.ok) throw new Error(await readErrorDetail(res))
     result.value = await res.json()
     // 后端会按「名称 + 型号」跳过已存在的行（同一份表重复导入不再翻倍），要如实告诉用户
     const skippedTip = result.value?.skipped ? `，跳过 ${result.value.skipped} 条（已存在）` : ''
     showToast(`成功导入 ${result.value?.imported ?? 0} 条${skippedTip}`, 'success')
-  } catch (e: any) { showToast(e.message || '导入失败', 'error') }
+  } catch (e: unknown) { showToast((e instanceof Error ? e.message : String(e)) || '导入失败', 'error') }
   importing.value = false
 }
 </script>

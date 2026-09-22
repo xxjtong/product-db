@@ -600,8 +600,8 @@ ssh -p 28793 tong@124.221.178.161 \
 | 脚本 | `/opt/product-db/deploy/backup-db.sh`（随 git 下发，可版本化审阅） |
 | unit | `~/.config/systemd/user/product-db-backup.{service,timer}`（源在 `deploy/systemd/`） |
 | 调度 | `OnCalendar=03:30`，`Persistent=true`（宕机/重启后补跑） |
-| 内容 | ① 数据库一致性快照 ② **uploads 目录的硬链接增量快照** |
-| 保留 | 各自最新 14 份（db 约 34M；uploads 基础约 130M + 每日变化量） |
+| 内容 | ① 数据库一致性快照 ② **uploads 目录的硬链接增量快照** ③ **推一份到异地 `bwh.ddns.mobi`**（见下） |
+| 保留 | 本地各自最新 14 份（db 约 34M；uploads 基础约 130M + 每日变化量）；异地各保留 7 份 |
 | 每轮校验 | db 走 `PRAGMA integrity_check` + 行数哨兵（products / users / ai_conversations），任一不过即非 0 退出且不留残缺文件 |
 
 > **uploads 为什么用「每日快照 + 硬链接」而不是单一 `--delete` 镜像**：镜像只有一份最新状态，
@@ -629,6 +629,49 @@ ssh -p 28793 tong@124.221.178.161 \
 ```
 
 > 依赖用户级 systemd 可在无登录时运行：`loginctl enable-linger tong`（本机已开启）。
+
+### 异地副本（bwh.ddns.mobi）
+
+本地快照与 `/opt/product-db` 同机 —— 机器挂了、磁盘挂了就都没了。所以每天备份的**最后一段**
+会把刚做好的 db 快照与 uploads 快照再推一份到 `bwh.ddns.mobi`（生产机到该机已配免密）。
+
+| 项 | 值 |
+|---|---|
+| 目标 | `tong@bwh.ddns.mobi:28793` → `/home/tong/backups/product-db/{db,uploads-snapshots}` |
+| 方式 | db 单文件直推；uploads 同样用 `--link-dest`（**在远端解释**）做硬链接快照，保留 **7** 份 |
+| 覆盖 | `OFFSITE_HOST` / `OFFSITE_PORT` / `OFFSITE_USER` / `OFFSITE_DIR` / `OFFSITE_KEEP` |
+| 临时关闭 | `OFFSITE_ENABLED=0`（例：异地机维护期间） |
+| 失败语义 | **只记 ERROR 并以非 0 退出，绝不删本地快照** —— 本地才是主副本 |
+
+> ⛔ **前提：异地机必须装 `rsync`**（Debian 12，`sudo` 需密码所以这一步得手工做一次）：
+> ```bash
+> ssh -p 28793 tong@124.221.178.161 'ssh -p 28793 tong@bwh.ddns.mobi "sudo apt-get install -y rsync"'
+> ```
+> 没装的表现是日志里 `rsync: command not found`，且 `异地现有 → db 0 份`。
+
+**验证（不必等定时任务）** —— 用临时目录跑一遍，不碰真实备份目录：
+
+```bash
+ssh -p 28793 tong@124.221.178.161 \
+  'mkdir -p /tmp/bk-test/uploads && echo hi > /tmp/bk-test/uploads/a.txt && \
+   cd /opt/product-db && BACKUP_DIR=/tmp/bk-test/db UPLOADS_PATH=/tmp/bk-test/uploads \
+   UPLOADS_BACKUP_DIR=/tmp/bk-test/ups OFFSITE_DIR=/home/tong/backups/product-db-test \
+   deploy/backup-db.sh 3; echo "退出码=$?"; rm -rf /tmp/bk-test'
+```
+期望：`快照完成` → `异地 db 快照完成` → `异地 uploads 快照完成` → 退出码 0。
+日志尾部会打印 `完成（本地 OK，异地 OK）`，并列出异地现有份数。
+
+**从异地恢复**（生产机整体不可用时，先把文件从 bwh 取回来）：
+
+```bash
+# 库
+rsync -az -e "ssh -p 28793" \
+  tong@bwh.ddns.mobi:/home/tong/backups/product-db/db/ ./restore-db/
+# uploads 的某一天
+rsync -az -e "ssh -p 28793" \
+  tong@bwh.ddns.mobi:/home/tong/backups/product-db/uploads-snapshots/<时间戳>/ ./restore-uploads/
+```
+拿到后按上面「恢复」一节放回 `/opt/product-db`（库要先停服并清掉 `-wal`/`-shm`）。
 
 ### 手动备份命令
 
