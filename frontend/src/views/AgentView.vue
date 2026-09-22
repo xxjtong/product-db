@@ -60,6 +60,11 @@
               </div>
             </div>
             <div v-else class="agent-msg-text" v-html="renderMd(m.content as string)" />
+            <div v-if="m.role === 'assistant' && m.steps?.length" class="agent-tool-steps">
+              <div v-for="(s, si) in m.steps" :key="si" :title="s.label">
+                <span class="agent-tool-emoji">{{ s.emoji }}</span>{{ s.label }}
+              </div>
+            </div>
             <div v-if="m._approval?.status === 'pending'" class="agent-approval-btns">
               <button class="btn-primary btn-sm" @click="approveDecision(m, true)" :disabled="streaming">授权执行</button>
               <button class="btn-danger btn-sm" @click="approveDecision(m, false)" :disabled="streaming">拒绝</button>
@@ -75,9 +80,15 @@
         <div v-if="streaming" class="agent-msg assistant">
           <div class="agent-msg-avatar"><BotIcon :size="18" /></div>
           <div class="agent-msg-body">
+            <!-- 工具执行阶段先把"在干什么"显示出来，别让用户对空白气泡干等 -->
+            <div v-if="toolSteps.length" class="agent-tool-steps">
+              <div v-for="(s, si) in toolSteps" :key="si" :title="s.label">
+                <span class="agent-tool-emoji">{{ s.emoji }}</span>{{ s.label }}
+              </div>
+            </div>
             <div class="agent-msg-text">
               <span v-if="streamText" v-html="renderMd(streamText)" />
-              <span v-else class="ai-loading">思考中</span>
+              <span v-else-if="!toolSteps.length" class="ai-loading">思考中</span>
               <span class="ai-cursor">▊</span>
             </div>
           </div>
@@ -153,11 +164,17 @@ import { handleUnauthorized } from '../api'
 const showToast = inject<(msg: string, type?: string) => void>('toast', () => {})
 
 // ── Types ──────────────────────────────────────────────
+interface ToolStep {
+  emoji: string
+  label: string
+}
+
 interface Message {
   role: 'user' | 'assistant' | 'system'
   content: string | { type: string; text?: string; image_url?: { url: string } }[]
   tokens?: string
   fileUrls?: { name: string; url: string }[]
+  steps?: ToolStep[]   // 本轮 agent 执行过的工具（R63：来自 hermes.tool.progress）
   _approval?: { task_id: string; tool_name: string; status: 'pending' | 'approved' | 'rejected' }
 }
 
@@ -195,6 +212,8 @@ const msgContainer = ref<HTMLElement | null>(null)
 const messages = ref<Message[]>([])
 const streamText = ref('')
 const streaming = ref(false)
+// 本轮已执行的工具步骤（Hermes 的 hermes.tool.progress，经后端规范化）
+const toolSteps = ref<ToolStep[]>([])
 const showHistory = ref(false)
 // 仅用于把上传文件的绝对路径写进用户消息；system 提示词由服务端注入（R60）
 const uploadDir = ref('')   // loaded from /api/agent/config
@@ -483,6 +502,7 @@ async function send(question?: string) {
 
   streamText.value = ''
   streaming.value = true
+  toolSteps.value = []
   abortCtrl = new AbortController()
   let fullContent = ''
   let tokenUsage = { prompt: 0, completion: 0, total: 0 }
@@ -525,11 +545,21 @@ async function send(question?: string) {
         try {
           const chunk = JSON.parse(data)
 
+          // 工具进度：让用户看到 agent 正在查库/跑命令，而不是干等一个空白气泡
+          if (chunk.type === 'tool_progress') {
+            toolSteps.value = [...toolSteps.value, {
+              emoji: chunk.emoji || '🛠',
+              label: chunk.label || chunk.tool || '执行中',
+            }].slice(-5)
+            scrollDown()
+            continue
+          }
+
           // Human-in-the-loop: intercept approval_required → inline message
           if (chunk.type === 'approval_required') {
             // Save current assistant message if any
             if (fullContent) {
-              messages.value.push({ role: 'assistant', content: fullContent })
+              messages.value.push({ role: 'assistant', content: fullContent, steps: stepsOf() })
               fullContent = ''
             }
             // Push approval request as a special message
@@ -567,7 +597,7 @@ async function send(question?: string) {
   } catch (e: any) {
     if (e.name === 'AbortError') {
       if (fullContent) {
-        messages.value.push({ role: 'assistant', content: fullContent + '\n\n*[已停止]*' })
+        messages.value.push({ role: 'assistant', content: fullContent + '\n\n*[已停止]*', steps: stepsOf() })
       }
     } else {
       messages.value.push({
@@ -588,6 +618,7 @@ async function send(question?: string) {
       role: 'assistant',
       content: fullContent,
       tokens: tk ? `${tk.toLocaleString()} tokens (入 ${tokenUsage.prompt.toLocaleString()} + 出 ${tokenUsage.completion.toLocaleString()})` : undefined,
+      steps: stepsOf(),
     })
   }
   streamText.value = ''
@@ -605,6 +636,11 @@ function stopStreaming() {
 }
 
 // ── Helpers ────────────────────────────────────────────
+/** 给消息带上本轮工具步骤；没有就不带（避免 localStorage 里存空数组） */
+function stepsOf(): ToolStep[] | undefined {
+  return toolSteps.value.length ? [...toolSteps.value] : undefined
+}
+
 function scrollDown() {
   nextTick(() => {
     if (msgContainer.value) {
@@ -750,6 +786,27 @@ watch(streaming, (val) => {
   gap: 8px;
   justify-content: center;
   max-width: 600px;
+}
+
+/* 工具执行步骤：贴在气泡里，单行省略，完整命令放 title */
+.agent-tool-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  opacity: .85;
+}
+.agent-tool-steps > div {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.agent-tool-emoji {
+  margin-right: 5px;
 }
 
 /* 快捷答复：跟在最新一条回复下方，左对齐、与消息区分开 */

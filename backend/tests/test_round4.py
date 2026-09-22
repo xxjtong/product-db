@@ -930,6 +930,121 @@ class TestAgentHermesProxy:
 
 
 # ============================================================
+# Agent: 工具进度事件转发 + 脱敏 —— R63
+# ============================================================
+class TestAgentToolProgress:
+    """Hermes 会发 `event: hermes.tool.progress`（label 是完整 shell 命令，含调用方 JWT）。
+    R63 起在转发时规范化成前端认识的 tool_progress 事件，并抹掉凭据。"""
+
+    JWT = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.PAYLOAD.SIG"
+
+    @staticmethod
+    def _stub(mock_stream, lines):
+        class FakeResp:
+            status_code = 200
+
+            async def aiter_lines(self):
+                for ln in lines:
+                    yield ln
+
+        ctx = AsyncMock()
+        ctx.__aenter__ = AsyncMock(return_value=FakeResp())
+        ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_stream.return_value = ctx
+
+    def _lines(self):
+        return [
+            "event: hermes.tool.progress",
+            'data: {"tool":"terminal","emoji":"💻","label":"curl -s --noproxy \'*\' -H \\"Authorization: Bearer '
+            + self.JWT + '\\" http://127.0.0.1:8000/product-db/api/products?per_page=5"}',
+            "",
+            'data: {"id":"c1","choices":[{"index":0,"delta":{"content":"好"}}]}',
+            "",
+            "data: [DONE]",
+            "",
+        ]
+
+    @patch("httpx.AsyncClient.stream")
+    def test_progress_is_normalized_and_redacted(self, mock_stream, auth_headers):
+        self._stub(mock_stream, self._lines())
+
+        resp = client.post("/product-db/api/agent/chat", json={
+            "messages": [{"role": "user", "content": "列出 3 个产品"}], "stream": True,
+        }, headers=auth_headers)
+
+        assert resp.status_code == 200
+        body = resp.text
+        # 1) 转成前端认识的事件
+        assert '"type": "tool_progress"' in body
+        assert '"tool": "terminal"' in body
+        assert "💻" in body
+        # 2) 凭据必须被抹掉
+        assert "Bearer ***" in body
+        assert self.JWT not in body
+        # 3) 正常内容块照旧透传
+        assert '"content": "好"' in body.replace('"content":"好"', '"content": "好"') or '"content":"好"' in body
+
+    @patch("httpx.AsyncClient.stream")
+    def test_other_events_pass_through_untouched(self, mock_stream, auth_headers):
+        """非 tool.progress 的行必须原样透传（别的 event 名不能误伤）"""
+        self._stub(mock_stream, [
+            "event: something.else",
+            'data: {"foo": "bar"}',
+            "",
+            "data: [DONE]",
+            "",
+        ])
+
+        resp = client.post("/product-db/api/agent/chat", json={
+            "messages": [{"role": "user", "content": "hi"}], "stream": True,
+        }, headers=auth_headers)
+
+        assert '"foo": "bar"' in resp.text
+        assert "tool_progress" not in resp.text
+
+    @pytest.mark.parametrize("raw,expect_absent", [
+        ('{"label":"curl -H \\"Authorization: Bearer abc.def.ghi\\" http://x"}', "abc.def.ghi"),
+        ('{"label":"curl \\"http://x?token=secret123\\""}', "secret123"),
+        ('{"label":"export API_KEY=zzz999 && run"}', "zzz999"),
+        ('{"label":"mysql -p=hunter2 -e x"}', "hunter2"),
+        ('{"label":"mysql --password hunter3 -e x"}', "hunter3"),
+    ])
+    def test_redact_secrets(self, raw, expect_absent):
+        from app.routers.agent import _tool_progress_payload
+        import json as _json
+
+        payload = _json.loads(_tool_progress_payload(raw))
+        assert expect_absent not in payload["label"]
+        assert "***" in payload["label"]
+
+    def test_redact_keeps_innocent_flags(self):
+        """别把正常的命令行遮花：`ssh -p 28793`、`docker -p8080:80` 都要保留"""
+        from app.routers.agent import _tool_progress_payload
+        import json as _json
+
+        raw = _json.dumps({"label": "ssh -p 28793 tong@x 'docker -p8080:80 nginx'"})
+        assert _json.loads(_tool_progress_payload(raw))["label"] == "ssh -p 28793 tong@x 'docker -p8080:80 nginx'"
+
+    def test_tool_progress_payload_handles_garbage(self):
+        from app.routers.agent import _tool_progress_payload
+        import json as _json
+
+        for raw in ("", "not json", "[1,2]", "null"):
+            payload = _json.loads(_tool_progress_payload(raw))
+            assert payload["type"] == "tool_progress"
+            assert payload["emoji"] == "🛠"          # 缺字段时的兜底
+            assert payload["label"] == ""
+
+    def test_tool_progress_label_is_truncated(self):
+        from app.routers.agent import _tool_progress_payload
+        import json as _json
+
+        long_label = "curl " + "x" * 500
+        payload = _json.loads(_tool_progress_payload(_json.dumps({"label": long_label})))
+        assert len(payload["label"]) <= 160
+
+
+# ============================================================
 # Agent: system 由服务端注入 —— R60
 # ============================================================
 class TestAgentServerOwnedSystem:

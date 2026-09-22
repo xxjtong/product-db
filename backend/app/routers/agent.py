@@ -359,6 +359,69 @@ AGENT_TOOLS = [
 ]
 
 
+def _redact_secrets(text: str) -> str:
+    """抹掉工具命令里顺带带出来的凭据。
+
+    实测 `hermes.tool.progress` 的 label 是**完整 shell 命令**，里面含调用方的 JWT
+    （`-H "Authorization: Bearer eyJ…"`）—— 原样显示会把 token 摆到屏幕上、截图里。
+
+    只遮**显式命名**的凭据；`mysql -phunter2` 这种紧贴的短选项没法可靠区分
+    （`docker -p8080:80` 是端口映射），不做猜测。
+    """
+    text = re.sub(r"(Bearer\s+)[A-Za-z0-9._\-]+", r"\1***", text, flags=re.I)
+    text = re.sub(
+        r"(?i)(-p=|password=|passwd=|token=|api[_-]?key=|secret=)([^\s&'\"]+)",
+        r"\1***", text,
+    )
+    return re.sub(r"(?i)(--password\s+)(\S+)", r"\1***", text)
+
+
+def _tool_progress_payload(raw: str) -> str:
+    """把 Hermes 的 `hermes.tool.progress` 规范化成前端认识的事件（并脱敏）。
+
+    Hermes 自己的事件名前端不认识，而且 label 可能很长（整条 curl 命令），
+    所以在这里一次性转成 `{"type": "tool_progress", ...}` 并截断。
+    """
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    label = _redact_secrets(str(data.get("label") or ""))[:160]
+    return json.dumps(
+        {
+            "type": "tool_progress",
+            "tool": str(data.get("tool") or ""),
+            "emoji": str(data.get("emoji") or "🛠"),
+            "label": label,
+        },
+        ensure_ascii=False,
+    )
+
+
+async def _relay_hermes_sse(resp):
+    """把 Hermes 的 SSE 行转发给前端。
+
+    只在中间做一件事：把 `event: hermes.tool.progress` 转成前端认识的
+    `data: {"type":"tool_progress",…}`（顺带脱敏）；其余行原样透传 ——
+    前端本来就会忽略 `event:` 行。
+    """
+    pending_event = None
+    async for line in resp.aiter_lines():
+        if line.startswith("event: "):
+            pending_event = line[7:].strip()
+            yield line + "\n"
+            continue
+        if pending_event == "hermes.tool.progress" and line.startswith("data: "):
+            yield "data: " + _tool_progress_payload(line[6:]) + "\n"
+            pending_event = None
+            continue
+        if line.strip():
+            pending_event = None
+        yield line + "\n"
+
+
 async def _call_hermes(client, model: str, messages: list, stream: bool = True, tools: list | None = None):
     """Single pass: call Hermes and stream text lines back (SSE format)."""
     headers = {
@@ -377,16 +440,16 @@ async def _call_hermes(client, model: str, messages: list, stream: bool = True, 
                         yield f"data: {json.dumps({'error': f'Hermes returned {resp.status_code}'})}\n\n"
                         yield "data: [DONE]\n\n"
                         return
-                    async for line in resp.aiter_lines():
-                        yield line + "\n"
+                    async for line in _relay_hermes_sse(resp):
+                        yield line
         else:
             async with client.stream("POST", HERMES_CHAT_URL, json=payload, headers=headers) as resp:
                 if resp.status_code != 200:
                     yield f"data: {json.dumps({'error': f'Hermes returned {resp.status_code}'})}\n\n"
                     yield "data: [DONE]\n\n"
                     return
-                async for line in resp.aiter_lines():
-                    yield line + "\n"
+                async for line in _relay_hermes_sse(resp):
+                    yield line
     except httpx.ConnectError:
         yield f"data: {json.dumps({'error': 'Cannot connect to Hermes agent server'})}\n\n"
         yield "data: [DONE]\n\n"
