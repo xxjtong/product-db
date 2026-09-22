@@ -56,11 +56,13 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 上游异常记账 / 取消保留任务 / 超期回收)；顺带修掉 `test_agent_chat_connection_error` 的假用例
 （原先挂的是 async 函数，实际抛出的是「coroutine 当上下文用」的 AttributeError，测不到连接失败）。
 
-**nginx（需 sudo，手工执行）**：给 `/product-db/api/agent/` 单独一个 location ——
+**nginx（已生效，2026-09-22 手工执行）**：给 `/product-db/api/agent/` 单独一个 location ——
 `proxy_buffering off` + `proxy_read_timeout 300s` + `proxy_http_version 1.1`
 （对齐后端 `HERMES_TIMEOUT=300s`；默认 60s 会在长时间工具执行、一个字节都不下发时掐断连接），
 并**不加** `proxy_intercept_errors`（SSE 出错要让上游错误原样返回，而不是换成 HTML 维护页）。
-新配置已放在服务器 `/tmp/product-db.nginx.new`（与线上只差这一个 location 块）。
+线上复测（零 LLM 成本，走「测试审批」钩子）：首个事件 **143ms**、`text/event-stream` + `chunked`；
+断开后 `GET /agent/approvals` 里任务仍在、点拒绝 200（修复前 404）；
+`app.log` 来源列已恢复成真实模块（`app.services.approval_manager:69/:89/:115`）。
 
 ## 上一版 (2026-09-22, R63)
 
