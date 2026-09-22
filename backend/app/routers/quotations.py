@@ -17,7 +17,8 @@ from app.auth import get_current_user, filter_by_ownership, check_ownership
 from app.models.user import User
 from app.services.field_visibility import cost_visible
 from app.utils.escape import escape_like, LIKE_ESCAPE
-from app.schemas.quotation import QuotationCreate, QuotationUpdate, QuotationItemCreate, QuotationItemUpdate
+from app.schemas.quotation import (QuotationCreate, QuotationUpdate, QuotationItemCreate,
+                                   QuotationItemUpdate, QuotationBOMSave)
 from app.schemas.solution import BatchDeleteRequest
 from app.services.quotation_service import create_quotation_from_solution
 from datetime import datetime, timezone
@@ -154,8 +155,9 @@ def batch_delete_quotations(data: BatchDeleteRequest, db: Session = Depends(get_
         forbidden = [i for i in data.ids if i not in owned_ids]
         if forbidden:
             raise HTTPException(403, f"Access denied for quotations: {forbidden}")
-    # 同 solutions.batch-delete：bulk DELETE 不触发 `Quotation.items` 的 cascade，
-    # 而生产未启用 SQLite 外键（存量违规 978 行），必须逐条 ORM 删除以免产生孤儿行。
+    # 同 solutions.batch-delete：bulk DELETE 不触发 ORM 的 cascade，`Quotation.items`
+    # 的级联不会跑，逐条 ORM 删除才稳妥（R57 起外键已强制开启，但 bulk delete 绕过的
+    # 正是这一层）。
     rows = db.query(Quotation).filter(Quotation.id.in_(data.ids)).all()
     for row in rows:
         db.delete(row)
@@ -434,10 +436,10 @@ def get_quotation_bom(quotation_id: int, db: Session = Depends(get_db), user=Dep
 
 
 @router.put("/quotations/{quotation_id}/bom")
-def save_quotation_bom(quotation_id: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def save_quotation_bom(quotation_id: int, data: QuotationBOMSave, db: Session = Depends(get_db), user=Depends(get_current_user)):
     qt = get_or_404(db, Quotation, quotation_id, "Quotation not found")
     check_ownership(qt, user, strict=True)
-    rows = data.get("rows", [])
+    rows = data.rows
     can_see_cost = cost_visible(user, db)
     # Preserve old data that BOM editor doesn't carry
     # 旧行按「SKU 优先、位置兜底」匹配：原来只用 sort_order（假定等于行号），
@@ -454,15 +456,15 @@ def save_quotation_bom(quotation_id: int, data: dict, db: Session = Depends(get_
     try:
         db.query(QuotationItem).filter_by(quotation_id=quotation_id).delete()
         for idx, row in enumerate(rows):
-            sku = str(row.get("sku", "") or "").strip()
+            sku = (row.sku or "").strip()
             old_item = old_by_sku.get(sku) if sku else None
             if old_item is None and idx < len(old_items):
                 old_item = old_items[idx]
             old_snap = (old_item.product_snapshot or {}) if old_item else {}
-            snap = {"name": row.get("name", ""), "sku": row.get("sku", ""),
-                    "model": row.get("model", ""), "description": row.get("description", "")}
+            snap = {"name": row.name or "", "sku": row.sku or "",
+                    "model": row.model or "", "description": row.description or ""}
             if can_see_cost:
-                snap["cost_price"] = float(row.get("cost", 0) or 0)
+                snap["cost_price"] = float(row.cost or 0)
             elif "cost_price" in old_snap:
                 # 看不到成本的用户不得改写成本：前端读到的是被裁掉的 cost（None），
                 # 原样采信会把快照里的成本抹成 0 —— 成本以服务端已有值为准
@@ -473,17 +475,17 @@ def save_quotation_bom(quotation_id: int, data: dict, db: Session = Depends(get_
             pid = old_item.product_id if old_item else None
             # 数量 0 是合法值（本次不采购但保留该行），只有空/脏数据才回退默认值 ——
             # 历史写法 `float(row.get("qty", 1) or 1)` 会把 0 悄悄改成 1（R50）
-            qty = number_or(row.get("qty"), 1)
-            price = number_or(row.get("price"), 0)
+            qty = number_or(row.qty, 1)
+            price = number_or(row.price, 0)
             qi = QuotationItem(
                 quotation_id=quotation_id,
                 product_id=pid,
                 product_snapshot=snap,
                 quantity=qty,
                 unit_price=price,
-                amount=qty * price * (discount_percent(row.get("discount")) / 100),
-                discount_rate=discount_percent(row.get("discount")),
-                remark=str(row.get("remark", "") or ""),
+                amount=qty * price * (discount_percent(row.discount) / 100),
+                discount_rate=discount_percent(row.discount),
+                remark=str(row.remark or ""),
                 sort_order=idx + 1,
             )
             db.add(qi)

@@ -49,3 +49,24 @@ class QuotationItemUpdate(BaseModel):
     discount_rate: Optional[float] = None
     remark: Optional[str] = None
     sort_order: Optional[int] = None
+
+
+class QuotationBOMRow(BaseModel):
+    """BOM 编辑器提交的一行（与编辑器列一一对应）。
+
+    原先这个端点收裸 `dict`，前端传什么后端都收 —— 脏类型要靠 number_or 逐个兜底，
+    契约也不可见。改成显式 schema 后类型不符会明确 422（R74）。
+    """
+    name: str = ""
+    sku: str = ""
+    model: str = ""
+    description: str = ""
+    qty: Optional[float] = None      # 0 是合法值（本次不采购但保留该行）
+    price: Optional[float] = None
+    discount: Optional[float] = None
+    remark: str = ""
+    cost: Optional[float] = None     # 无成本权限的用户读到的是 None
+
+
+class QuotationBOMSave(BaseModel):
+    rows: list[QuotationBOMRow] = []

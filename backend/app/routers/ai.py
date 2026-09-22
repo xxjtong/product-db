@@ -490,11 +490,16 @@ def _build_db_context(db: Session, full: bool = True) -> str:
 
 
 async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = None,
-                    tool_definitions: list = None, full_db_context: bool = True):
+                    tool_definitions: list = None, full_db_context: bool = True,
+                    usage_sink: dict = None):
     """Run agent loop with tool calling. Yields SSE event dicts.
 
     `full_db_context`：Round 0 是否把**全部产品清单**塞进关键词提取的 system prompt。
     ai_chat 只在会话**首轮**传 True（冷启动选型），之后传 False 走精简词表（R73）。
+
+    `usage_sink`：把本轮的用量累计写进调用方给的 dict。正常结束时它与 `done` 事件里的
+    tokens 是同一个对象；**中断时 `done` 发不出去**，但已经跑过的轮次仍会被记上
+    （否则中断轮一律记 0，用量被系统性低估）。R74。
     """
     # 不给就用全量工具集；带方案上下文时由调用方传入（否则只读，见 READ_ONLY_TOOL_DEFINITIONS）
     tools = TOOL_DEFINITIONS if tool_definitions is None else tool_definitions
@@ -510,7 +515,7 @@ async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = No
     products_found = False
     current_messages = messages[:]
     max_turns = 2
-    total_tokens = {"in": 0, "out": 0}
+    total_tokens = usage_sink if usage_sink is not None else {"in": 0, "out": 0}
 
     # Round 0: keyword extraction with full DB context
     auth_failed = False
@@ -877,12 +882,13 @@ async def ai_chat(data: AiChatRequest, db: Session = Depends(get_db), user=Depen
         success = True
         replied = False  # run_agent 是否已把 assistant 回复写进库
         try:
+            # tokens 直接作为 run_agent 的用量累加器（同一个对象）：正常结束时它等于
+            # done 事件里的值；**中断时 done 发不出去**，但已跑完的轮次仍记得上（R74）
             async for event in run_agent(messages, sse_db, cid, user_id=uid,
                                          tool_definitions=tool_definitions,
-                                         full_db_context=is_first_turn):
+                                         full_db_context=is_first_turn,
+                                         usage_sink=tokens):
                 event["conversation_id"] = cid
-                if event.get("event") == "done" and event.get("tokens"):
-                    tokens = event["tokens"]
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             replied = True
             # Update conversation timestamp

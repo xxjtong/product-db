@@ -58,43 +58,41 @@ def delete_manufacturer(mfg_id: int, db: Session = Depends(get_db), user=Depends
     return {"ok": True}
 
 
-def _dict_list_filtered(model, db: Session, user, order_by=None):
-    """List dict items with ownership filter (no cache, for per-user filtering)."""
+def _dict_list_filtered(model, db: Session, user, order_by=None, page: int = 1, per_page: int = 20):
+    """带归属过滤的分页查询，返回 `(items, total)`。
+
+    原先返回**全表**再由调用方切片 —— 字典表小、当前看不出问题，但列表接口按分页
+    取数才是对的（表变大时不会把整表读进内存，也不用 Python 再切一遍）。
+    """
     q = filter_by_ownership(db.query(model), model, user)
+    total = q.count()
     if order_by is not None:
         q = q.order_by(order_by)
-    return q.all()
+    items = q.offset((page - 1) * per_page).limit(per_page).all()
+    return items, total
 
 
 @router.get("/dicts/comm-methods")
 def list_comm_methods(page: int = 1, per_page: int = 20, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    items = _dict_list_filtered(DictCommMethod, db, user, DictCommMethod.id)
-    total = len(items)
-    start = (page-1)*per_page; items = items[start:start+per_page]
+    items, total = _dict_list_filtered(DictCommMethod, db, user, DictCommMethod.id, page, per_page)
     return {"comm_methods": [i.to_dict() for i in items], "total": total}
 
 
 @router.get("/dicts/comm-protocols")
 def list_comm_protocols(page: int = 1, per_page: int = 20, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    items = _dict_list_filtered(DictCommProtocol, db, user, DictCommProtocol.id)
-    total = len(items)
-    start = (page-1)*per_page; items = items[start:start+per_page]
+    items, total = _dict_list_filtered(DictCommProtocol, db, user, DictCommProtocol.id, page, per_page)
     return {"comm_protocols": [i.to_dict() for i in items], "total": total}
 
 
 @router.get("/dicts/power-supplies")
 def list_power_supplies(page: int = 1, per_page: int = 20, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    items = _dict_list_filtered(DictPowerSupply, db, user, DictPowerSupply.id)
-    total = len(items)
-    start = (page-1)*per_page; items = items[start:start+per_page]
+    items, total = _dict_list_filtered(DictPowerSupply, db, user, DictPowerSupply.id, page, per_page)
     return {"power_supplies": [i.to_dict() for i in items], "total": total}
 
 
 @router.get("/dicts/sensor-metrics")
 def list_sensor_metrics(page: int = 1, per_page: int = 20, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    items = _dict_list_filtered(DictSensorMetric, db, user, DictSensorMetric.id)
-    total = len(items)
-    start = (page-1)*per_page; items = items[start:start+per_page]
+    items, total = _dict_list_filtered(DictSensorMetric, db, user, DictSensorMetric.id, page, per_page)
     return {"sensor_metrics": [i.to_dict() for i in items], "total": total}
 
 
@@ -110,9 +108,20 @@ def _dict_create(model, data: dict, db: Session, user=None):
     return item.to_dict()
 
 def _dict_update(item, data: dict, db: Session):
-    valid_cols = {c.name for c in item.__table__.columns if c.name != 'id'}
+    """按 payload 更新字段（data 来自 `model_dump(exclude_unset=True)`）。
+
+    显式传 `null` 就写入 null —— 即**允许清空**可空字段。原先一律跳过 None，
+    字段只能改不能清（想清掉描述只能改成空串）。NOT NULL 列仍然跳过：真写进去
+    会撞约束报 500，而「清空一个必填字段」本身也不是合法诉求。
+    """
+    valid_cols = {c.name: c for c in item.__table__.columns if c.name != 'id'}
     for k, v in data.items():
-        if v is not None and k in valid_cols: setattr(item, k, v)
+        col = valid_cols.get(k)
+        if col is None:
+            continue
+        if v is None and not col.nullable:
+            continue
+        setattr(item, k, v)
     db.commit()
     return item.to_dict()
 

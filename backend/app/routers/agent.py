@@ -325,72 +325,13 @@ async def agent_test_approval(user=Depends(require_admin)):
     return {"task_id": task.task_id}
 
 
-# ── Product-db tool definitions for Hermes ──────────────
-
-AGENT_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "search_products",
-            "description": "在产品数据库中搜索产品。可按关键词、品类、通讯方式、价格等条件筛选。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "keyword": {"type": "string", "description": "搜索关键词(匹配产品名称/型号/描述)"},
-                    "category_id": {"type": "integer", "description": "品类ID"},
-                    "comm_method_id": {"type": "integer", "description": "通讯方式ID: 1=Ethernet,2=RS485,8=LoRaWAN,9=WiFi,10=4G,11=5G,13=Zigbee"},
-                    "manufacturer_name": {"type": "string", "description": "厂商名称"},
-                    "min_price": {"type": "number", "description": "最低价格"},
-                    "max_price": {"type": "number", "description": "最高价格"},
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_product_detail",
-            "description": "获取单个产品的完整规格参数。",
-            "parameters": {
-                "type": "object",
-                "properties": {"product_id": {"type": "integer", "description": "产品ID"}},
-                "required": ["product_id"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_quotation",
-            "description": "从方案创建报价单。⚠️ 写操作，需要用户审批才能执行。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "solution_id": {"type": "integer", "description": "方案ID"},
-                    "customer_name": {"type": "string", "description": "客户名称"},
-                    "items": {"type": "array", "items": {"type": "object"}, "description": "报价项目列表"},
-                },
-                "required": ["solution_id"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_solution",
-            "description": "创建新的IoT解决方案。⚠️ 写操作，需要用户审批才能执行。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "方案名称"},
-                    "description": {"type": "string", "description": "方案描述"},
-                    "product_ids": {"type": "array", "items": {"type": "integer"}, "description": "产品ID列表"},
-                },
-                "required": ["name"],
-            },
-        },
-    },
-]
+# ── 关于「给 Hermes 声明工具」这件事 ──────────────────────────────
+# 这里原先有一份 `AGENT_TOOLS`（search_products / get_product_detail /
+# create_quotation / create_solution）随每个请求发给 Hermes。R65 实测：Hermes 0.21.4 的
+# `/v1/chat/completions` **不把请求体里的 tools 传给 agent**（只进幂等指纹）——
+# 也就是说这些声明一条都没生效，而调用处写成 `tools=AGENT_TOOLS` 看起来却在"声明工具面"，
+# 很容易误导后来的维护者（R74 删除，需要时从 git 历史取回）。
+# Hermes 的工具能力由它自己的 profile 决定：要收窄工具面，得在 Hermes 侧改。
 
 
 def _redact_secrets(text: str) -> str:
@@ -638,8 +579,9 @@ async def agent_chat(
     客户端传 `stream: false` 只会让 Hermes 回整段 JSON，前端一行都解析不到）。
 
     这里仍**不是**审批/工具执行的边界：
-    - `AGENT_TOOLS` 只是"声明"给模型，product-db **不执行**工具；写操作靠 prompt 里
-      "先预览让用户确认"的软约束 + Hermes 自身权限，没有服务端拦截
+    - product-db **不执行**任何工具（原先随请求发的 `AGENT_TOOLS` 已被 Hermes 忽略，
+      R74 删除）；写操作靠 prompt 里"先预览让用户确认"的软约束 + Hermes 自身权限，
+      没有服务端拦截
     - 唯一会注入 `approval_required` 的路径是下面那段 `"测试审批"` 自测钩子
     """
     raw_messages = data.messages
@@ -705,7 +647,7 @@ async def agent_chat(
                 return
             # Continue to Hermes
             async for line in _stream_with_usage(
-                _call_hermes(model, messages, tools=AGENT_TOOLS),
+                _call_hermes(model, messages),
                 user.id, model, stream_id=stream_id,
             ):
                 yield line
@@ -713,11 +655,11 @@ async def agent_chat(
         return StreamingResponse(_stream_approval(), media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
-    # Normal chat — single pass, streaming with tool definitions
+    # Normal chat — single pass, streaming
     logger.info("agent_chat: proxying %d messages to %s", len(messages), HERMES_CHAT_URL)
     return StreamingResponse(
         _stream_with_usage(
-            _call_hermes(model, messages, tools=AGENT_TOOLS),
+            _call_hermes(model, messages),
             user.id, model, stream_id=stream_id,
         ),
         media_type="text/event-stream",

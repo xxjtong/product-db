@@ -170,6 +170,11 @@ def list_spec_defs(cat_id: int, db: Session = Depends(get_db), user=Depends(get_
 @router.post("/categories/{cat_id}/spec-definitions", status_code=201)
 def create_spec_def(cat_id: int, data: SpecDefinitionCreate, db: Session = Depends(get_db), user=Depends(require_admin)):
     cat = get_or_404(db, Category, cat_id, "Category not found")
+    # 同一品类下 spec_key 必须唯一：它既是 specs 字典的键、也是前端表单的字段名，
+    # 重复定义会让两套定义互相覆盖（R74）
+    if db.query(CategorySpecDefinition).filter_by(
+            category_id=cat_id, spec_key=data.spec_key).first():
+        raise HTTPException(400, f"该品类下已存在规格「{data.spec_key}」")
     sd = CategorySpecDefinition(
         category_id=cat_id,
         spec_key=data.spec_key,
@@ -194,6 +199,14 @@ def update_spec_def(cat_id: int, spec_id: int, data: SpecDefinitionUpdate, db: S
     sd = db.get(CategorySpecDefinition, spec_id)
     if not sd or sd.category_id != cat_id:
         raise HTTPException(404, "Spec definition not found")
+    # 改 spec_key 时也要保证同品类内不撞已有的（同 create）
+    new_key = getattr(data, "spec_key", None)
+    if new_key and new_key != sd.spec_key and db.query(CategorySpecDefinition).filter(
+        CategorySpecDefinition.category_id == cat_id,
+        CategorySpecDefinition.spec_key == new_key,
+        CategorySpecDefinition.id != spec_id,
+    ).first():
+        raise HTTPException(400, f"该品类下已存在规格「{new_key}」")
     fields = ["spec_key", "display_name", "spec_type", "unit", "sort_order",
               "is_filterable", "is_comparable", "display_group", "options", "validation"]
     for f in fields:

@@ -117,8 +117,8 @@ class TestDbContextTiers:
 class TestFirstTurnUsesFullContext:
     @staticmethod
     def _fake_run_agent(captured: list):
-        async def fake(messages, db, conv_id, user_id=None,
-                       tool_definitions=None, full_db_context=True):
+        async def fake(messages, db, conv_id, user_id=None, tool_definitions=None,
+                       full_db_context=True, usage_sink=None):
             captured.append(full_db_context)
             yield {"event": "text", "text": "好的"}
             yield {"event": "done", "tokens": {"in": 1, "out": 1}}
