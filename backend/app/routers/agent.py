@@ -672,7 +672,9 @@ async def agent_chat(
                 last_user_msg = str(c)
             break
 
-    if "测试审批" in last_user_msg:
+    # 自测钩子限 admin：否则任意登录用户发一句「测试审批」就能凭空插出一张审批卡，
+    # 还能借它把一条伪造的「已授权」塞进对话上下文。
+    if user.role == "admin" and "测试审批" in last_user_msg:
         task = approval_manager.create(
             tool_name="create_quotation",
             tool_label="创建报价单",
@@ -687,9 +689,15 @@ async def agent_chat(
             decision = await approval_manager.wait_for_decision(task.task_id)
             yield f"data: {json.dumps({'type': 'approval_result', 'task_id': task.task_id, 'approved': decision.get('approved', False), 'reason': decision.get('reason', '')}, ensure_ascii=False)}\n\n"
             if decision.get("approved"):
-                messages.append({"role": "tool", "tool_call_id": f"test_{task.task_id}", "content": json.dumps({"status": "approved", "message": "用户已授权"})})
+                # 这里**不能**追加 role:"tool" 的消息：Hermes 走的是 OpenAI 兼容接口，
+                # tool 消息必须是某条带 tool_calls 的 assistant 的应答，而这条
+                # tool_call_id 是凭空造的 → 整个请求会被 400 拒掉，审批通过反而没回复。
+                # 「用户已授权」本来就是用户侧的话，用 user 消息既合法又贴合语义。
+                messages.append({
+                    "role": "user",
+                    "content": "[系统提示] 用户已批准该操作，请继续完成。",
+                })
             else:
-                messages.append({"role": "tool", "tool_call_id": f"test_{task.task_id}", "content": json.dumps({"error": "用户拒绝"})})
                 yield f"data: {json.dumps({'error': '操作被用户拒绝'})}\n\n"
                 yield "data: [DONE]\n\n"
                 return

@@ -1,5 +1,6 @@
 """Product import — Excel preview and confirm."""
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.product import Product
@@ -96,11 +97,33 @@ def import_confirm(data: ProductImportConfirm, db: Session = Depends(get_db), us
         raise HTTPException(400, "没有可导入的行：每行至少需要「产品名称」或「型号」，且必须能匹配到已有品类")
 
     imported = 0
+    skipped = 0
+    seen_keys: set = set()
     for row_no, pdata, category_id in parsed:
-        mfg_name = pdata.get("manufacturer", "")
+        # 去重：products 上没有唯一约束兜底，同一份表格导入两次就会翻倍；
+        # 同一次导入的表格里出现两遍同样要挡。业务标识取「名称 + 型号」，
+        # 比较时忽略大小写（表格里改个大小写不该多出一条产品）。
+        name = (pdata.get("name") or pdata.get("model") or "").strip()
+        model = (pdata.get("model") or "").strip()
+        key = (name.lower(), model.lower())
+        if key in seen_keys:
+            skipped += 1
+            continue
+        if db.query(Product.id).filter(
+            func.lower(Product.name) == key[0],
+            func.lower(func.coalesce(Product.model, "")) == key[1],
+        ).first():
+            skipped += 1
+            continue
+        seen_keys.add(key)
+
+        mfg_name = (pdata.get("manufacturer") or "").strip()
         manufacturer_id = None
         if mfg_name:
-            mfg = db.query(Manufacturer).filter(Manufacturer.name == mfg_name).first()
+            # 大小写不敏感：Acme / acme / ACME 是同一个厂商，否则每导一次就多一条
+            mfg = db.query(Manufacturer).filter(
+                func.lower(Manufacturer.name) == mfg_name.lower()
+            ).first()
             if not mfg:
                 mfg = Manufacturer(name=mfg_name)
                 db.add(mfg)
@@ -110,8 +133,8 @@ def import_confirm(data: ProductImportConfirm, db: Session = Depends(get_db), us
         spec_items = {k.replace("spec:", ""): v for k, v in pdata.items() if k.startswith("spec:")}
 
         p = Product(
-            name=pdata.get("name") or pdata.get("model") or "",
-            model=pdata.get("model", ""),
+            name=name,
+            model=model,
             sku=pdata.get("sku", ""),
             category_id=category_id,
             manufacturer_id=manufacturer_id,
@@ -125,7 +148,7 @@ def import_confirm(data: ProductImportConfirm, db: Session = Depends(get_db), us
         imported += 1
 
     db.commit()
-    return {"imported": imported}
+    return {"imported": imported, "skipped": skipped}
 
 
 def _num_or_400(value, label: str, row_no: int) -> float:

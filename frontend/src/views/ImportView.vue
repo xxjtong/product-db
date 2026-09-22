@@ -35,7 +35,9 @@
         </button>
         <button class="btn-secondary" @click="autoMap">自动映射</button>
       </div>
-      <p v-if="result" class="text-sm" style="margin-top:8px;color:var(--color-success)">成功导入 {{ result.imported }} 条</p>
+      <p v-if="result" class="text-sm" style="margin-top:8px;color:var(--color-success)">
+        成功导入 {{ result.imported }} 条<template v-if="result.skipped">，跳过 {{ result.skipped }} 条（名称+型号已存在）</template>
+      </p>
     </div>
   </div>
 </template>
@@ -122,7 +124,9 @@ async function doImport() {
     })
     if (!res.ok) throw new Error(await readErrorDetail(res))
     result.value = await res.json()
-    showToast(`成功导入 ${result.value?.imported ?? 0} 条`, 'success')
+    // 后端会按「名称 + 型号」跳过已存在的行（同一份表重复导入不再翻倍），要如实告诉用户
+    const skippedTip = result.value?.skipped ? `，跳过 ${result.value.skipped} 条（已存在）` : ''
+    showToast(`成功导入 ${result.value?.imported ?? 0} 条${skippedTip}`, 'success')
   } catch (e: any) { showToast(e.message || '导入失败', 'error') }
   importing.value = false
 }
