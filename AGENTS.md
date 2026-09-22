@@ -132,8 +132,31 @@ bash 会把全角括号的字节当成变量名的一部分 → `set -u` 下直�
 > 测试里 `subprocess` 必须带 `errors="replace"`：脚本被打断时 stderr 会留下半个多字节字符，
 > 默认严格解码会把「脚本输出不对」变成「测试自己崩了」，反而掩盖问题。
 
-**测试**：backend **669 passed**（1 skipped，+8 `test_round15` 健康详情 / +5 `test_round16` 备份脚本）；
+**测试**：backend **674 passed**（1 skipped，+8 `test_round15` 健康详情 / +5 `test_round16` 备份脚本 /
++5 `test_round17` DEV_MODE 护栏）；
 frontend vitest **101 passed**（+3：401 统一处理的 App 层与导入页）；E2E **100 条进 CI**。
+
+**⑩ 收尾时发现：CI 从建立起就一直红着**（`61f1507` 那道护栏把 CI 误伤了）
+
+看 GitHub Actions 时才发现 —— 最近 10 次运行**全是 failure**，最早能翻到的提交（R71）就已经红。
+根因在 `main.py` 的 DEV_MODE 安全护栏：
+
+```python
+if os.environ.get('INVOCATION_ID') and not os.environ.get('FORCE_DEV_MODE'):
+    sys.exit(1)          # "DEV_MODE=true refused under systemd"
+```
+
+它判断的 `INVOCATION_ID` 是 systemd 注入的环境变量，而**它是继承的**：GitHub Actions 的 runner
+自身就是个 systemd 服务，作业进程会带着它 → CI 被误判成生产机。表现是 uvicorn 起不来、
+pytest 在 collect 阶段 `SystemExit`（日志里只有 `collected 0 items` + INTERNALERROR，
+**完全看不出是被护栏挡的**）。这道护栏出自 R23（2026-07-07），也就是说它上线后 CI 就没绿过。
+
+**修法**：把 CI 排除出这家护栏的判断（GitHub 自动设 `CI=true`；生产机上不会设 CI，护栏照旧生效）。
+另外补了 `tests/test_round17.py` 5 条把四种组合钉住（CI 放行 / 生产拒绝 / FORCE 覆盖 / 无 systemd 放行 /
+DEV_MODE=false 不受影响）—— **这道护栏此前没有任何测试**，正是它悄悄弄红 CI 的原因。
+
+> 📌 教训：CI 长期红着等于没有 CI。今天新增的 e2e job 之所以能立刻发现这个问题，
+> 只是因为顺手看了一眼 Actions —— 值得给 CI 失败加个通知。
 
 ## 上一版 (2026-09-22, R77)
 

@@ -81,8 +81,15 @@ _app_logger.setLevel(logging.INFO)
 _app_logger.addHandler(_LoguruBridge())
 
 if settings.DEV_MODE:
-    # Safety: refuse DEV_MODE under systemd unless explicitly forced
-    if os.environ.get('INVOCATION_ID') and not os.environ.get('FORCE_DEV_MODE'):
+    # 安全护栏：systemd 下拒绝 DEV_MODE，除非显式 FORCE_DEV_MODE。
+    #
+    # ⚠️ 判据是 `INVOCATION_ID`（systemd 给单元内进程注入的环境变量）—— 但它是**继承**的：
+    # GitHub Actions 的 runner 自身就是个 systemd 服务，作业进程会带着它 → 被误判成
+    # 「生产机上开了 DEV_MODE」，CI 里 uvicorn 起不来、pytest 在 collect 阶段就 SystemExit。
+    # 这道护栏的意图是**生产机**，不是 CI，所以把 CI 排除掉（GitHub 会自动设 CI=true）。
+    # 生产机上不会设 CI，护栏照旧生效。
+    if (os.environ.get('INVOCATION_ID') and not os.environ.get('FORCE_DEV_MODE')
+            and not os.environ.get('CI')):
         logger.error("DEV_MODE=true refused under systemd. Set FORCE_DEV_MODE=true to override.")
         sys.exit(1)
     logger.warning("=" * 60)
