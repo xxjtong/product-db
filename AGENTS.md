@@ -28,17 +28,17 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 
 | # | 问题 | 修法 |
 |---|---|---|
-| 1 | 注册无限流、可批量建号；且注册成功写了一条 `success=True` 的 `login_logs`（污染登录审计口径，还让人误以为它被登录限流算过） | 注册入口加 `check_and_hit("register:{ip}")`（新配置 `REGISTER_RATE_LIMIT=5` / `REGISTER_RATE_WINDOW=3600`）；**删掉**成功时的 `login_logs` 写入。注册失败**不**记登录失败桶 —— 否则正常用户注册一次就少一次登录机会 |
+| 1 | 注册无限流、可批量建号；且注册成功写了一条 `success=True` 的 `login_logs`（污染登录审计口径，还让人误以为它被登录限流算过） | 注册入口加 `check_and_hit("register:{ip}")`（新配置 `REGISTER_RATE_LIMIT=5` / `REGISTER_RATE_WINDOW=3600`）；**删掉**成功时的 `login_logs` 写入。注册失败**不**记登录失败桶 —— 否则正常用户注册一次就少一次登录机会。检查顺序是**先开关后频率**：注册关闭时稳定回 403「未开放」，不会刷几次后被改写成 429 |
 | 2 | 禁用账户登录直接 403、不写审计：管理员看不到有人在反复试已禁用账户，限流也数不到 | 该分支补 `rate_limit.record_failure(user_id=user.id)`，审计与限流都覆盖 |
 | 3 | `/ai/chat` 的 user 消息在生成器启动前就落库，流中断后留下孤立 user 消息（下次接话上下文变成两条连续 user，界面像「回复丢了」） | `generate()` 加 `replied` 标记 + 单独捕 `asyncio.CancelledError`；`finally` 里若 assistant 没写成则补占位 `[回复中断] 本轮回答未完成，请重新提问。`，保证 user/assistant 成对；同时把「客户端断开」从 `success=True` 改为记失败 |
 | 4 | `update_product` 用真值判断（`if data.specs:`），传空 dict 被当成「没传」→ specs/urls/custom_fields **只能改不能清空** | 改用 `model_fields_set` 判定「是否显式传入」，显式传 `{}` 即清空；不传的字段仍不动（partial update 契约不变） |
 | 5 | 字典/供应商删除前不查引用：映射表是 `ON DELETE CASCADE`，删字典会**静默删掉产品的通讯方式/协议/供电/传感指标**；厂商/供应商是 `SET NULL`，静默清空归属 | 新增 `product_helpers.assert_dict_not_referenced()`，6 个 delete（5 字典 + 供应商）统一前置校验，有引用回 **409** + 可读文案（与 `delete_product` 的 409 口径一致）。前端各删除路径本就有 `catch → showToast`，无需改 |
 | 7 | `POST /admin/users`、`PUT /admin/users/{id}` 改密**无长度校验**，而 register / reset_user_password 都有 ≥8 | 两处补 ≥8 校验，全项目密码策略统一 |
 
-**测试**：backend **579 passed**（1 skipped）。新增 `tests/test_round5.py` 22 条：
+**测试**：backend **580 passed**（1 skipped）。新增 `tests/test_round5.py` 23 条：
 限流模块两种原语（按 IP 分桶 / 超限后不再计数 / 窗口滑出 / reset）、注册限流与审计口径、
-禁用账户审计与限流、流中断补占位（正常路径不补）、JSON 字段可清空而漏传不动、
-5 类引用 409 与无引用可删、admin 建号改密密码下限。
+注册关闭时错误语义稳定为 403、禁用账户审计与限流、流中断补占位（正常路径不补）、
+JSON 字段可清空而漏传不动、5 类引用 409 与无引用可删、admin 建号改密密码下限。
 `tests/conftest.py` 加 autouse fixture 每个用例前后 `rate_limit.reset()` ——
 内存计数不随测试库重建清零，而所有用例客户端 IP 都是同一个 `testclient`，不清会串扰。
 

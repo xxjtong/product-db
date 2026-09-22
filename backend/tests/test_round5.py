@@ -169,6 +169,20 @@ class TestRegisterRateLimitAndAudit:
         finally:
             db.close()
 
+    def test_closed_registration_stays_403_not_429(self):
+        """开关检查必须排在频率检查之前：注册关闭时反复请求仍应是 403「未开放」，
+        不能刷几次后被限流改写成 429 —— 那会让用户看不懂到底是哪个问题。"""
+        from app.models.system_setting import SystemSetting
+        db = SessionLocal()
+        db.query(SystemSetting).filter_by(key="registration_open").first().value = "false"
+        db.commit()
+        db.close()
+        for i in range(3):
+            r = client.post(f"{API}/auth/register", json={
+                "username": f"closed{i}", "password": "pass12345", "email": f"c{i}@t.com",
+            })
+            assert r.status_code == 403, f"第{i+1}次应为 403，实际 {r.status_code}"
+
 
 # ============================================================
 # #2 禁用账户登录落审计

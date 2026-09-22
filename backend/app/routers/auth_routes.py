@@ -238,6 +238,11 @@ def registration_status(db: Session = Depends(get_db)):
 @router.post("/auth/register")
 def register(data: RegistrationRequest, request: Request, db: Session = Depends(get_db)):
     from app.models.system_setting import SystemSetting
+    # 先判开关再看频率：注册关闭时应当稳定回「注册功能未开放」（403），
+    # 而不是刷几次之后变成 429 —— 那会让用户看不懂到底是哪个问题。
+    s = db.query(SystemSetting).filter_by(key="registration_open").first()
+    if not s or s.value != "true":
+        raise HTTPException(403, "注册功能未开放")
     ip = client_ip(request)
     # 注册是匿名可达的写接口：按 IP 限制**尝试**次数（不分成败），挡批量注册与用户名枚举。
     # 不能塞进 login_logs 计数 —— 那张表是登录审计，且与登录失败共用一个桶会误伤正常登录。
@@ -245,9 +250,6 @@ def register(data: RegistrationRequest, request: Request, db: Session = Depends(
                                 limit=settings.REGISTER_RATE_LIMIT,
                                 window=settings.REGISTER_RATE_WINDOW):
         raise HTTPException(429, "注册尝试过于频繁，请稍后再试")
-    s = db.query(SystemSetting).filter_by(key="registration_open").first()
-    if not s or s.value != "true":
-        raise HTTPException(403, "注册功能未开放")
     username = data.username.strip()
     password = data.password
     if len(username) < 2 or len(password) < 8:
