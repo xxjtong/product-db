@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { reactive, ref } from 'vue'
 
 export interface FileAttachment {
   name: string
@@ -10,43 +10,61 @@ export interface FileAttachment {
   file?: File
 }
 
+const TEXT_TYPES = ['text/', 'application/json', 'application/xml', 'text/csv']
+const TEXT_EXT = /\.(csv|txt|json|xml|md|log|yaml|yml|tsv)$/i
+
+function isTextFile(file: File) {
+  return TEXT_TYPES.some(t => file.type.startsWith(t)) || TEXT_EXT.test(file.name)
+}
+
+function fileKey(file: File) {
+  return `${file.name}::${file.size}`
+}
+
 export function useFileDrop(onFileAdded?: (file: File) => void) {
   const attachedFiles = ref<FileAttachment[]>([])
   const dragOver = ref(false)
   const imagePreview = ref('')
 
   function addFile(file: File) {
-    const isImage = file.type.startsWith('image/')
-    const textTypes = ['text/', 'application/json', 'application/xml', 'text/csv']
-    const isText = textTypes.some(t => file.type.startsWith(t)) ||
-      /\.(csv|txt|json|xml|md|log|yaml|yml|tsv)$/i.test(file.name)
+    // 同一个文件只挂一次：双击上传按钮、change 与 drop 同时触发、或先后选中同一个文件，
+    // 都不该出现两个一模一样的 chip（那会让消息里出现两份文件路径）。
+    const key = fileKey(file)
+    if (attachedFiles.value.some(a => a.file && fileKey(a.file) === key)) return
 
-    if (isImage) {
+    // 先同步入列再异步读内容：FileReader 是异步的，若等 onload 才 push，
+    // 读取期间重复触发的同一次上传会各自 push 一条（异步窗口里的重复挡不住）。
+    const item = reactive<FileAttachment>({
+      name: file.name, type: file.type, dataUrl: '', textContent: '', url: '', uploaded: false, file,
+    })
+    attachedFiles.value.push(item)
+
+    if (file.type.startsWith('image/')) {
       const reader = new FileReader()
       reader.onload = () => {
-        const dataUrl = reader.result as string
-        attachedFiles.value.push({ name: file.name, type: file.type, dataUrl, textContent: '', url: '', uploaded: false, file })
-        if (!imagePreview.value) imagePreview.value = dataUrl
+        item.dataUrl = reader.result as string
+        if (!imagePreview.value) imagePreview.value = item.dataUrl
       }
       reader.readAsDataURL(file)
-    } else if (isText) {
+    } else if (isTextFile(file)) {
       const reader = new FileReader()
       reader.onload = () => {
-        const text = reader.result as string
-        attachedFiles.value.push({ name: file.name, type: file.type, dataUrl: '', textContent: text, url: '', uploaded: false, file })
+        item.textContent = reader.result as string
       }
       reader.readAsText(file)
-    } else {
-      // Binary file (xlsx, pdf, etc.): just note it
-      attachedFiles.value.push({ name: file.name, type: file.type, dataUrl: '', textContent: '', url: '', uploaded: false, file })
     }
+    // 二进制文件（xlsx/pdf 等）只需登记名字，内容由后端读取
+
     // Notify callback for custom handling (e.g. AI extraction)
     if (onFileAdded) onFileAdded(file)
   }
 
   function onFileSelect(e: Event) {
-    const file = (e.target as HTMLInputElement).files?.[0]
+    const input = e.target as HTMLInputElement
+    const file = input.files?.[0]
     if (file) addFile(file)
+    // 清空 value：否则再次选中同一个文件不会触发 change（用户会以为上传坏了）
+    input.value = ''
   }
 
   function onDrop(e: DragEvent) {
