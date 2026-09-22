@@ -52,9 +52,29 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
 - **连接池复用**：agent 代理原先每个请求新建 `httpx.AsyncClient`，改为模块级复用，
   应用关闭时由 `main.py` 的 lifespan 释放。
 
-**测试**：backend **543 passed** (1 skipped，+6：stream 固定 / 非 SSE 报错 / 中断记账 /
-上游异常记账 / 取消保留任务 / 超期回收)；顺带修掉 `test_agent_chat_connection_error` 的假用例
-（原先挂的是 async 函数，实际抛出的是「coroutine 当上下文用」的 AttributeError，测不到连接失败）。
+**停止 / 审批闭环（R64 续，2026-09-22）**
+
+先说结论 —— **「停止」本来就是真停**，不需要接 `POST /v1/runs/{id}/stop`（那是 runs API 的用法）：
+`/v1/chat/completions` 的 SSE 一断，Hermes 就 `_abandon_agent_task` → `request_hard_interrupt`
++ 回收子进程（`api_server_openai_routes.py`）。**生产证据**：Hermes 的
+`~/.hermes/logs/gateway.log` 里有 **10 条** `SSE client disconnected; interrupted agent task`，
+最近一条是 2026-09-22 09:35 —— 就是用户点「停止」留下的。
+
+补的是三处「说不清 / 假装成功」：
+
+1. **区分「用户主动停」与「网络断」**：两者在服务端都是 `CancelledError`，记账口径会糊。
+   前端点停止时先 `POST /agent/stop`（带 `X-Stream-Id`，与 `/agent/chat` 同一个 id），后端在
+   `_stop_marks` 里按 stream_id 记一笔（TTL 300s，顺带清理），取消分支据此写
+   `用户主动停止` / `客户端断开`。标记属于哪个用户也校验，别人的标记不生效。
+2. **断开后审批不再「假装成功」**：等待者已经没了，决策无处送达。`ApprovalTask` 新增
+   `detached`，取消时置位；`POST /agent/approval/{id}` 对 detached 回 **409**（以前回 200、
+   界面显示「已授权」但什么都没执行）；`get_pending` 也不再列出它（点不动了，列出来只会误导）。
+   任务本身保留到超期回收，留作追溯。
+3. **界面如实反映**：连接一断，还挂着的审批卡按钮置灰 + 说明「连接已中断，该审批已失效」；
+   用户点「停止」且一个字都没回来时，气泡显示 `*[已停止]*`（以前气泡直接消失，看不出是停了还是坏了）。
+
+**测试**：backend **546 passed** (1 skipped，+3：停止标记区分记账 / `/agent/stop` 记录与空 id 拒绝 /
+detached 任务被 409 拒绝)。
 
 **nginx（已生效，2026-09-22 手工执行）**：给 `/product-db/api/agent/` 单独一个 location ——
 `proxy_buffering off` + `proxy_read_timeout 300s` + `proxy_http_version 1.1`

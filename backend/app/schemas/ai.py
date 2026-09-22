@@ -21,6 +21,11 @@ class AgentChatRequest(BaseModel):
     messages: list
 
 
+class AgentStopRequest(BaseModel):
+    """客户端「主动停止」的带外信号，stream_id 与 /agent/chat 的 X-Stream-Id 一致。"""
+    stream_id: str = ""
+
+
 class AgentSuggestionsRequest(BaseModel):
     """最近几轮对话，用于生成快捷追问按钮。"""
     messages: list  # [{role, content}, ...]；content 可以是字符串或多模态数组

@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user, require_admin
 from app.config import settings, DB_FILESYSTEM_PATH
 from app.models.ai_usage_log import AIUsageLog
-from app.schemas.ai import AgentChatRequest, AgentApprovalRequest, AgentSuggestionsRequest
+from app.schemas.ai import AgentChatRequest, AgentApprovalRequest, AgentStopRequest, AgentSuggestionsRequest
 from app.database import get_db
 from app.services.storage import save_file, UPLOAD_DIR, read_limited, detect_upload_extension
 from app.services.approval_manager import approval_manager
@@ -232,6 +232,34 @@ async def agent_upload(
     }
 
 
+# ── 「用户主动停止」的带外信号 ──────────────────────────
+# 断开连接本身就能让 Hermes 中断这一轮（/v1/chat/completions 的 SSE 一断就
+# `_abandon_agent_task` → hard interrupt + 回收子进程），所以不需要 runs API 的 stop。
+# 但后端从 CancelledError 只能看出「连接断了」—— 分不清用户点了「停止」还是网络抖动，
+# 记账口径会糊。前端点停止时先用 POST /agent/stop 打一个标记，这里按 stream_id 记下来，
+# 供 _stream_with_usage 的取消分支取用。
+_stop_marks: "dict[str, tuple[float, int]]" = {}
+_STOP_MARK_TTL = 300.0
+
+
+def _prune_stop_marks() -> None:
+    """清掉过期的停止标记，避免没人收走时越堆越多。"""
+    cutoff = time.time() - _STOP_MARK_TTL
+    for sid in [s for s, (ts, _uid) in _stop_marks.items() if ts < cutoff]:
+        _stop_marks.pop(sid, None)
+
+
+@router.post("/agent/stop")
+async def agent_stop(data: AgentStopRequest, user=Depends(get_current_user)):
+    """标记「这条流是用户主动停的」。前端先调它、再 abort（见 _stop_marks 的注释）。"""
+    sid = (data.stream_id or "").strip()[:64]
+    if not sid:
+        raise HTTPException(400, "Missing stream_id")
+    _prune_stop_marks()
+    _stop_marks[sid] = (time.time(), user.id)
+    return {"ok": True}
+
+
 @router.post("/agent/approval/{task_id}")
 async def agent_approval(
     task_id: str,
@@ -247,6 +275,10 @@ async def agent_approval(
         raise HTTPException(404, "Approval task not found")
     if user.role != "admin" and task.user_id != user.id:
         raise HTTPException(403, "无权审批该任务")
+    if task.detached:
+        # 等待这次审批的流已经断了（用户点了停止 / 关页面 / 网络断）→ 决策无处送达。
+        # 以前这里会返回 ok，界面上显示「已授权」但实际什么都没发生（R64 线上发现）。
+        raise HTTPException(409, "该审批已失效（发起它的对话已中断），请重新发起任务")
 
     ok = approval_manager.decide(task_id, approved, reason)
     if not ok:
@@ -522,7 +554,7 @@ def _log_agent_usage(user_id: int, model: str, tokens_in: int, tokens_out: int,
         logger.warning("Failed to log agent usage: %s", e)
 
 
-async def _stream_with_usage(gen, user_id: int, model: str):
+async def _stream_with_usage(gen, user_id: int, model: str, stream_id: str = ""):
     """Wrap an SSE line generator, extract token usage, log after [DONE]."""
     start_time = time.time()
     usage_in = 0
@@ -547,7 +579,8 @@ async def _stream_with_usage(gen, user_id: int, model: str):
         # 以前被 `except Exception` 漏掉 → 记成 success=True。而 Hermes 的 usage 块在
         # 流末尾，中断时通常还没到，于是账面上变成「成功 + 0 token」，把真实成本记没了。
         success = False
-        error = "客户端中断"
+        mark = _stop_marks.pop(stream_id, None) if stream_id else None
+        error = "用户主动停止" if (mark and mark[1] == user_id) else "客户端断开"
         raise
     except Exception as e:
         success = False
@@ -594,6 +627,8 @@ async def agent_chat(
     messages = [{"role": "system", "content": system_prompt}, *messages]
 
     model = _AGENT_MODEL
+    # 前端为每条流生成的 id：客户端断开时用它回查「是不是用户主动点的停止」
+    stream_id = (request.headers.get("x-stream-id") or "").strip()[:64]
 
     # Test trigger: inject approval for "测试审批" before calling Hermes
     last_user_msg = ""
@@ -630,7 +665,7 @@ async def agent_chat(
             # Continue to Hermes
             async for line in _stream_with_usage(
                 _call_hermes(model, messages, tools=AGENT_TOOLS),
-                user.id, model,
+                user.id, model, stream_id=stream_id,
             ):
                 yield line
 
@@ -642,7 +677,7 @@ async def agent_chat(
     return StreamingResponse(
         _stream_with_usage(
             _call_hermes(model, messages, tools=AGENT_TOOLS),
-            user.id, model,
+            user.id, model, stream_id=stream_id,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

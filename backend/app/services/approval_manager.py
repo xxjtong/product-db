@@ -36,6 +36,9 @@ class ApprovalTask:
     event: threading.Event = field(default_factory=threading.Event)
     result: Optional[dict] = field(default=None)  # {"approved": True/False, "reason": "..."}
     created_at: float = field(default_factory=time.time)
+    # 等待者已经消失（客户端断开）：此时再决策没有任何意义 —— 决策结果的唯一用途
+    # 是唤醒那个正在等它的协程，而它已经没了。标出来，让接口明确拒绝而不是假装成功。
+    detached: bool = False
 
 
 class ApprovalManager:
@@ -85,8 +88,10 @@ class ApprovalManager:
             # 客户端断开（点「停止」/关页面/断网）时这里被取消。**不要把任务清掉**：
             # 清了之后界面上这条待审批就凭空消失，用户再点「授权执行」会拿到 404
             # （2026-09 线上实测，POST /agent/approval/{id} → 404）。
-            # 留着由 _evict_stale 兜底回收，避免没人消费时无限堆积。
-            logger.warning("ApprovalTask %s 等待被取消（客户端断开），任务保留待处理", task_id)
+            # 但也不能让它继续可决策：等待者已经没了，决策无处送达（R64 起标 detached，
+            # 接口会明确回 409 而不是假装成功）。撤销的任务留给 _evict_stale 回收。
+            task.detached = True
+            logger.warning("ApprovalTask %s 等待被取消（客户端断开），任务已标记失效待回收", task_id)
             raise
         else:
             self._tasks.pop(task_id, None)
@@ -120,8 +125,9 @@ class ApprovalManager:
 
         传 user_id 时只返回该用户的任务 —— 普通用户不应看到他人的待审批内容
         （task.tool_input 里含业务明细），管理员传 None 看全部（R55）。
+        已失效（detached，等待者已断开）的不列出来：它们点不动了，列出来只会误导。
         """
-        tasks = [t for t in self._tasks.values() if not t.event.is_set()]
+        tasks = [t for t in self._tasks.values() if not t.event.is_set() and not t.detached]
         if user_id is not None:
             tasks = [t for t in tasks if t.user_id == user_id]
         return tasks

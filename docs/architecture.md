@@ -11,7 +11,7 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立项目，�
 | API 路径 | 91 条 |
 | 数据库表 | 34 张（业务表 32 = 31 ORM + 裸表 `product_categories`） |
 | 产品 | 396 个 |
-| 测试 | pytest 544（543 passed + 1 skipped）+ vitest 98 + E2E 96（6 个 spec 套件） |
+| 测试 | pytest 547（546 passed + 1 skipped）+ vitest 98 + E2E 96（6 个 spec 套件） |
 
 > 统计于 2026-09-22（R64 后），数据为生产库实测值。
 

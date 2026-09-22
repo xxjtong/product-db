@@ -1296,7 +1296,49 @@ class TestAgentStreamHardening:
         assert len(logged) == 1
         args, kwargs = logged[0]
         assert args[5] is False, "中断不该记成成功"
-        assert kwargs["error"] == "客户端中断"
+        assert kwargs["error"] == "客户端断开"
+
+    def test_user_stop_is_distinguished_from_disconnect(self):
+        """用户点「停止」和网络抖动都表现为客户端断开，但记账口径要分开"""
+        from app.routers import agent as agent_mod
+
+        logged = []
+
+        async def aborted():
+            if False:          # 让下面这个函数是 async generator（一上来就被取消）
+                yield ""
+            raise asyncio.CancelledError()
+
+        async def run(stream_id):
+            try:
+                async for _ in agent_mod._stream_with_usage(
+                    aborted(), 1, "hermes-agent", stream_id=stream_id
+                ):
+                    pass
+            except asyncio.CancelledError:
+                pass
+
+        with patch.object(agent_mod, "_log_agent_usage",
+                          lambda *a, **kw: logged.append(kw)), \
+             patch.dict(agent_mod._stop_marks, {"s-user": (0, 1), "s-other": (0, 2)}, clear=True):
+            asyncio.run(run("s-user"))      # 本用户打过停止标记
+            asyncio.run(run("s-other"))     # 标记是别的用户的
+            asyncio.run(run(""))            # 老前端没带 stream_id
+
+        assert [kw["error"] for kw in logged] == ["用户主动停止", "客户端断开", "客户端断开"]
+
+    def test_stop_endpoint_records_mark(self, auth_headers):
+        from app.routers import agent as agent_mod
+
+        with patch.dict(agent_mod._stop_marks, {}, clear=True):
+            resp = client.post("/product-db/api/agent/stop", json={"stream_id": "sid-1"},
+                               headers=auth_headers)
+            assert resp.status_code == 200 and resp.json()["ok"] is True
+            assert "sid-1" in agent_mod._stop_marks
+
+            # 空 id 拒绝：否则前端 bug 会静默产生一堆无用标记
+            assert client.post("/product-db/api/agent/stop", json={"stream_id": "  "},
+                               headers=auth_headers).status_code == 400
 
     def test_upstream_error_is_logged_with_reason(self):
         """上游异常也要带上原因，便于排障"""
@@ -1325,13 +1367,14 @@ class TestAgentStreamHardening:
 
 class TestApprovalSurvivesDisconnect:
     """客户端一断，待审批任务曾被静默清掉（线上实测 POST /agent/approval/{id} → 404），
-    用户界面上这条待审批凭空消失。改为保留 + 兜底回收。"""
+    用户界面上这条待审批凭空消失。改为保留并标记 detached（可追溯），
+    同时接口明确回 409 —— 以前这种任务还能"决策成功"，界面上显示已授权但实际什么都没执行。"""
 
     def _new_manager(self):
         from app.services.approval_manager import ApprovalManager
         return ApprovalManager()
 
-    def test_cancel_keeps_task_pending(self, monkeypatch):
+    def test_cancel_keeps_task_but_marks_detached(self, monkeypatch):
         from app.services import approval_manager as am
 
         # 等待走 run_in_executor，超时值是 120s；调小否则测试收尾要等这个线程
@@ -1350,8 +1393,25 @@ class TestApprovalSurvivesDisconnect:
 
         asyncio.run(wait_and_cancel())
 
-        assert m.get(task.task_id) is not None, "断开后任务不该被清掉"
-        assert [t.task_id for t in m.get_pending()] == [task.task_id]
+        assert m.get(task.task_id) is not None, "断开后任务不该被清掉（留作追溯）"
+        assert task.detached is True, "等待者没了，必须标记失效"
+        assert m.get_pending() == [], "失效的任务不该再出现在待审批列表里"
+
+    def test_detached_task_cannot_be_decided(self, auth_headers):
+        """等待者已经没了，决策无处送达 → 必须明确拒绝，不能假装成功"""
+        from app.services.approval_manager import approval_manager
+
+        task = approval_manager.create(
+            tool_name="t", tool_label="创建报价单", tool_input={}, summary="s")
+        try:
+            task.detached = True
+            resp = client.post(f"/product-db/api/agent/approval/{task.task_id}",
+                               json={"approved": True}, headers=auth_headers)
+            assert resp.status_code == 409
+            assert "已失效" in resp.json()["detail"]
+            assert task.result is None, "被拒的决策不该写进任务"
+        finally:
+            approval_manager._tasks.pop(task.task_id, None)
 
     def test_stale_tasks_are_evicted(self):
         """没人处理的任务由 create() 兜底回收，队列不会只增不减"""

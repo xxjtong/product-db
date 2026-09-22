@@ -68,9 +68,14 @@
               </div>
               <div class="agent-msg-text" v-html="renderMd(m.content as string)" />
             </template>
-            <div v-if="m._approval?.status === 'pending'" class="agent-approval-btns">
-              <button class="btn-primary btn-sm" @click="approveDecision(m, true)" :disabled="streaming">授权执行</button>
-              <button class="btn-danger btn-sm" @click="approveDecision(m, false)" :disabled="streaming">拒绝</button>
+            <div v-if="m._approval?.status === 'pending'">
+              <div class="agent-approval-btns">
+                <button class="btn-primary btn-sm" @click="approveDecision(m, true)" :disabled="streaming || m._approval.stale">授权执行</button>
+                <button class="btn-danger btn-sm" @click="approveDecision(m, false)" :disabled="streaming || m._approval.stale">拒绝</button>
+              </div>
+              <div v-if="m._approval.stale" class="agent-approval-stale">
+                连接已中断，该审批已失效（点了也送不出去）—— 请重新发起任务
+              </div>
             </div>
             <div v-else-if="m._approval?.status === 'approved'" class="agent-approval-done approved">已授权</div>
             <div v-else-if="m._approval?.status === 'rejected'" class="agent-approval-done rejected">已拒绝</div>
@@ -178,7 +183,8 @@ interface Message {
   tokens?: string
   fileUrls?: { name: string; url: string }[]
   steps?: ToolStep[]   // 本轮 agent 执行过的工具（R63：来自 hermes.tool.progress）
-  _approval?: { task_id: string; tool_name: string; status: 'pending' | 'approved' | 'rejected' }
+  // stale：连接已断，这张审批卡再也送不出去了（R64 起置灰，不再假装点了就生效）
+  _approval?: { task_id: string; tool_name: string; status: 'pending' | 'approved' | 'rejected'; stale?: boolean }
 }
 
 interface ChatMeta {
@@ -215,6 +221,8 @@ const msgContainer = ref<HTMLElement | null>(null)
 const messages = ref<Message[]>([])
 const streamText = ref('')
 const streaming = ref(false)
+// 本轮流式请求的 id：跟 X-Stream-Id 一起发给后端，用户点「停止」时用它回传"是主动停的"
+const activeStreamId = ref('')
 // 本轮已执行的工具步骤（Hermes 的 hermes.tool.progress，经后端规范化）
 const toolSteps = ref<ToolStep[]>([])
 const streamStepsEl = ref<HTMLElement | null>(null)
@@ -439,7 +447,12 @@ async function approveDecision(m: Message, approved: boolean) {
     })
     // 401 走统一处理；其余失败不能装作审批成功（此前无条件置 approved，R55）
     if (handleUnauthorized(res) || !res.ok) {
-      showToast('审批提交失败，请刷新后重试', 'error')
+      let detail = ''
+      try { detail = (await res.json())?.detail || '' } catch { /* 非 JSON 响应 */ }
+      // 409 = 这次审批已失效（发起它的对话断了）：后端明确拒绝，界面也置灰，
+      // 别再显示「已授权」而实际什么都没发生（R64）
+      if (res.status === 409) m._approval.stale = true
+      showToast(detail || '审批提交失败，请刷新后重试', 'error')
       return
     }
     m._approval.status = approved ? 'approved' : 'rejected'
@@ -510,6 +523,7 @@ async function send(question?: string) {
   streamText.value = ''
   streaming.value = true
   toolSteps.value = []
+  activeStreamId.value = newStreamId()
   abortCtrl = new AbortController()
   let fullContent = ''
   let tokenUsage = { prompt: 0, completion: 0, total: 0 }
@@ -520,6 +534,8 @@ async function send(question?: string) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        // 后端用它把「用户主动停止」和「网络断了」分开记账
+        'X-Stream-Id': activeStreamId.value,
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({
@@ -605,15 +621,21 @@ async function send(question?: string) {
     }
   } catch (e: any) {
     if (e.name === 'AbortError') {
-      if (fullContent) {
-        messages.value.push({ role: 'assistant', content: fullContent + '\n\n*[已停止]*', steps: stepsOf() })
-      }
+      // 有内容就保留并标注；一个字都没来也要给个交代 —— 否则气泡直接消失，
+      // 用户不知道是停了还是坏了（0 内容的空回复曾在 R58 排查过一轮）
+      messages.value.push({
+        role: 'assistant',
+        content: fullContent ? fullContent + '\n\n*[已停止]*' : '*[已停止]*',
+        steps: stepsOf(),
+      })
     } else {
       messages.value.push({
         role: 'assistant',
         content: `**请求失败**: ${e.message || '请检查 Hermes 服务是否运行'}`,
       })
     }
+    // 连接已断，还挂着的审批卡再点也送不出去 → 置灰（R64）
+    markPendingApprovalsStale()
     saveMessages()
     streamText.value = ''
     streaming.value = false
@@ -640,11 +662,41 @@ async function send(question?: string) {
   void fetchQuickReplies()
 }
 
-function stopStreaming() {
+async function stopStreaming() {
+  // 先告诉后端「是用户主动停的」，再断开。
+  // 断开本身已经能让 Hermes 中断这一轮（它的 chat/completions SSE 一断就 hard interrupt），
+  // 这个带外信号只是让后端能区分「用户停止」和「网络抖动」，记账口径才不糊。
+  const sid = activeStreamId.value
+  if (sid) {
+    try {
+      const token = localStorage.getItem('token')
+      await fetch('/product-db/api/agent/stop', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ stream_id: sid }),
+      })
+    } catch { /* 通知不出去也必须能停 */ }
+  }
   abortCtrl?.abort()
 }
 
 // ── Helpers ────────────────────────────────────────────
+/** 每条流一个 id（老浏览器没有 randomUUID 就退回时间戳+随机） */
+function newStreamId(): string {
+  const c = window.crypto as Crypto | undefined
+  return c?.randomUUID ? c.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+/** 连接一断，pending 的审批卡就再也送不出去了：置灰，别再让用户以为点了会生效 */
+function markPendingApprovalsStale() {
+  for (const m of messages.value) {
+    if (m._approval?.status === 'pending') m._approval.stale = true
+  }
+}
+
 /** 给消息带上本轮工具步骤；没有就不带（避免 localStorage 里存空数组） */
 function stepsOf(): ToolStep[] | undefined {
   return toolSteps.value.length ? [...toolSteps.value] : undefined
@@ -988,6 +1040,12 @@ watch(() => toolSteps.value.length, () => nextTick(scrollStepsToEnd))
 }
 .agent-approval-done.approved { color: var(--color-success); }
 .agent-approval-done.rejected { color: var(--color-danger); }
+/* 审批已失效（发起它的连接断了）：置灰说明，别让用户以为点了会生效 */
+.agent-approval-stale {
+  padding: 6px 14px 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
 .agent-msg-meta {
   font-size: 11px;
   color: var(--color-text-secondary);
