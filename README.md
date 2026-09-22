@@ -38,7 +38,7 @@ npx vite --host 0.0.0.0 --port 5173
 cd backend && venv/bin/python -m pytest tests/ -v
 
 # Frontend
-cd frontend && npx vitest run                     # 91 组件测试
+cd frontend && npx vitest run                     # 98 组件测试
 cd frontend && npx vue-tsc --noEmit               # 类型检查
 
 # E2E (需要先启动前后端服务)
@@ -80,7 +80,7 @@ product-db/
 │   ├── src/
 │   │   ├── components/          # 通用组件 (14 个, 含 GenUI 2 个)
 │   │   └── views/               # 页面视图 (16 个)
-│   ├── src/__tests__/           # vitest 前端测试 (91 用例)
+│   ├── src/__tests__/           # vitest 前端测试 (98 用例)
 │   └── e2e/                     # Playwright E2E (6 个 spec 套件)
 ├── deploy/                      # systemd 单元 + 备份/健康检查/日报脚本
 ├── docker-compose.yml           # 仅本地可选
