@@ -1,6 +1,7 @@
 """Round 4: ai.py conversations/context, agent upload/proxy, bom_templates, products AI fetch."""
 import pytest
 import os
+import asyncio
 import tempfile
 import json
 import io
@@ -926,3 +927,95 @@ class TestAgentHermesProxy:
         }, headers=auth_headers)
         assert resp.status_code == 200
         assert "error" in resp.text.lower() or "500" in resp.text
+
+
+# ============================================================
+# Agent: 快捷答复（追问建议）—— R58
+# ============================================================
+_SUGGEST_URL = "/product-db/api/agent/suggestions"
+_SUGGEST_BODY = {
+    "messages": [
+        {"role": "user", "content": "找几款 LoRaWAN 网关"},
+        {"role": "assistant", "content": "找到 3 款：A / B / C"},
+    ]
+}
+
+
+class TestAgentQuickReplies:
+    """模型生成追问按钮。要点：解析要能容忍模型乱加格式，任何失败都只回空数组。"""
+
+    @pytest.mark.parametrize("raw,expected", [
+        ('["列出相关产品","生成报价单"]', ["列出相关产品", "生成报价单"]),
+        ('```json\n["对比这几款网关"]\n```', ["对比这几款网关"]),
+        ('好的，建议如下：["导出 Excel","继续分析"] 希望有帮助', ["导出 Excel", "继续分析"]),
+        ('没有任何数组', []),
+        ('[不是合法 JSON', []),
+        ('{"a": 1}', []),
+        ('', []),
+    ])
+    def test_parse_suggestions(self, raw, expected):
+        from app.routers.agent import _parse_suggestions
+        assert _parse_suggestions(raw) == expected
+
+    def test_parse_suggestions_limits_and_junk(self):
+        from app.routers.agent import _parse_suggestions
+        assert _parse_suggestions(json.dumps(["一", "二", "三", "四"])) == ["一", "二", "三"]
+        assert _parse_suggestions(json.dumps(["x" * 40])) == []      # 过长丢掉
+        assert _parse_suggestions(json.dumps(["  ", "有内容"])) == ["有内容"]
+        assert _parse_suggestions(json.dumps({"not": "list"})) == []
+
+    @patch("app.routers.agent.engine")
+    def test_generates_up_to_three(self, mock_engine, auth_headers):
+        mock_engine.api_key = "test-key"
+        mock_engine.chat = AsyncMock(return_value={
+            "model": "deepseek-chat",
+            "choices": [{"message": {"content": '["列出相关产品","生成报价单","导出 Excel"]'}}],
+            "usage": {"prompt_tokens": 30, "completion_tokens": 12},
+        })
+
+        resp = client.post(_SUGGEST_URL, json=_SUGGEST_BODY, headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["suggestions"] == ["列出相关产品", "生成报价单", "导出 Excel"]
+
+        # 走的是本项目自己的 DeepSeek 引擎（Hermes 每次要带 15.8k 系统提示词，太贵）
+        msgs = mock_engine.chat.call_args[0][0]
+        assert msgs[0]["role"] == "system"
+        assert msgs[1:] == _SUGGEST_BODY["messages"]
+        assert mock_engine.chat.call_args[1]["max_tokens"] == 200
+
+    @patch("app.routers.agent.engine")
+    def test_llm_error_returns_empty(self, mock_engine, auth_headers):
+        mock_engine.api_key = "test-key"
+        mock_engine.chat = AsyncMock(side_effect=RuntimeError("502 from upstream"))
+
+        resp = client.post(_SUGGEST_URL, json=_SUGGEST_BODY, headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["suggestions"] == []
+
+    @patch("app.routers.agent.engine")
+    def test_timeout_returns_empty(self, mock_engine, auth_headers, monkeypatch):
+        """超时不能让用户干等，也不能冒泡成 500"""
+        from app.routers import agent as agent_mod
+        monkeypatch.setattr(agent_mod, "_SUGGESTION_TIMEOUT", 0.05)
+
+        async def slow(*args, **kwargs):
+            await asyncio.sleep(5)
+        mock_engine.api_key = "test-key"
+        mock_engine.chat = slow
+
+        resp = client.post(_SUGGEST_URL, json=_SUGGEST_BODY, headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["suggestions"] == []
+
+    def test_no_api_key_returns_empty(self, auth_headers, monkeypatch):
+        """没配 AI_GATEWAY_KEY 时静默跳过（ai_key 是只读 property，改缓存位）"""
+        from app.routers import agent as agent_mod
+        monkeypatch.setattr(agent_mod.engine, "_cached_key", "")
+        resp = client.post(_SUGGEST_URL, json=_SUGGEST_BODY, headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["suggestions"] == []
+
+    def test_empty_messages_returns_empty(self, auth_headers):
+        resp = client.post(_SUGGEST_URL, json={"messages": []}, headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["suggestions"] == []

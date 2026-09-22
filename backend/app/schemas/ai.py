@@ -18,3 +18,8 @@ class AgentChatRequest(BaseModel):
     messages: list  # forwarded to Hermes; flexible shape
     stream: bool = True
     model: str = "hermes-agent"
+
+
+class AgentSuggestionsRequest(BaseModel):
+    """最近几轮对话，用于生成快捷追问按钮。"""
+    messages: list  # [{role, content}, ...]；content 可以是字符串或多模态数组

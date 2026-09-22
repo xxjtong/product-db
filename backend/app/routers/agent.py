@@ -6,8 +6,10 @@ OpenAI-compatible SSE response.  Auth via JWT (same as all other API routes).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 
@@ -18,11 +20,12 @@ from fastapi.responses import StreamingResponse
 from app.auth import get_current_user, require_admin
 from app.config import settings, DB_FILESYSTEM_PATH
 from app.models.ai_usage_log import AIUsageLog
-from app.schemas.ai import AgentChatRequest, AgentApprovalRequest
+from app.schemas.ai import AgentChatRequest, AgentApprovalRequest, AgentSuggestionsRequest
 from app.utils.escape import escape_like, LIKE_ESCAPE
 from app.database import get_db
 from app.services.storage import save_file, UPLOAD_DIR, read_limited, detect_upload_extension
 from app.services.approval_manager import approval_manager
+from app.services.ai_engine import engine, DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -418,14 +421,14 @@ async def _call_hermes(client, model: str, messages: list, stream: bool = True, 
 
 
 def _log_agent_usage(user_id: int, model: str, tokens_in: int, tokens_out: int,
-                     duration_ms: int, success: bool = True):
+                     duration_ms: int, success: bool = True, operation: str = "agent_chat"):
     """Persist agent token usage to ai_usage_logs via a fresh DB session."""
     try:
         from app.database import SessionLocal
         sdb = SessionLocal()
         try:
             sdb.add(AIUsageLog(
-                user_id=user_id, operation="agent_chat", model=model,
+                user_id=user_id, operation=operation, model=model,
                 tokens_in=tokens_in, tokens_out=tokens_out,
                 duration_ms=duration_ms, success=success,
             ))
@@ -533,3 +536,104 @@ async def agent_chat(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# --- 快捷答复（追问建议）----------------------------------
+# 主对话结束后，前端再发一次小请求拿 3 条追问按钮。刻意与 /agent/chat 分开：
+# 主流程是 SSE 透传（不能插入额外事件），而且这个请求失败也不能影响对话。
+#
+# 用本项目自己的 DeepSeek 引擎，**不要走 Hermes**：Hermes 每次会带上它自己的 agent
+# 系统提示词（实测 prompt_tokens 15.8k），为了 3 个按钮把整轮成本翻倍不划算；
+# DeepSeek 直连同样内容只要几百 token，也快得多。
+
+_SUGGESTION_MAX_TURNS = 6      # 只回看最近几轮，长对话不整个塞进去
+_SUGGESTION_MAX_CHARS = 800    # 单条消息截断，防止把长文档回复再喂一遍
+_SUGGESTION_TIMEOUT = 20.0     # 只是出几个按钮，不能让用户干等
+
+_SUGGESTION_PROMPT = (
+    "根据下面的对话，预测用户接下来最可能问的 3 件事，用来做「快捷答复」按钮。\n"
+    "要求：每条不超过 20 个字；站在用户口吻（问句或指令）；不要重复已经问过的内容；不要解释。\n"
+    '只输出 JSON 数组，不要代码块、不要任何多余文字。'
+    '例如：["列出相关产品","生成报价单","导出 Excel"]'
+)
+
+
+def _parse_suggestions(text: str) -> list[str]:
+    """从模型回复里抠出 JSON 数组。
+
+    模型经常多余地加解释或 ```json 包裹，所以只认第一段 [...]；解析不出来就当没有建议，
+    绝不把原文透给用户（历史教训：标记泄露会直接显示在气泡里）。
+    """
+    match = re.search(r"\[.*\]", text or "", re.S)
+    if not match:
+        return []
+    try:
+        items = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(items, list):
+        return []
+    out: list[str] = []
+    for item in items:
+        s = str(item).strip().strip('"').replace("\n", " ")
+        if s and len(s) <= 30:
+            out.append(s)
+    return out[:3]
+
+
+@router.post("/agent/suggestions")
+async def agent_suggestions(data: AgentSuggestionsRequest, user=Depends(get_current_user)):
+    """基于最近对话生成 3 条快捷追问；任何异常都返回空数组。
+
+    这是锦上添花的功能：模型不可用、超时、返回垃圾格式，都不该让用户看到报错，
+    更不该影响主对话，所以这里不抛异常。
+    """
+    if not data.messages or not isinstance(data.messages, list):
+        return {"suggestions": []}
+
+    history = []
+    for m in data.messages[-_SUGGESTION_MAX_TURNS:]:
+        if not isinstance(m, dict):
+            continue
+        role = m.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        content = m.get("content")
+        if isinstance(content, list):   # 多模态：只取文本部分
+            content = " ".join(
+                p.get("text", "") for p in content
+                if isinstance(p, dict) and p.get("type") == "text"
+            )
+        text = str(content or "").strip()[:_SUGGESTION_MAX_CHARS]
+        if text:
+            history.append({"role": role, "content": text})
+    if not history:
+        return {"suggestions": []}
+
+    if not engine.api_key:
+        logger.info("agent_suggestions: 未配置 AI_GATEWAY_KEY，跳过生成")
+        return {"suggestions": []}
+
+    start = time.time()
+    try:
+        body = await asyncio.wait_for(
+            engine.chat(
+                [{"role": "system", "content": _SUGGESTION_PROMPT}, *history],
+                temperature=0.4, max_tokens=200,
+            ),
+            timeout=_SUGGESTION_TIMEOUT,
+        )
+        text = (body.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+        usage = body.get("usage") or {}
+        # 这次调用的 token 也要记账，否则用量统计口径对不上
+        _log_agent_usage(
+            user.id, body.get("model") or DEFAULT_MODEL,
+            usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0),
+            int((time.time() - start) * 1000), operation="agent_suggestions",
+        )
+        suggestions = _parse_suggestions(text)
+        logger.info("agent_suggestions: 生成 %d 条", len(suggestions))
+        return {"suggestions": suggestions}
+    except Exception as e:
+        logger.warning("agent_suggestions 失败（不影响主对话）: %s", e)
+        return {"suggestions": []}

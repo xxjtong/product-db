@@ -35,7 +35,7 @@
           <h2>Hermes Agent</h2>
           <p>全能 AI 助手 — 搜索产品、设计方案、分析数据、辅助开发</p>
           <div class="agent-suggestions">
-            <button v-for="q in suggestions" :key="q" class="btn-secondary" @click="send(q)">{{ q }}</button>
+            <button v-for="q in starterPrompts" :key="q" class="btn-secondary" @click="send(q)">{{ q }}</button>
           </div>
         </div>
 
@@ -81,6 +81,11 @@
               <span class="ai-cursor">▊</span>
             </div>
           </div>
+        </div>
+
+        <!-- 快捷答复：模型基于本轮对话生成的追问，只挂在最新一条回复下 -->
+        <div v-if="!streaming && quickReplies.length" class="agent-quick-replies">
+          <button v-for="(q, qi) in quickReplies" :key="qi" class="btn-secondary btn-sm" @click="send(q)">{{ q }}</button>
         </div>
       </div>
     </div>
@@ -175,7 +180,8 @@ const AGENT_API = '/product-db/api/agent/chat'
 // System prompt loaded from backend /agent/prompt (admin-editable)
 const agentPrompt = ref('')
 
-const suggestions = [
+// 空对话时的起手式（静态）；对话中的「快捷答复」由模型生成，见 quickReplies
+const starterPrompts = [
   '推荐一款支持LoRaWAN的温湿度传感器',
   '列出所有5G工业路由器',
   '设计一套智慧农业环境监测方案',
@@ -202,6 +208,45 @@ const previewImage = ref('')  // full-size image preview modal
 const chats = ref<ChatMeta[]>([])
 const activeChatId = ref<string | null>(null)
 let abortCtrl: AbortController | null = null
+
+// ── 快捷答复（追问建议）────────────────────────────────
+// 主回复结束后另起一次小请求，让模型基于本轮对话生成 3 条追问。
+// 纯锦上添花：请求失败/超时/返回空都只是不显示按钮，不打扰用户。
+const quickReplies = ref<string[]>([])
+let quickCtrl: AbortController | null = null
+let quickSeq = 0
+
+function clearQuickReplies() {
+  quickSeq++           // 让在途请求的结果作废
+  quickCtrl?.abort()
+  quickCtrl = null
+  quickReplies.value = []
+}
+
+async function fetchQuickReplies() {
+  const seq = ++quickSeq
+  quickCtrl?.abort()
+  quickCtrl = new AbortController()
+  try {
+    const token = localStorage.getItem('token')
+    const res = await fetch('/product-db/api/agent/suggestions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        messages: messages.value.map(m => ({ role: m.role, content: m.content })),
+      }),
+      signal: quickCtrl.signal,
+    })
+    if (!res.ok) return
+    const data = await res.json()
+    if (seq !== quickSeq) return   // 期间又发了新消息或切了会话 → 丢弃
+    quickReplies.value = Array.isArray(data.suggestions) ? data.suggestions.slice(0, 3) : []
+    scrollDown()
+  } catch { /* 静默 */ }
+}
 
 // ── localStorage persistence ───────────────────────────
 // STORAGE_PREFIX replaced by storagePrefix() — includes user ID for isolation
@@ -254,6 +299,7 @@ function newChat() {
   activeChatId.value = null
   messages.value = []
   streamText.value = ''
+  clearQuickReplies()
   showHistory.value = false
   nextTick(() => inputEl.value?.focus())
 }
@@ -262,6 +308,7 @@ function loadChat(id: string) {
   activeChatId.value = id
   messages.value = loadMessages(id)
   streamText.value = ''
+  clearQuickReplies()
   showHistory.value = false
   scrollDown()
 }
@@ -381,6 +428,7 @@ async function send(question?: string) {
   const q = question || input.value.trim()
   if (!q || streaming.value) return
   input.value = ''
+  clearQuickReplies()
 
   ensureChat(q.slice(0, 30))
 
@@ -557,6 +605,8 @@ async function send(question?: string) {
   bumpChat()
   scrollDown()
   nextTick(() => inputEl.value?.focus())
+  // 出按钮不阻塞对话：审批中断/出错/主动停止都走不到这里，也就不会生成
+  void fetchQuickReplies()
 }
 
 function stopStreaming() {
@@ -719,6 +769,18 @@ watch(streaming, (val) => {
   gap: 8px;
   justify-content: center;
   max-width: 600px;
+}
+
+/* 快捷答复：跟在最新一条回复下方，左对齐、与消息区分开 */
+.agent-quick-replies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  padding-left: 44px;   /* 与 assistant 气泡文字左缘对齐：头像 32px + gap 12px */
+}
+.agent-quick-replies button {
+  font-size: 12px;
 }
 
 /* Message */
