@@ -570,15 +570,17 @@ python3 ~/.hermes/scripts/pdb_daily_report.py --date 2026-09-16  # 指定某天
 
 ```
 /opt/product-db-backups/
-├── db/        自动快照 product_db.db.bak.YYYYmmdd_HHMMSS
-│              受保留策略管理：只留最新 14 份（脚本用 -maxdepth 1，不递归子目录）
-├── uploads/   上传文件镜像（129M / 937 文件，由手动命令维护）
-└── manual/    手工/历史归档，**不受保留策略影响**（清理时不会被动）
-               · app-log-archive-YYYYMMDD.tar.gz — 旧日志归档
-               · product_db.db.bak.<日期>_<说明> — 里程碑快照，如 pre_r27 / pre_ouchuang
+├── db/                   自动快照 product_db.db.bak.YYYYmmdd_HHMMSS
+│                         受保留策略管理：只留最新 14 份（脚本用 -maxdepth 1，不递归子目录）
+├── uploads-snapshots/    uploads 目录的每日快照 YYYYmmdd_HHMMSS/（同样保留 14 份）
+│                         每份都是**完整镜像**，未变文件靠 --link-dest 硬链接共享
+├── uploads/              早期的手动 --delete 镜像（**保留但不再更新**，见文末说明）
+└── manual/               手工/历史归档，**不受保留策略影响**（清理时不会被动）
+                          · app-log-archive-YYYYMMDD.tar.gz — 旧日志归档
+                          · product_db.db.bak.<日期>_<说明> — 里程碑快照，如 pre_r27 / pre_r71
 ```
 
-> 归类规则：**自动产物进 `db/`，值得长期留存的进 `manual/`**。`manual/` 里的文件不会被备份脚本的保留策略删除。
+> 归类规则：**自动产物进 `db/` / `uploads-snapshots/`，值得长期留存的进 `manual/`**。`manual/` 里的文件不会被备份脚本的保留策略删除。
 
 ### 一次性初始化（需要 sudo，只做一次）
 
@@ -598,8 +600,14 @@ ssh -p 28793 tong@124.221.178.161 \
 | 脚本 | `/opt/product-db/deploy/backup-db.sh`（随 git 下发，可版本化审阅） |
 | unit | `~/.config/systemd/user/product-db-backup.{service,timer}`（源在 `deploy/systemd/`） |
 | 调度 | `OnCalendar=03:30`，`Persistent=true`（宕机/重启后补跑） |
-| 保留 | 最新 14 份快照（约 34M） |
-| 每轮校验 | `PRAGMA integrity_check` + 行数哨兵（products / users / ai_conversations），任一不过即非 0 退出且不留残缺文件 |
+| 内容 | ① 数据库一致性快照 ② **uploads 目录的硬链接增量快照** |
+| 保留 | 各自最新 14 份（db 约 34M；uploads 基础约 130M + 每日变化量） |
+| 每轮校验 | db 走 `PRAGMA integrity_check` + 行数哨兵（products / users / ai_conversations），任一不过即非 0 退出且不留残缺文件 |
+
+> **uploads 为什么用「每日快照 + 硬链接」而不是单一 `--delete` 镜像**：镜像只有一份最新状态，
+> 源里被删掉的文件在备份里也没了 —— 误删之后无从恢复（2026-06 的 21 个产品文档误删正是这种情形）。
+> 快照方式下每份都是完整镜像，`--link-dest` 让未变文件以硬链接共享，几乎不额外占空间。
+> uploads 里的文件是 UUID 命名、写完不改的，硬链接不会被「原地改写」破坏。
 
 ```bash
 # 查看下次执行时间
@@ -627,18 +635,37 @@ ssh -p 28793 tong@124.221.178.161 \
 > ⚠️ 生产库是 **SQLite WAL 模式**，直接 `cp` 只能拿到主库文件，会丢掉 WAL 中尚未合并的数据（2026-08 曾因此拿到不一致副本；实测 WAL 达 3.1MB，比主库本身还大）。**必须**用 SQLite 在线快照 `.backup`：
 
 ```bash
-# 一致性快照（含 WAL 内容）
+# 推荐：直接跑备份脚本 —— db 快照 + uploads 快照一次做完，带校验与保留策略
+ssh -p 28793 tong@124.221.178.161 '/opt/product-db/deploy/backup-db.sh'
+
+# 或经 systemd 跑（结果会记进 systemd 日志，便于 `status` 复查）
+ssh -p 28793 tong@124.221.178.161 'systemctl --user start product-db-backup.service'
+
+# 只单独做一份库快照（不走脚本）
 ssh -p 28793 tong@124.221.178.161 \
   'sqlite3 /opt/product-db/backend/product_db.db ".backup /opt/product-db-backups/db/product_db.db.bak.$(date +%Y%m%d_%H%M%S)"'
-
-# 上传文件增量镜像
-ssh -p 28793 tong@124.221.178.161 \
-  'rsync -a --delete /opt/product-db/backend/app/uploads/ /opt/product-db-backups/uploads/'
 ```
 
 > 2026-09 之前本节写的备份路径是 `/opt/product-db-backups/`，但**从未跑通过**：该目录不存在，且 `/opt` 属 `root:root`、`tong` 无写权限。已由上面的「一次性初始化」修正。
 
-恢复：将备份库放回 `/opt/product-db/backend/product_db.db`（或 `VACUUM INTO` 反向），uploads 用 rsync 还原，然后 `sudo systemctl restart product-db`。
+**恢复**：
+
+```bash
+# 库：把选定的快照放回去（先停服，避免写到一半被覆盖）
+ssh -p 28793 tong@124.221.178.161 \
+  'sudo systemctl stop product-db && \
+   cp /opt/product-db-backups/db/product_db.db.bak.<时间戳> /opt/product-db/backend/product_db.db && \
+   rm -f /opt/product-db/backend/product_db.db-wal /opt/product-db/backend/product_db.db-shm && \
+   sudo systemctl start product-db'
+
+# uploads：从某一天的快照整体还原（快照是完整镜像，可直接 rsync 回去）
+ssh -p 28793 tong@124.221.178.161 \
+  'rsync -a --delete /opt/product-db-backups/uploads-snapshots/<时间戳>/ /opt/product-db/backend/app/uploads/'
+
+# 只找回被误删的个别文件
+ssh -p 28793 tong@124.221.178.161 \
+  'cp /opt/product-db-backups/uploads-snapshots/<时间戳>/<文件名> /opt/product-db/backend/app/uploads/'
+```
 
 ## ⚠️ 不要随意清理 uploads
 
@@ -646,4 +673,7 @@ ssh -p 28793 tong@124.221.178.161 \
 
 **自动备份**：`deploy/systemd/product-db-backup.timer` 每日 03:30（用户级，`Linger=yes`）执行 `deploy/backup-db.sh`，产物进 `/opt/product-db-backups/db/`，保留 14 份。
 > 本节 2026-09-17 之前写的是「当前无自动备份，建议部署 cron/systemd timer」——**已过时**：timer 早已落地，且实测 2026-09-17 03:30:57 无人值守跑过（`systemctl --user show product-db-backup.service -p Result` → `success`，产出 `product_db.db.bak.20260917_033057`）。
-> **uploads 仍只在手动命令里镜像**（`db/` 的自动快照不含上传文件）。
+> **uploads 自 2026-09-22 起已纳入每日自动备份**：`backup-db.sh` 在 db 快照之后追加一份
+> uploads 硬链接快照（`uploads-snapshots/<时间戳>/`，同样保留 14 份）。
+> 旧的 `/opt/product-db-backups/uploads/` 手动 `--delete` 镜像**保留但不再更新** ——
+> 它只有一份最新状态，源里删掉的文件在镜像里也没了，等于没有历史可回。
