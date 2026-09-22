@@ -16,6 +16,9 @@ from app.models.ai_models import AIConversation, AIMessage
 from app.models.ai_usage_log import AIUsageLog
 from app.models.system_setting import SystemSetting
 from app.services.ai_engine import engine, DEFAULT_MODEL
+# 提示词默认值集中在 admin_routes._PROMPT_DEFAULTS（后台可编辑那份的唯一来源）。
+# 以前这里各写一份兜底字符串，结果和默认值漂移（且都没有业务范围围栏）。
+from app.routers.admin_routes import _PROMPT_DEFAULTS
 from app.services.ai_tools import TOOL_DEFINITIONS, execute_tool
 from app.services.product_helpers import product_eager_loads
 from app.schemas.ai import AiChatRequest
@@ -76,7 +79,7 @@ def build_context(db: Session) -> str:
             f"  {cat_name}: " + ", ".join(f"{k}({v})" for k, v in specs)
         )
 
-    sys_prompt = _get_ai_setting(db, "ai_system_prompt", "你是产品数据库AI助手，帮助用户查询产品、推荐方案。用中文简洁回答。")
+    sys_prompt = _get_ai_setting(db, "ai_system_prompt", _PROMPT_DEFAULTS["ai_system_prompt"])
     result = sys_prompt + f"""
 
 当前数据库状态:
@@ -473,6 +476,7 @@ async def run_agent(messages: list, db: Session, conv_id: int, user_id: int = No
 
         kw_model = _get_ai_setting(db, "ai_keyword_model", "deepseek-chat")
         kw_prompt = _get_ai_setting(db, "ai_keyword_prompt",
+            "【范围】只解析 IoT/设施管理产品相关的查询；与产品无关的输入（闲聊、写作、通用问题）一律返回空结果 keywords=[]、matches={}，不要联想扩展。\n"
             "你是一个产品数据库搜索助手。完成两个任务：\n"
             "1. 提取搜索关键词（最多4个）\n"
             "2. 从产品列表中为每个关键词匹配最合适的产品（返回产品ID）\n\n"

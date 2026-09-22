@@ -21,7 +21,6 @@ from app.auth import get_current_user, require_admin
 from app.config import settings, DB_FILESYSTEM_PATH
 from app.models.ai_usage_log import AIUsageLog
 from app.schemas.ai import AgentChatRequest, AgentApprovalRequest, AgentSuggestionsRequest
-from app.utils.escape import escape_like, LIKE_ESCAPE
 from app.database import get_db
 from app.services.storage import save_file, UPLOAD_DIR, read_limited, detect_upload_extension
 from app.services.approval_manager import approval_manager
@@ -34,7 +33,11 @@ router = APIRouter()
 HERMES_CHAT_URL = f"{settings.HERMES_API_URL.rstrip('/')}/v1/chat/completions"
 HERMES_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
 
-_AGENT_PROMPT_DEFAULT = "你是 pdb，产品数据库系统的 AI 助手。"
+_AGENT_PROMPT_DEFAULT = (
+    "你是 PDB，产品数据库系统的 AI 助手。"
+    "只处理产品数据库（PDB）相关业务；与业务无关的请求（闲聊、写作、翻译、通用知识、"
+    "与 PDB 无关的编程/运维任务）一律礼貌拒绝，一句话说明你只能协助 PDB 业务并给出可做的业务示例，不要展开。"
+)
 
 ALLOWED_UPLOAD_TYPES = {
     "image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif", "image/bmp",
@@ -320,69 +323,6 @@ AGENT_TOOLS = [
     },
 ]
 
-_WRITE_TOOLS = {"create_quotation", "create_solution"}
-
-
-async def _execute_tool(tool_name: str, tool_args: dict, user_id: int) -> dict:
-    """Execute a read-only tool against the product database. Returns result dict."""
-    from app.database import SessionLocal
-    from app.models.product import Product
-    from app.models.dictionary import Manufacturer, DictCommMethod
-    from sqlalchemy import or_
-    from sqlalchemy.orm import joinedload
-
-    db = SessionLocal()
-    try:
-        if tool_name == "search_products":
-            q = db.query(Product).options(joinedload(Product.manufacturer), joinedload(Product.category))
-            keyword = tool_args.get("keyword", "").strip()
-            if keyword:
-                like = f"%{escape_like(keyword)}%"
-                q = q.filter(or_(
-                    Product.name.ilike(like, escape=LIKE_ESCAPE),
-                    Product.model.ilike(like, escape=LIKE_ESCAPE),
-                    Product.description.ilike(like, escape=LIKE_ESCAPE),
-                ))
-            if tool_args.get("category_id"):
-                q = q.filter(Product.category_id == tool_args["category_id"])
-            if tool_args.get("manufacturer_name"):
-                mfgs = db.query(Manufacturer.id).filter(Manufacturer.name.ilike(f"%{escape_like(tool_args['manufacturer_name'])}%", escape=LIKE_ESCAPE)).all()
-                q = q.filter(Product.manufacturer_id.in_([m[0] for m in mfgs]))
-            if tool_args.get("min_price") is not None:
-                q = q.filter(Product.base_price >= tool_args["min_price"])
-            if tool_args.get("max_price") is not None:
-                q = q.filter(Product.base_price <= tool_args["max_price"])
-            if tool_args.get("comm_method_id"):
-                q = q.filter(Product.comm_methods.any(method_id=tool_args["comm_method_id"]))
-            products = q.limit(20).all()
-            return {
-                "total": len(products),
-                "items": [{"id": p.id, "name": p.name, "model": p.model or "", "base_price": p.base_price, "description": (p.description or "")[:200], "manufacturer": p.manufacturer.name if p.manufacturer else "", "category": p.category.name if p.category else ""} for p in products],
-            }
-
-        elif tool_name == "get_product_detail":
-            p = db.query(Product).options(
-                joinedload(Product.manufacturer), joinedload(Product.category), joinedload(Product.comm_methods)
-            ).filter_by(id=tool_args["product_id"]).first()
-            if p:
-                method_ids = [m.method_id for m in p.comm_methods]
-                method_map: dict[int, str] = {}
-                if method_ids:
-                    method_map = {m.id: m.name for m in db.query(DictCommMethod).filter(DictCommMethod.id.in_(method_ids)).all()}
-                return {
-                    "id": p.id, "name": p.name, "model": p.model,
-                    "base_price": p.base_price, "description": p.description, "specs": p.specs,
-                    "comm_methods": [
-                        {"method_id": m.method_id, "method_name": method_map.get(m.method_id, "")}
-                        for m in p.comm_methods
-                    ],
-                }
-            return {"error": "Product not found"}
-
-        return {"error": f"Unknown tool: {tool_name}"}
-    finally:
-        db.close()
-
 
 async def _call_hermes(client, model: str, messages: list, stream: bool = True, tools: list | None = None):
     """Single pass: call Hermes and stream text lines back (SSE format)."""
@@ -472,10 +412,14 @@ async def agent_chat(
     data: AgentChatRequest,
     user=Depends(get_current_user),
 ):
-    """Proxy a chat request to Hermes, intercepting write-op tool calls for approval.
+    """把对话原样转发给 Hermes，并把它的 SSE 流原样回传。
 
-    Returns: SSE text/event-stream from Hermes /v1/chat/completions,
-             with approval_required events injected for write-op tool calls.
+    ⚠️ 这里**不是**审批/工具执行的边界：
+    - `messages`（含 system）由客户端拼好后发上来，服务端不加任何 system —— 想改行为
+      必须改 `AgentView.vue` 或做服务端注入，改提示词不算数（R59 结论）
+    - `AGENT_TOOLS` 只是"声明"给模型，product-db **不执行**工具；写操作靠 prompt 里
+      "先预览让用户确认"的软约束 + Hermes 自身权限，没有服务端拦截
+    - 唯一会注入 `approval_required` 的路径是下面那段 `"测试审批"` 自测钩子
     """
     messages = data.messages
     if not messages or not isinstance(messages, list):

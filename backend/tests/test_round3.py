@@ -514,68 +514,6 @@ class TestAIChatWithLLM:
 
 
 # ============================================================
-# Agent _execute_tool (49% → ~65%)
-# ============================================================
-class TestAgentExecuteTool:
-    def test_execute_search_products(self, db):
-        from app.routers.agent import _execute_tool
-        cat = _seed_category(db)
-        _seed_product(db, name="Agent网关", category_id=cat.id)
-
-        import asyncio
-        result = asyncio.run(
-            _execute_tool("search_products", {"keyword": "网关"}, user_id=1)
-        )
-        assert "items" in result
-        assert result["total"] >= 1
-
-    def test_execute_get_product_detail(self, db):
-        from app.routers.agent import _execute_tool
-        cat = _seed_category(db)
-        p = _seed_product(db, name="Detail产品", category_id=cat.id)
-
-        import asyncio
-        result = asyncio.run(
-            _execute_tool("get_product_detail", {"product_id": p.id}, user_id=1)
-        )
-        assert result["name"] == "Detail产品"
-
-    def test_execute_get_product_not_found(self, db):
-        from app.routers.agent import _execute_tool
-        import asyncio
-        result = asyncio.run(
-            _execute_tool("get_product_detail", {"product_id": 99999}, user_id=1)
-        )
-        assert "error" in result
-
-    def test_execute_unknown_tool(self, db):
-        from app.routers.agent import _execute_tool
-        import asyncio
-        result = asyncio.run(
-            _execute_tool("nonexistent", {}, user_id=1)
-        )
-        assert "error" in result
-
-    def test_execute_search_with_filters(self, db):
-        from app.routers.agent import _execute_tool
-        cat = _seed_category(db)
-        mfg = Manufacturer(name="TestBrand")
-        db.add(mfg)
-        db.commit()
-        db.refresh(mfg)
-        _seed_product(db, name="Branded", category_id=cat.id, manufacturer_id=mfg.id, base_price=500)
-
-        import asyncio
-        result = asyncio.run(
-            _execute_tool("search_products", {
-                "keyword": "Branded", "manufacturer_name": "TestBrand",
-                "min_price": 100, "max_price": 1000
-            }, user_id=1)
-        )
-        assert result["total"] >= 1
-
-
-# ============================================================
 # Approval Manager async (73% → ~90%)
 # ============================================================
 class TestApprovalManagerAsync:

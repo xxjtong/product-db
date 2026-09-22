@@ -42,9 +42,10 @@ def build_extraction_prompt(db: Session) -> str:
     metrics = db.query(DictSensorMetric).all()
     metric_names = [f"{m.name}({m.unit})" for m in metrics]
 
-    # Read custom instruction from DB, fall back to default
+    # 从库里读自定义指令；读不到就用共享默认值（含业务范围围栏）
     from app.models.system_setting import SystemSetting
-    instruction = "你是物联网产品信息提取助手。根据网页内容提取产品结构化信息或者下方的产品规格文本，提取所有可用信息，输出为严格 JSON 格式。"
+    from app.routers.admin_routes import _PROMPT_DEFAULTS
+    instruction = _PROMPT_DEFAULTS["ai_extract_prompt"]
     try:
         s = db.query(SystemSetting).filter_by(key="ai_extract_prompt").first()
         if s and s.value: instruction = s.value
