@@ -2,7 +2,40 @@
 
 IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-system 的新项目，不限品类。
 
-## 最新变更 (2026-09-22, R60)
+## 最新变更 (2026-09-22, R61)
+
+### R61: 修 Agent 页上传文件重复 chip（R60 验证时发现的遗留）(2026-09-22)
+
+**现象**：一次上传会出现**两个一模一样**的文件 chip，用户消息里也跟着出现两份文件路径。
+
+**根因**（都在 `useFileDrop.addFile`）：
+1. `push` 写在 `FileReader.onload` 里（**异步**）→ 读取期间若同一文件被触发两次
+   （`change` 与 `drop` 各来一次、连点两次上传按钮），两次都会 push —— 去重检查那时还看不到前一条
+2. `onFileSelect` 没清空 `input.value` → 再次选中**同一个文件**不触发 `change`，
+   用户会以为"上传坏了"
+3. 读取完成前点 chip 的 ✕ 会静默失效（数组里还没有那一项）
+
+**改法**：
+- 同一文件（`name::size` 为 key）只挂一次；**先同步入列**再用 `reactive` 对象异步填内容，
+  彻底消除异步窗口（二进制分支不再特判）
+- `onFileSelect` 读完清空 `input.value`
+- 抽出 `isTextFile()`
+
+**验证**：
+- 新增 `frontend/src/__tests__/useFileDrop.test.ts` **13 条**（去重 / change+drop 同时触发 /
+  读取期间重复添加 / 再选同一文件 / 文本与图片内容填充 / `onFileAdded` 只回调一次 / 移除与清空）
+- **红→绿**：`git stash` 回退旧实现跑这套测试是 **9 failed**，改完全绿 —— 确认测的是真 bug
+- 线上复测（同一套自动化动作，上次出 2 个 chip）：第一次上传 **1 个**、等待 3 秒仍 1 个、
+  再传同一文件仍 **1 个**（JS 探测到 `input.value===''` 且 `files.length===0`，证明 change 确实
+  再次触发、是去重生效而非事件没来）、传不同文件变 **2 个**、console 干净
+- frontend **91 passed**（78 → 91），vue-tsc 0 errors；本次只改前端，rsync dist 即可，无需重启后端
+
+> **遗留提示（自动化，不是用户问题）**：附件 `<input type="file">` 是 `display:none`、
+> 外层 `<label>` 又无可访问角色，浏览器工具拿不到 ref。本次是靠**临时**把它改成离屏可见
+> 才完成上传验证（已还原）。以后若要用 Playwright 覆盖上传，先给 input 加 `aria-label`
+> 或换成 `sr-only` 隐藏方式。
+
+## 历史变更 (2026-09-22, R60)
 
 ### R60: Agent 的 system 改为服务端注入（方案 B）—— 让 R59 的围栏真正生效 (2026-09-22)
 
@@ -1977,7 +2010,7 @@ E2E 新增 17 测试 (`error-scenarios.spec.ts`):
 | XSS | DOMPurify (所有 v-html 已清洗) |
 | SSRF | validate_url() + 手动重定向验证 |
 | Logging | loguru (structured + rotation) |
-| Testing | pytest 527 collected（526 passed + 1 skipped）+ vitest 78 tests + Playwright 96 tests |
+| Testing | pytest 527 collected（526 passed + 1 skipped）+ vitest 91 tests + Playwright 96 tests |
 | Deployment | systemd + nginx + rsync（`deploy/` 下备份/探针/就绪门控脚本；`docker-compose.yml` 是早期实验、**非生产路径**） |
 
 ## 开发命令
