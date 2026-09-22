@@ -381,6 +381,9 @@ def _tool_progress_payload(raw: str) -> str:
 
     Hermes 自己的事件名前端不认识，而且 label 可能很长（整条 curl 命令），
     所以在这里一次性转成 `{"type": "tool_progress", ...}` 并截断。
+
+    实测同一次工具调用会发两条事件，其中一条只带 `tool` 名、没有 label ——
+    那种没有可读文本的返回空串，由调用方丢弃（否则 UI 上会挂一个光秃秃的图标）。
     """
     try:
         data = json.loads(raw)
@@ -388,7 +391,9 @@ def _tool_progress_payload(raw: str) -> str:
         data = {}
     if not isinstance(data, dict):
         data = {}
-    label = _redact_secrets(str(data.get("label") or ""))[:160]
+    label = _redact_secrets(str(data.get("label") or "")).strip()[:160]
+    if not label:
+        return ""
     return json.dumps(
         {
             "type": "tool_progress",
@@ -404,7 +409,7 @@ async def _relay_hermes_sse(resp):
     """把 Hermes 的 SSE 行转发给前端。
 
     只在中间做一件事：把 `event: hermes.tool.progress` 转成前端认识的
-    `data: {"type":"tool_progress",…}`（顺带脱敏）；其余行原样透传 ——
+    `data: {"type":"tool_progress",…}`（顺带脱敏、丢掉无可读文本的）；其余行原样透传 ——
     前端本来就会忽略 `event:` 行。
     """
     pending_event = None
@@ -414,7 +419,9 @@ async def _relay_hermes_sse(resp):
             yield line + "\n"
             continue
         if pending_event == "hermes.tool.progress" and line.startswith("data: "):
-            yield "data: " + _tool_progress_payload(line[6:]) + "\n"
+            payload = _tool_progress_payload(line[6:])
+            if payload:
+                yield "data: " + payload + "\n"
             pending_event = None
             continue
         if line.strip():

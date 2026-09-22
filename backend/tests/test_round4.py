@@ -1026,14 +1026,19 @@ class TestAgentToolProgress:
         assert _json.loads(_tool_progress_payload(raw))["label"] == "ssh -p 28793 tong@x 'docker -p8080:80 nginx'"
 
     def test_tool_progress_payload_handles_garbage(self):
+        """垃圾输入 / 无可读文本 → 返回空串（调用方丢弃，别在 UI 上挂空图标）"""
+        from app.routers.agent import _tool_progress_payload
+
+        for raw in ("", "not json", "[1,2]", "null", '{"tool":"terminal"}', '{"label":"   "}'):
+            assert _tool_progress_payload(raw) == ""
+
+    def test_progress_without_label_is_not_forwarded(self):
+        """实测同一次工具调用会多发一条只带 tool 名的事件 —— 不该送到前端"""
         from app.routers.agent import _tool_progress_payload
         import json as _json
 
-        for raw in ("", "not json", "[1,2]", "null"):
-            payload = _json.loads(_tool_progress_payload(raw))
-            assert payload["type"] == "tool_progress"
-            assert payload["emoji"] == "🛠"          # 缺字段时的兜底
-            assert payload["label"] == ""
+        assert _tool_progress_payload(_json.dumps({"tool": "terminal"})) == ""
+        assert _tool_progress_payload(_json.dumps({"tool": "terminal", "label": "ls -la"})) != ""
 
     def test_tool_progress_label_is_truncated(self):
         from app.routers.agent import _tool_progress_payload
