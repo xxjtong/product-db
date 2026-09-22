@@ -177,8 +177,7 @@ function storagePrefix() {
 // ── Constants ──────────────────────────────────────────
 const AGENT_API = '/product-db/api/agent/chat'
 
-// System prompt loaded from backend /agent/prompt (admin-editable)
-const agentPrompt = ref('')
+// System prompt 由服务端注入（R60），前端不再拉取/拼装它
 
 // 空对话时的起手式（静态）；对话中的「快捷答复」由模型生成，见 quickReplies
 const starterPrompts = [
@@ -197,8 +196,7 @@ const messages = ref<Message[]>([])
 const streamText = ref('')
 const streaming = ref(false)
 const showHistory = ref(false)
-const dbPath = ref('/opt/product-db/backend/product_db.db')  // loaded from /api/agent/config
-const apiBase = ref('http://127.0.0.1:8000/product-db/api')    // loaded from /api/agent/config
+// 仅用于把上传文件的绝对路径写进用户消息；system 提示词由服务端注入（R60）
 const uploadDir = ref('')   // loaded from /api/agent/config
 
 const { attachedFiles, dragOver, onFileSelect, onDrop, onPaste, removeFile, clearFiles } = useFileDrop()
@@ -455,9 +453,19 @@ async function send(question?: string) {
     }
   }
 
-  let userContent: string | any[] = q
+  // 上传的文件路径写进用户消息（R60 起 system 由服务端注入，前端不再碰它）
+  let fileNote = ''
+  if (fileUrls.length) {
+    const parts = fileUrls.map(fu => fu.url
+      ? `${fu.name}: ${uploadDir.value || 'UPLOAD_DIR'}/${fu.url.split('/').pop()}`
+      : `${fu.name}（上传失败）`)
+    fileNote = '\n\n【本次上传的文件】\n' + parts.join('\n')
+  }
+
+  const userText = q + fileNote
+  let userContent: string | any[] = userText
   if (files.length) {
-    userContent = [{ type: 'text', text: q }]
+    userContent = [{ type: 'text', text: userText }]
     for (const f of files) {
       if (f.type.startsWith('image/')) {
         if (f.dataUrl) userContent.push({ type: 'image_url', image_url: { url: f.dataUrl } })
@@ -469,26 +477,9 @@ async function send(question?: string) {
   saveMessages()
   scrollDown()
 
-  // Build file context for system prompt
-  let fileCtx = ''
-  if (fileUrls.length) {
-    const parts = fileUrls.filter(fu => fu.url).map(fu => {
-      const uuid = fu.url.split('/').pop()
-      return `${fu.name}: ${uploadDir.value || 'UPLOAD_DIR'}/${uuid}`
-    })
-    if (parts.length) fileCtx = '\n\n用户已上传文件:\n' + parts.join('\n')
-  }
-
-  let systemPrompt = (agentPrompt.value || '你是 pdb，产品数据库 AI 助手。')
-    .replace(/\{\{DB_PATH\}\}/g, dbPath.value)
-    .replace(/\{\{API_BASE\}\}/g, apiBase.value)
-    .replace(/\{\{TOKEN\}\}/g, localStorage.getItem('token') || '')
-    .replace(/\{\{UPLOAD_DIR\}\}/g, uploadDir.value)
-  if (fileCtx) systemPrompt += fileCtx
-  const apiMessages: { role: string; content: string | any[] }[] = [
-    { role: 'system', content: systemPrompt },
-    ...messages.value.map(m => ({ role: m.role, content: m.content })),
-  ]
+  // 只发正常对话轮次：system（含占位符替换）与 model 都由服务端决定
+  const apiMessages: { role: string; content: string | any[] }[] =
+    messages.value.map(m => ({ role: m.role, content: m.content }))
 
   streamText.value = ''
   streaming.value = true
@@ -626,7 +617,7 @@ function scrollDown() {
 onMounted(async () => {
   cleanupOldChats()
   chats.value = loadChats()
-  // Load DB path from backend config
+  // 取上传目录（用于把文件绝对路径写进用户消息）
   try {
     const token = localStorage.getItem('token')
     const res = await fetch('/product-db/api/agent/config', {
@@ -634,17 +625,7 @@ onMounted(async () => {
     })
     if (res.ok) {
       const data = await res.json()
-      if (data.db_path) dbPath.value = data.db_path
-      if (data.api_base) apiBase.value = data.api_base
       if (data.upload_dir) uploadDir.value = data.upload_dir
-    }
-    // Load Hermes system prompt from backend
-    const promptRes = await fetch('/product-db/api/agent/prompt', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-    if (promptRes.ok) {
-      const promptData = await promptRes.json()
-      if (promptData.prompt) agentPrompt.value = promptData.prompt
     }
   } catch { /* keep default */ }
 })

@@ -15,9 +15,9 @@ class AgentApprovalRequest(BaseModel):
 
 
 class AgentChatRequest(BaseModel):
-    messages: list  # forwarded to Hermes; flexible shape
+    # 只收正常对话轮次：system 由服务端注入、model 由服务端固定（R60），不从这里传
+    messages: list
     stream: bool = True
-    model: str = "hermes-agent"
 
 
 class AgentSuggestionsRequest(BaseModel):

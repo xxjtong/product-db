@@ -16,6 +16,7 @@ import uuid
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, require_admin
 from app.config import settings, DB_FILESYSTEM_PATH
@@ -32,6 +33,11 @@ router = APIRouter()
 
 HERMES_CHAT_URL = f"{settings.HERMES_API_URL.rstrip('/')}/v1/chat/completions"
 HERMES_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
+
+# 模型由服务端固定，不接受客户端指定（免得被路由到别的模型）
+_AGENT_MODEL = "hermes-agent"
+# 单次请求的对话轮数上限：超长上下文既贵又慢，让用户新开会话
+_MAX_AGENT_MESSAGES = 200
 
 _AGENT_PROMPT_DEFAULT = (
     "你是 PDB，产品数据库系统的 AI 助手。"
@@ -108,13 +114,41 @@ async def agent_cleanup_uploads(user=Depends(get_current_user), db=Depends(get_d
     return {"cleaned": cleaned}
 
 
+def _agent_api_base() -> str:
+    """Agent 回调产品库 API 的基址（Hermes 与后端同机，走 127.0.0.1）。"""
+    base = settings.AGENT_API_BASE or f"http://127.0.0.1:{8000 if settings.DEV_MODE else 8002}"
+    return f"{base}/product-db/api"
+
+
+def _bearer_token(request: Request) -> str:
+    """取调用方自己的 JWT —— Hermes 拿它去调产品库 API，权限跟当前用户一致。"""
+    auth = request.headers.get("authorization", "")
+    return auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+
+
+def _build_server_system_prompt(db, token: str) -> str:
+    """服务端拼装 Agent 的 system 提示词（R60）。
+
+    以前这份提示词由前端拼好发上来、后端原样转发：客户端能随意改写或清空它，
+    提示词里的业务范围围栏形同虚设。现在改为服务端从 system_settings 读、自己替换占位符，
+    客户端传来的 system 一律丢弃，`model` 也由服务端固定。
+    """
+    prompt = _get_agent_prompt(db)
+    return (
+        prompt
+        .replace("{{DB_PATH}}", DB_FILESYSTEM_PATH)
+        .replace("{{API_BASE}}", _agent_api_base())
+        .replace("{{TOKEN}}", token)
+        .replace("{{UPLOAD_DIR}}", str(UPLOAD_DIR.resolve()))
+    )
+
+
 @router.get("/agent/config")
 async def agent_config(user=Depends(get_current_user)):
     """Return agent configuration including database path, API base, and upload dir."""
-    api_base = settings.AGENT_API_BASE or f"http://127.0.0.1:{8000 if settings.DEV_MODE else 8002}"
     return {
         "db_path": DB_FILESYSTEM_PATH,
-        "api_base": f"{api_base}/product-db/api",
+        "api_base": _agent_api_base(),
         "upload_dir": str(UPLOAD_DIR.resolve()),
     }
 
@@ -410,23 +444,39 @@ async def _stream_with_usage(gen, user_id: int, model: str):
 @router.post("/agent/chat")
 async def agent_chat(
     data: AgentChatRequest,
+    request: Request,
     user=Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    """把对话原样转发给 Hermes，并把它的 SSE 流原样回传。
+    """把对话转发给 Hermes，并把它的 SSE 流原样回传。
 
-    ⚠️ 这里**不是**审批/工具执行的边界：
-    - `messages`（含 system）由客户端拼好后发上来，服务端不加任何 system —— 想改行为
-      必须改 `AgentView.vue` 或做服务端注入，改提示词不算数（R59 结论）
+    **system 由服务端接管（R60）**：客户端传来的 `system` 消息一律丢弃，改用
+    `system_settings.agent_prompt`（后台可编辑）由服务端替换占位符后注入；
+    `model` 也固定为服务端常量。这样提示词里的业务范围围栏才真正生效 ——
+    以前它由前端拼好发上来，客户端随手就能改写或清空。
+
+    这里仍**不是**审批/工具执行的边界：
     - `AGENT_TOOLS` 只是"声明"给模型，product-db **不执行**工具；写操作靠 prompt 里
       "先预览让用户确认"的软约束 + Hermes 自身权限，没有服务端拦截
     - 唯一会注入 `approval_required` 的路径是下面那段 `"测试审批"` 自测钩子
     """
-    messages = data.messages
-    if not messages or not isinstance(messages, list):
+    raw_messages = data.messages
+    if not raw_messages or not isinstance(raw_messages, list):
         raise HTTPException(status_code=400, detail="Missing or invalid 'messages' field")
 
+    # 丢掉客户端自带的所有 system（只保留正常对话轮次）
+    messages = [m for m in raw_messages if isinstance(m, dict) and m.get("role") != "system"]
+    if not messages:
+        raise HTTPException(status_code=400, detail="对话里没有任何 user/assistant 消息")
+    if len(messages) > _MAX_AGENT_MESSAGES:
+        raise HTTPException(status_code=400,
+                            detail=f"对话过长（{len(messages)} 条），请新开一个对话再继续")
+
+    system_prompt = _build_server_system_prompt(db, _bearer_token(request))
+    messages = [{"role": "system", "content": system_prompt}, *messages]
+
     stream = data.stream
-    model = data.model
+    model = _AGENT_MODEL
 
     # Test trigger: inject approval for "测试审批" before calling Hermes
     last_user_msg = ""
