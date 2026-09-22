@@ -47,7 +47,11 @@ def list_categories(
 
 @router.get("/categories/tree")
 def category_tree(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    cats = db.query(Category).order_by(Category.sort_order, Category.id).all()
+    # 可见域与 /categories 对齐：此前树不过归属过滤，非 admin 能在树里看到别人创建的
+    # 品类，列表接口却看不到 —— 产品列表的品类筛选器读的正是这棵树，同一个页面里
+    # 两套口径，用户会以为「筛选项里有、列表接口查不到」。
+    cats = filter_by_ownership(db.query(Category), Category, user)\
+        .order_by(Category.sort_order, Category.id).all()
     cat_dicts = [c.to_dict() for c in cats]
 
     def build_tree(parent_id=None, seen=None):
@@ -61,7 +65,20 @@ def category_tree(db: Session = Depends(get_db), user=Depends(get_current_user))
                 out.append({**c, "children": build_tree(c["id"], seen)})
         return out
 
-    return {"tree": build_tree(None)}
+    visible_ids = {c["id"] for c in cat_dicts}
+    seen: set = set()
+    tree = build_tree(None, seen)
+    # 裁剪可见域后可能出现「父不可见、子可见」：这些子节点接不上任何根，会连着整棵
+    # 子树一起消失。把**父不可见**的节点提升为根级，保证用户看得到自己可见的全部品类
+    # （与 list_categories 对孤儿子节点的兜底同口径）。父仍可见的节点不在这里处理 ——
+    # 它会被父的递归带进树，提前提升反而会打乱层级。
+    for c in cat_dicts:
+        parent_id = c["parent_id"]
+        if c["id"] in seen or (parent_id is not None and parent_id in visible_ids):
+            continue
+        seen.add(c["id"])
+        tree.append({**c, "children": build_tree(c["id"], seen)})
+    return {"tree": tree}
 
 
 @router.post("/categories", status_code=201)
