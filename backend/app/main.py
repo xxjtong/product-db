@@ -60,8 +60,13 @@ class _LoguruBridge(logging.Handler):
             level = logger.level(record.levelname).name
         except ValueError:
             level = record.levelno
-        frame, depth = logging.currentframe(), 2
-        while frame and frame.f_code.co_filename == logging.__file__:
+        # 起点必须用 `sys._getframe(1)`（emit 的调用者，两个版本都在 logging 内部），
+        # **不要**用官方配方里的 `logging.currentframe()`：它是个 lambda，3.9 里是
+        # `sys._getframe(3)`、3.11 里是 `sys._getframe(1)`，于是在 emit 里拿到的是
+        # 不同层级的帧 —— 3.11 上它返回的就是 emit 自己那一帧，循环一次都不走、
+        # depth 恒为 2，日志里的 {name}:{line} 全变成 `logging:1706`（线上实测）。
+        frame, depth = sys._getframe(1), 1
+        while frame is not None and frame.f_code.co_filename == logging.__file__:
             frame = frame.f_back
             depth += 1
         logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())

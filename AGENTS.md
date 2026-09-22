@@ -42,6 +42,13 @@ IoT 产品选型对比、规格书生成、方案设计系统。独立于 quote-
   **不经过 loguru** —— INFO 级默认不落盘、WARNING 级只进 journalctl（journalctl 实测查不到
   `agent_chat: proxying`、`ApprovalTask created`）。`main.py` 新增 `_LoguruBridge` 挂在 `app`
   父 logger 上，`app.*` 的日志从此进 `app.log`；uvicorn 访问日志不受影响（实测只转发了 `app.*` 两条）。
+  - **踩坑（上线后当场发现）**：桥接里算 loguru 的 `depth` **不能用官方配方里的
+    `logging.currentframe()`** —— 它是个 lambda，`logging/__init__.py` 里 3.9 写的是
+    `sys._getframe(3)`、3.11 写的是 `sys._getframe(1)`，于是在 `emit` 里拿到的是不同层级的帧。
+    3.11 上它返回的就是 `emit` 自己那一帧 → 循环一次都不走、`depth` 恒为 2 →
+    日志里的 `{name}:{line}` **全变成 `logging:1706`**（生产实测，本机 3.9 复现不出来）。
+    正解：起点用 `sys._getframe(1)`（`emit` 的调用者，两个版本都在 logging 内部）且起始 `depth=1`。
+    探针验证：同一段代码在 3.9 与 3.11 上都报出真实调用点 `__main__:47`。
 - **连接池复用**：agent 代理原先每个请求新建 `httpx.AsyncClient`，改为模块级复用，
   应用关闭时由 `main.py` 的 lifespan 释放。
 
